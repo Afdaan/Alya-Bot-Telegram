@@ -64,6 +64,6 @@ python main.py
 Distributed under the MIT License. See `LICENSE` for more information.
 
 ## Contact
-Your Name - [Your Email/Telegram]
+Afdaan - [alif@horn-yastudio.com]
 
 Project Link: [https://github.com/Afdaan/alya-bot-telegram](https://github.com/Afdaan/alya-bot-telegram)
