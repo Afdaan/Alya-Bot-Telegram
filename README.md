@@ -19,8 +19,8 @@ Alya is an intelligent Telegram bot powered by Google's Gemini AI, capable of ch
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/alya-bot.git
-cd alya-bot
+git clone https://github.com/yourusername/alya-bot-telegram.git
+cd alya-bot-telegram
 ```
 
 2. Create a virtual environment:
@@ -66,4 +66,4 @@ Distributed under the MIT License. See `LICENSE` for more information.
 ## Contact
 Your Name - [Your Email/Telegram]
 
-Project Link: [https://github.com/Afdaan/alya-bot](https://github.com/Afdaan/alya-bot)
+Project Link: [https://github.com/Afdaan/alya-bot-telegram](https://github.com/Afdaan/alya-bot-telegram)
