@@ -11,6 +11,7 @@ from handlers.command_handlers import start, help_command, mode_command, reset_c
 from handlers.message_handlers import handle_message
 from handlers.document_handlers import handle_document_image
 from handlers.callback_handlers import button_callback
+from handlers.ping_handlers import ping_command
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,9 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("mode", mode_command))
     application.add_handler(CommandHandler("reset", reset_command))
+    
+    # Add ping command
+    application.add_handler(CommandHandler("ping", ping_command))
     
     # Callback query handler
     application.add_handler(CallbackQueryHandler(button_callback))

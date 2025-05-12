@@ -8,6 +8,7 @@ import google.generativeai as genai
 
 from telegram import Update
 from telegram.ext import CallbackContext
+from config.settings import ANALYZE_PREFIX
 
 from core.models import chat_model
 from utils.formatters import format_markdown_response
@@ -20,20 +21,41 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
         message = update.message
         user = update.effective_user
         
-        # Get file from Telegram
-        if message.document:
-            file = await message.document.get_file()
-            file_ext = message.document.file_name.split('.')[-1].lower()
-            await message.reply_text(
-                f"*Alya\\-chan* akan membaca dokumen dari {user.first_name}\\-kun\\~ 📚✨\n"
-                "Tunggu sebentar ya sayang\\~",
-                parse_mode='MarkdownV2'
-            )
-        elif message.photo:
+        # Skip if no message
+        if not message:
+            return
+            
+        # For photos: must have caption with prefix, or be in direct message with photo only
+        if message.photo:
+            is_private = message.chat.type == "private"
+            has_valid_caption = message.caption and message.caption.startswith(ANALYZE_PREFIX)
+            
+            # Skip if not private chat and no valid caption
+            if not (is_private or has_valid_caption):
+                return
+                
+            # Get analysis instructions from caption if any
+            analysis_prompt = ""
+            if message.caption:
+                analysis_prompt = message.caption.replace(ANALYZE_PREFIX, "", 1).strip()
+                
             file = await message.photo[-1].get_file()
             file_ext = "jpg"
             await message.reply_text(
                 f"*Alya\\-chan* akan menganalisis gambar dari {user.first_name}\\-kun\\~ 🖼️✨\n"
+                "Tunggu sebentar ya sayang\\~",
+                parse_mode='MarkdownV2'
+            )
+            
+        # For documents: must have caption with prefix
+        elif message.document:
+            if not (message.caption and message.caption.startswith(ANALYZE_PREFIX)):
+                return
+                
+            file = await message.document.get_file()
+            file_ext = message.document.file_name.split('.')[-1].lower()
+            await message.reply_text(
+                f"*Alya\\-chan* akan membaca dokumen dari {user.first_name}\\-kun\\~ 📚✨\n"
                 "Tunggu sebentar ya sayang\\~",
                 parse_mode='MarkdownV2'
             )

@@ -15,6 +15,7 @@ STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")  # Optional
 
 # Chat prefix for group chats
 CHAT_PREFIX = "!ai"
+ANALYZE_PREFIX = "!trace"  # New prefix for document/image analysis
 
 # Model Configuration
 DEFAULT_MODEL = "gemini-2.0-flash"
@@ -35,3 +36,7 @@ SAFETY_SETTINGS = {
     "HARM_CATEGORY_HARASSMENT": "BLOCK_NONE",
     "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE"
 }
+
+# Chat Configuration
+MAX_HISTORY = 10  # Maximum number of messages to keep in history
+HISTORY_EXPIRE = 3600  # History expiration in seconds (1 hour)

@@ -6,3 +6,4 @@ Pillow==10.2.0
 textract==1.6.5
 PyPDF2==3.0.1
 python-docx==1.0.1
+psutil==5.9.8

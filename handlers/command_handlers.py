@@ -2,7 +2,7 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 
-from config.settings import CHAT_PREFIX
+from config.settings import CHAT_PREFIX, ANALYZE_PREFIX  # Add ANALYZE_PREFIX import
 from core.models import user_chats
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,9 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         "\\- Chat Private: _Langsung kirim pesan ke Alya\\-chan_\n"
         f"\\- Chat Grup: Gunakan `{CHAT_PREFIX}` \n"
         f"Contoh: `{CHAT_PREFIX} Bagaimana shio kuda tahun ini?`\n\n"
+        "*Analisis Dokumen/Gambar:*\n"
+        f"\\- Kirim dokumen/gambar dengan caption `{ANALYZE_PREFIX}`\n"
+        f"Contoh: `{ANALYZE_PREFIX} Tolong analisis gambar ini`\n\n"
         "_Yoroshiku onegaishimasu\\!_ ✨"
     )
     await update.message.reply_text(
