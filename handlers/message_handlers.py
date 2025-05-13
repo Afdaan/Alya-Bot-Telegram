@@ -21,13 +21,17 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         message_text = update.message.text
         chat_type = update.message.chat.type
         user = update.effective_user
-
-        # Detect mention in message (e.g. !ai @username ...)
+        
+        # Extract mentioned username for proper handling
+        mentioned_username = None
         telegram_mention = None
+        
         if update.message.entities:
             for entity in update.message.entities:
-                if entity.type == "mention":
-                    telegram_mention = update.message.text[entity.offset:entity.offset + entity.length]
+                if entity.type == "mention":  # This is a @username mention
+                    telegram_mention = message_text[entity.offset:entity.offset + entity.length]
+                    # Extract username without @ for potential use in message
+                    mentioned_username = telegram_mention[1:]  # Remove the @ symbol
                     break
 
         # Handle search command with "!search" prefix
@@ -86,11 +90,13 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             )
             return
 
-        # Format and send response, pass mention if available
+        # Format and send response, pass both first_name AND mentioned username when available
+        # This is key - we pass both to handle mentions correctly
         safe_response = format_markdown_response(
             response,
             username=user.first_name,
-            telegram_username=telegram_mention
+            telegram_username=telegram_mention,
+            mentioned_username=mentioned_username  # Add this parameter
         )
 
         if context.bot_data.get('debug_mode', False):
