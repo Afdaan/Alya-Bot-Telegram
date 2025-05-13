@@ -165,42 +165,28 @@ async def logs_command(update: Update, context: CallbackContext) -> None:
     """View recent error logs."""
     async def handler(update: Update, context: CallbackContext):
         try:
-            # Get log files
             log_files = glob.glob('*.log')
             if not log_files:
-                msg = "*📝 Log Files*\n" + "Tidak ada file log yang ditemukan!"
+                msg = "*📝 Log Files*\nTidak ada file log yang ditemukan!"
                 await update.message.reply_text(msg, parse_mode='MarkdownV2')
                 return
 
             found_errors = False
             for log_file in log_files:
                 try:
-                    # Read all lines
                     with open(log_file, 'r', encoding='utf-8') as f:
                         lines = f.readlines()
-                    
-                    # Filter only ERROR and WARNING logs
-                    error_logs = [line.strip() for line in lines 
-                                if 'ERROR' in line or 'WARNING' in line][-50:]
-                    
+                    error_logs = [line.strip() for line in lines if 'ERROR' in line or 'WARNING' in line][-50:]
                     if not error_logs:
                         continue
-                        
                     found_errors = True
-                    
-                    # Pre-format strings
                     safe_logfile = log_file.replace('.', '\\.').replace('-', '\\-')
                     log_content = '\n'.join(error_logs)
                     safe_content = log_content.replace('.', '\\.').replace('-', '\\-').replace('+', '\\+')
-                    
-                    # Handle chunks without f-strings
                     if len(safe_content) > 3500:
                         chunks = [safe_content[i:i+3500] for i in range(0, len(safe_content), 3500)]
                         for i, chunk in enumerate(chunks, 1):
-                            # Build message parts separately
-                            header = "*📝 Error Logs ({}) Part {}/{}:*\n".format(
-                                safe_logfile, i, len(chunks)
-                            )
+                            header = "*📝 Error Logs ({}) Part {}/{}:*\n".format(safe_logfile, i, len(chunks))
                             content = "```\n" + chunk + "```"
                             msg = header + content
                             await update.message.reply_text(
