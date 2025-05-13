@@ -4,6 +4,7 @@ import psutil
 import subprocess
 import json
 import shlex
+import glob
 from datetime import datetime
 from telegram import Update
 from telegram.ext import CallbackContext
@@ -155,6 +156,83 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
         except subprocess.CalledProcessError as e:
             await update.message.reply_text(
                 f"Command failed with error:\n```\n{e}```",
+                parse_mode='MarkdownV2'
+            )
+    
+    return await dev_command_wrapper(update, context, handler)
+
+async def logs_command(update: Update, context: CallbackContext) -> None:
+    """View recent error logs."""
+    async def handler(update: Update, context: CallbackContext):
+        try:
+            # Get log files
+            log_files = glob.glob('*.log')
+            if not log_files:
+                await update.message.reply_text(
+                    "*📝 Log Files*\n"
+                    "Tidak ada file log yang ditemukan\\!",
+                    parse_mode='MarkdownV2'
+                )
+                return
+
+            found_errors = False
+            for log_file in log_files:
+                try:
+                    # Read all lines
+                    with open(log_file, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                    
+                    # Filter only ERROR and WARNING logs
+                    error_logs = [
+                        line.strip() for line in lines 
+                        if 'ERROR' in line or 'WARNING' in line
+                    ][-50:]  # Get last 50 error logs
+                    
+                    if not error_logs:
+                        continue
+                        
+                    found_errors = True
+                    
+                    # Escape special characters for MarkdownV2
+                    formatted_logs = []
+                    for log in error_logs:
+                        escaped_log = log.replace('.', '\\.').replace('-', '\\-').replace('+', '\\+')
+                        formatted_logs.append(escaped_log)
+                    
+                    log_content = '\n'.join(formatted_logs)
+                    
+                    # Send in chunks if needed
+                    if len(log_content) > 3500:  # Reduced size for safety
+                        chunks = [log_content[i:i+3500] for i in range(0, len(log_content), 3500)]
+                        for i, chunk in enumerate(chunks, 1):
+                            await update.message.reply_text(
+                                f"*📝 Error Logs \\({log_file}\\) Part {i}/{len(chunks)}:*\n"
+                                f"```\n{chunk}```",
+                                parse_mode='MarkdownV2'
+                            )
+                    else:
+                        await update.message.reply_text(
+                            f"*📝 Error Logs \\({log_file}\\):*\n"
+                            f"```\n{log_content}```",
+                            parse_mode='MarkdownV2'
+                        )
+                
+                except Exception as e:
+                    logger.error(f"Error reading log file {log_file}: {e}")
+                    continue
+            
+            if not found_errors:
+                await update.message.reply_text(
+                    "*📝 Log Status*\n"
+                    "Tidak ada error yang ditemukan dalam log\\!",
+                    parse_mode='MarkdownV2'
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in logs command: {e}")
+            await update.message.reply_text(
+                f"*❌ Error saat membaca logs:*\n"
+                f"`{str(e).replace('.', '\\.').replace('-', '\\-')}`",
                 parse_mode='MarkdownV2'
             )
     

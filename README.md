@@ -39,17 +39,19 @@ pip install -r requirements.txt
 4. Configure environment:
 ```bash
 cp .env.example .env
-# Edit .env with your API keys
 ```
 
-Required API Keys:
-- `TELEGRAM_BOT_TOKEN` - Get from [@BotFather](https://t.me/botfather)
-- `GEMINI_API_KEY` - Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
-- `SAUCENAO_API_KEY` - Get from [SauceNAO](https://saucenao.com/user.php)
+Required API Keys in `.env`:
+```properties
+TELEGRAM_BOT_TOKEN=   # From @BotFather
+GEMINI_API_KEY=       # From Google AI Studio
+SAUCENAO_API_KEY=     # From SauceNAO
+DEVELOPER_IDS=        # Your Telegram User ID
+```
 
 ## Deployment
 
-### Regular Python
+### Running with Python
 ```bash
 python main.py
 ```
@@ -61,7 +63,7 @@ python main.py
 # Ctrl+B then D to detach
 ```
 
-To update bot:
+### How to Update
 ```bash
 tmux attach -t alya-bot
 # Ctrl+C to stop
@@ -69,10 +71,12 @@ git pull
 python main.py
 ```
 
+## Commands
+See [COMMANDS.md](COMMANDS.md) for complete list of available commands and usage examples.
+
 ## Developer Contact
 - Creator: Afdaan
-- Email: [alif@horn-yastudio.com]
-- Website: [alif.horn-yastudio.com]
+- Website: [alif.horn-yastudio.com](https://alif.horn-yastudio.com)
 
 ## License
 MIT License. See `LICENSE` for details.
