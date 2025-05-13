@@ -9,44 +9,38 @@ def format_markdown_response(text: str, username: str = None, telegram_username:
         if not isinstance(text, str):
             text = str(text)
         
-        # First, handle special keywords that should not be replaced
-        reserved_keywords = [
-            'search', 'carikan', 'find', 'cari', 'tolong', 'please',
-            'help', 'bantu', 'tanya', 'ask'
-        ]
-        
-        # Temporarily protect these words
-        for word in reserved_keywords:
-            text = text.replace(f"[{word}]", f"__PROTECTED__{word}__PROTECTED__")
-        
-        # Properly handle Telegram mentions - FIXED VERSION
+        # First protect the mention if it exists - this is the most important part
+        mention_placeholder = None
         if telegram_username and telegram_username.startswith('@'):
-            # Basic placeholder substitutions
-            patterns = [
+            mention_placeholder = "MENTION_PLACEHOLDER_TOKEN"
+            text = text.replace(telegram_username, mention_placeholder)
+        
+        # Replace username placeholders
+        if telegram_username:
+            # Replace all standard username patterns with the actual mention
+            username_patterns = [
                 r'\[username\]', r'\[user\]', r'\[nama\]',
                 r'\[username\]-kun', r'\[user\]-kun', r'\[nama\]-kun',
                 r'\[username\]-chan', r'\[user\]-chan', r'\[nama\]-chan',
             ]
             
-            # Replace all standard patterns with the telegram @username
-            for pattern in patterns:
+            for pattern in username_patterns:
                 text = re.sub(pattern, telegram_username, text, flags=re.IGNORECASE)
             
-            # If we have a specific mentioned username (without @)
+            # If we have a specific mentioned username, replace that too
             if mentioned_username:
-                # Also replace [Specific username] with @username
-                specific_pattern = f"\\[{re.escape(mentioned_username)}\\]"
-                text = re.sub(specific_pattern, telegram_username, text, flags=re.IGNORECASE)
+                pattern = f"\\[{re.escape(mentioned_username)}\\]"
+                text = re.sub(pattern, telegram_username, text, flags=re.IGNORECASE)
                 
-                # And [Specific username]-kun/chan forms
+                # Also handle [username]-kun/chan patterns
                 text = re.sub(f"\\[{re.escape(mentioned_username)}\\]-kun", telegram_username, text, flags=re.IGNORECASE)
                 text = re.sub(f"\\[{re.escape(mentioned_username)}\\]-chan", telegram_username, text, flags=re.IGNORECASE)
-            
-        # Regular username replacement (if no mentions or for remaining ones)
+                
         elif username:
+            # If no telegram mention but we have a regular username
             safe_username = username.replace('-', '\\-')
             
-            # Replace all variations of username placeholders
+            # Replace standard username patterns
             username_patterns = [
                 r'\[username\]', r'\[user\]', r'\[nama\]',
                 r'\[username\]-kun', r'\[user\]-kun', r'\[nama\]-kun',
@@ -55,19 +49,8 @@ def format_markdown_response(text: str, username: str = None, telegram_username:
             
             for pattern in username_patterns:
                 text = re.sub(pattern, safe_username, text, flags=re.IGNORECASE)
-        
-        # Restore protected keywords
-        for word in reserved_keywords:
-            text = text.replace(f"__PROTECTED__{word}__PROTECTED__", f"[{word}]")
 
-        # *** CRITICAL FIX: Protect mentions before escaping ***
-        if telegram_username:
-            # We need to handle @ mentions specially - temporarily replace with a unique token
-            # that won't be affected by escaping
-            mention_placeholder = "__REAL_MENTION_TOKEN__"
-            text = text.replace(telegram_username, mention_placeholder)
-        
-        # Escape special characters in correct order
+        # Escape special characters with explicit order
         escapes = [
             ('\\', '\\\\'),  # Must be first
             ('_', '\\_'),
@@ -91,11 +74,11 @@ def format_markdown_response(text: str, username: str = None, telegram_username:
         for char, escape in escapes:
             text = text.replace(char, escape)
         
-        # *** CRITICAL FIX: Restore the actual mention after escaping ***
-        if telegram_username:
+        # Restore the mention if needed
+        if telegram_username and mention_placeholder:
             text = text.replace(mention_placeholder, telegram_username)
 
-        # Fix common patterns for proper markdown
+        # Fix common patterns
         fixes = [
             (r'\\\*(.+?)\\\*', r'*\1*'),           # Bold
             (r'\\_(.+?)\\_', r'_\1_'),             # Italic
@@ -106,14 +89,16 @@ def format_markdown_response(text: str, username: str = None, telegram_username:
 
         for pattern, replacement in fixes:
             text = re.sub(pattern, replacement, text)
-
-        # *** FINAL CLEANUP: Fix any broken mention patterns that might remain ***
+            
+        # Final cleanup for any broken mention patterns
         if telegram_username:
-            # Replace any remaining broken patterns like _MENTION-xxx__-kun
-            text = re.sub(r'_MENTION[^_\s]+__-kun', telegram_username, text)
-            text = re.sub(r'_MENTION[^_\s]+__-chan', telegram_username, text)
-            text = re.sub(r'MENTION[^_\s]+__-kun', telegram_username, text)
-            text = re.sub(r'MENTION[^_\s]+__-chan', telegram_username, text)
+            broken_patterns = [
+                r'_MENTION[^_\s]*_', 
+                r'MENTION_PLACEHOLDER_TOKEN',
+                r'_REAL[^_\s]*_'
+            ]
+            for pattern in broken_patterns:
+                text = re.sub(pattern, telegram_username, text)
 
         return text
     except Exception as e:
