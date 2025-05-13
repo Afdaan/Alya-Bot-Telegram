@@ -3,7 +3,6 @@
 ## Basic Commands
 - `/start` - Start Alya-chan and show menu
 - `/help` - Show command help
-- `/mode` - Change chat/image mode
 - `/reset` - Clear chat history
 - `/ping` - Check bot status
 

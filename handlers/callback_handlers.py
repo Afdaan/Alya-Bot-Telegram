@@ -80,19 +80,6 @@ async def button_callback(update: Update, context: CallbackContext) -> None:
                 parse_mode='MarkdownV2',
                 disable_web_page_preview=False
             )
-            return
-
-        if query.data == 'chat':
-            context.user_data['mode'] = 'chat'
-            await query.edit_message_text(
-                text="Mode Chat aktif. Silakan kirim pesan Anda untuk berbicara dengan Gemini 2.0!"
-            )
-        elif query.data == 'image':
-            context.user_data['mode'] = 'image'
-            await query.edit_message_text(
-                text="Mode Generate Image aktif. Silakan kirim deskripsi gambar yang ingin Anda buat!"
-            )
-    
     except Exception as e:
         logger.error(f"Error in button callback: {e}")
         await query.edit_message_text(

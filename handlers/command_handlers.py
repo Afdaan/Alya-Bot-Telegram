@@ -1,5 +1,5 @@
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import CallbackContext
 
 from config.settings import (
@@ -14,24 +14,14 @@ logger = logging.getLogger(__name__)
 async def start(update: Update, context: CallbackContext) -> None:
     """Send a message when the command /start is issued."""
     user = update.effective_user
-    keyboard = [
-        [
-            InlineKeyboardButton("Chat dengan Alya 💬", callback_data='chat'),
-            InlineKeyboardButton("Buat Gambar 🎨", callback_data='image')
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
     welcome_message = (
         f"*Konnichiwa {user.first_name}\\-san\\!* 🌸\n\n"
-        "Alya\\-chan di sini\\~ Aku sangat senang bisa berbicara denganmu tentang shio\\!\n"
-        "_Apa yang ingin kamu ketahui hari ini?_\n\n"
-        "Pilih mode yang kamu inginkan:"
+        "Alya\\-chan di sini\\~ Aku sangat senang bisa berbicara denganmu\\!\n"
+        "_Bagaimana kabarmu hari ini?_ ✨"
     )
     
     await update.message.reply_text(
         welcome_message,
-        reply_markup=reply_markup,
         parse_mode='MarkdownV2'
     )
 
@@ -43,7 +33,6 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         "*Basic Commands:*\n"
         "`/start` \\- Mulai berbicara dengan Alya\\-chan\n"
         "`/help` \\- Bantuan dari Alya\\-chan\n"
-        "`/mode` \\- Ubah mode chat atau gambar\n"
         "`/reset` \\- Hapus history chat\n"
         "`/ping` \\- Cek status bot\n\n"
         
@@ -79,21 +68,6 @@ async def help_command(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text(
         help_text,
         parse_mode='MarkdownV2'
-    )
-
-async def mode_command(update: Update, context: CallbackContext) -> None:
-    """Change the bot mode."""
-    keyboard = [
-        [
-            InlineKeyboardButton("Chat Mode", callback_data='chat'),
-            InlineKeyboardButton("Image Generation", callback_data='image')
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        "Pilih mode yang ingin Anda gunakan:",
-        reply_markup=reply_markup
     )
 
 async def reset_command(update: Update, context: CallbackContext) -> None:

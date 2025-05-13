@@ -7,7 +7,7 @@ from telegram.ext import (
     Application
 )
 
-from handlers.command_handlers import start, help_command, mode_command, reset_command
+from handlers.command_handlers import start, help_command, reset_command
 from handlers.message_handlers import handle_message
 from handlers.document_handlers import handle_document_image
 from handlers.callback_handlers import button_callback
@@ -25,7 +25,6 @@ def setup_handlers(application: Application) -> None:
     # Command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("mode", mode_command))
     application.add_handler(CommandHandler("reset", reset_command))
     
     # Add ping command
