@@ -191,18 +191,21 @@ async def logs_command(update: Update, context: CallbackContext) -> None:
                         
                     found_errors = True
                     
-                    # Pre-format log content
+                    # Format filename and content without f-string escapes
                     safe_logfile = log_file.replace('.', '\\.').replace('-', '\\-')
                     log_content = '\n'.join(error_logs)
                     safe_content = log_content.replace('.', '\\.').replace('-', '\\-').replace('+', '\\+')
                     
-                    # Split and send content
+                    # Split into chunks
                     if len(safe_content) > 3500:
                         chunks = [safe_content[i:i+3500] for i in range(0, len(safe_content), 3500)]
                         for i, chunk in enumerate(chunks, 1):
+                            header = "*📝 Error Logs ({}) Part {}/{}:*\n".format(
+                                safe_logfile, i, len(chunks)
+                            )
+                            msg = header + "```\n" + chunk + "```"
                             await update.message.reply_text(
-                                f"*📝 Error Logs ({safe_logfile}) Part {i}/{len(chunks)}:*\n"
-                                f"```\n{chunk}```",
+                                msg,
                                 parse_mode='MarkdownV2'
                             )
                     else:
