@@ -58,3 +58,49 @@ def format_markdown_response(text: str, username: str = None) -> str:
     except Exception as e:
         logger.error(f"Error formatting markdown: {e}")
         return f"Error: {str(e)}".replace('-', '\\-').replace('!', '\\!')
+
+def split_long_message(text: str, max_length: int = 4000) -> list:
+    """Split a long message into multiple parts that fit within Telegram limits.
+    
+    Args:
+        text: The message text to split
+        max_length: Maximum length per message part
+        
+    Returns:
+        List of message parts
+    """
+    if len(text) <= max_length:
+        return [text]
+        
+    parts = []
+    
+    # Try to split on double newlines (paragraphs) when possible
+    paragraphs = text.split('\n\n')
+    current_part = ""
+    
+    for paragraph in paragraphs:
+        # If adding this paragraph would exceed max_length
+        if len(current_part) + len(paragraph) + 2 > max_length:
+            # If current_part is not empty, add it to parts
+            if current_part:
+                parts.append(current_part)
+                current_part = paragraph
+            else:
+                # If the paragraph itself is too long
+                if len(paragraph) > max_length:
+                    # Split the paragraph at max_length
+                    for i in range(0, len(paragraph), max_length):
+                        parts.append(paragraph[i:i+max_length])
+                else:
+                    current_part = paragraph
+        else:
+            if current_part:
+                current_part += "\n\n" + paragraph
+            else:
+                current_part = paragraph
+    
+    # Don't forget the last part
+    if current_part:
+        parts.append(current_part)
+        
+    return parts

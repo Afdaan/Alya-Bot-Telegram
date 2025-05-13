@@ -44,27 +44,25 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             
             # Get TMUX session
             tmux_session = "alya-bot"
-            
+            pip_output = "Dependencies updated successfully."
             # Restart command
             restart_cmd = f"""
             tmux send-keys -t {tmux_session} C-c
             sleep 2
             tmux send-keys -t {tmux_session} 'python main.py' Enter
             """
-            
             subprocess.run(restart_cmd, shell=True)
-            
             await msg.edit_text(
                 f"*Update Complete\\!*\n```\n{git_output}\n\nDependencies:\\n{pip_output}```\n_Restarting bot\\.\\.\\._ ✨",
                 parse_mode='MarkdownV2'
             )
-            
         except Exception as e:
+            git_output_safe = git_output.replace('```', '\\`\\`\\`')
+            error_msg = str(e).replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('`', '\\`')
             await msg.edit_text(
-                f"*Update Failed\\!*\n```\n{str(e)}```",
+                f"*Update Failed\\!*\n```\n{error_msg}```",
                 parse_mode='MarkdownV2'
             )
-    
     return await dev_command_wrapper(update, context, handler)
 
 # Monitoring Commands
@@ -85,9 +83,11 @@ async def stats_command(update: Update, context: CallbackContext) -> None:
                 'Commands': context.bot_data.get('command_count', 0)
             }
         }
+        # Convert to string with limited length
+        stats_json = json.dumps(stats, indent=2)[:2000]  # Limit to 2000 chars
         
         await update.message.reply_text(
-            f"*Bot Statistics*\n```\n{json.dumps(stats, indent=2)}```",
+            f"*Bot Statistics*\n```\n{stats_json}```",
             parse_mode='MarkdownV2'
         )
     
@@ -139,11 +139,10 @@ async def debug_command(update: Update, context: CallbackContext) -> None:
                 last_response, daily_messages,
                 "🟢 Debug Mode ON" if context.bot_data['debug_mode'] else "🔴 Debug Mode OFF"
             )
-            
             await update.message.reply_text(debug_text, parse_mode='MarkdownV2')
             
         except Exception as e:
-            error_msg = str(e).replace('.', '\\.').replace('-', '\\-')
+            error_msg = str(e).replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('`', '\\`')
             msg = "*❌ Error in debug:*\n`{}`".format(error_msg)
             await update.message.reply_text(msg, parse_mode='MarkdownV2')
     
@@ -161,14 +160,40 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
             return
         
         try:
-            output = subprocess.check_output(shlex.split(command)).decode()
-            await update.message.reply_text(
-                f"```\n{output}```",
-                parse_mode='MarkdownV2'
-            )
+            output = subprocess.check_output(shlex.split(command), stderr=subprocess.STDOUT).decode()
+            
+            # Import the split function
+            from utils.formatters import split_long_message
+            
+            # Split output if too long
+            if len(output) > 4000:
+                parts = split_long_message(output)
+                await update.message.reply_text(
+                    f"*Command Output* (split into {len(parts)} parts due to length):",
+                    parse_mode='MarkdownV2'
+                )
+                
+                for i, part in enumerate(parts):
+                    await update.message.reply_text(
+                        f"*Part {i+1}/{len(parts)}*\n```\n{part}```",
+                        parse_mode='MarkdownV2'
+                    )
+            else:
+                await update.message.reply_text(
+                    f"```\n{output}```",
+                    parse_mode='MarkdownV2'
+                )
+                
         except subprocess.CalledProcessError as e:
+            error_output = e.output.decode() if hasattr(e, 'output') else str(e)
+            # Truncate error if too long
+            error_output = error_output[:1000] + "..." if len(error_output) > 1000 else error_output
+            
+            # Escape markdown characters
+            error_output = error_output.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('`', '\\`')
+            
             await update.message.reply_text(
-                f"Command failed with error:\n```\n{e}```",
+                f"Command failed with error:\n```\n{error_output}```",
                 parse_mode='MarkdownV2'
             )
     
