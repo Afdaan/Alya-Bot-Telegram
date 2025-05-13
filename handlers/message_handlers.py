@@ -37,7 +37,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         is_roast, target, is_github, keywords, user_info = is_roast_command(update.message)
         
         # Generate response with persona context
-        response = generate_chat_response(
+        response = await generate_chat_response(
             message_text,
             user.id,
             context=context,

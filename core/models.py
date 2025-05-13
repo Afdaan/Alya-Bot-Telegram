@@ -5,6 +5,7 @@ import re
 import random
 from datetime import datetime
 from telegram.ext import CallbackContext  # Add this import
+from core.search_engine import SearchEngine
 
 from config.settings import (
     GEMINI_API_KEY, 
@@ -100,22 +101,67 @@ def get_developer_response(username: str) -> str:
     ]
     return random.choice(responses)
 
-def generate_chat_response(prompt: str, user_id: int, context: CallbackContext = None, persona_context: str = None) -> str:
-    """Generate response with optional debug info."""
+async def generate_chat_response(prompt: str, user_id: int, context: CallbackContext = None, persona_context: str = None) -> str:
+    """Generate enhanced response with search capability."""
     try:
         chat = chat_model.start_chat()
+        search_engine = SearchEngine()
         
-        if persona_context:
-            # Add persona context first
-            system_prompt = f"""
-            {persona_context}
+        # Enhanced keyword detection for search queries
+        search_keywords = [
+            'siapa', 'apa', 'dimana', 'kapan', 'bagaimana', 'mengapa', 'gimana', 'kenapa',
+            'jadwal', 'info', 'cara', 'lokasi', 'rute', 'harga', 'biaya', 'jam', 'waktu', 
+            'berapa', 'cari', 'tolong carikan', 'carikan', 'bantu', 'tolong cari'
+        ]
+        
+        # Enhanced topic detection for search queries
+        search_topics = [
+            'jadwal', 'kereta', 'krl', 'stasiun', 'pesawat', 'bus', 'film', 'bioskop',
+            'restoran', 'makanan', 'hotel', 'berita', 'cuaca', 'konser', 'event'
+        ]
+        
+        # Check if the prompt likely needs factual information
+        words = prompt.lower().split()
+        needs_search = any(keyword in prompt.lower() for keyword in search_keywords) or \
+                     any(topic in prompt.lower() for topic in search_topics)
+        
+        if needs_search:
+            # Get search results
+            search_results = await search_engine.search(prompt)
             
-            User: {prompt}
-            Assistant: """
+            # Enhanced prompt for better information synthesis
+            smart_prompt = f"""
+            {persona_context or ""}
             
-            response = chat.send_message(system_prompt).text
+            User's Question: {prompt}
+            
+            Search Results:
+            {search_results}
+            
+            Instructions for your response:
+            1. Start with a friendly greeting in your waifu persona style
+            2. Provide clear, accurate information from the search results
+            3. Structure the information in an easy-to-read format
+            4. Include relevant details like times, locations, and dates if available
+            5. If the information is incomplete, suggest where the user can get more details
+            6. End with a supportive, encouraging message
+            7. Use appropriate emoji to enhance your response
+            8. Make sure to maintain your character's personality
+            
+            Respond in a helpful, informative way while staying in character.
+            """
+            
+            response = chat.send_message(smart_prompt).text
         else:
-            response = chat.send_message(prompt).text
+            # Regular chat mode
+            chat_prompt = f"""
+            {persona_context or ""}
+            
+            User Message: {prompt}
+            
+            Please respond naturally and in character as Alya-chan.
+            """
+            response = chat.send_message(chat_prompt).text
 
         # Add to history
         chat_history = get_user_history(user_id)

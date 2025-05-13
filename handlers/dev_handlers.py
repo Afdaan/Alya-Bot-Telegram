@@ -39,6 +39,9 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             # Git pull without specifying branch
             git_output = subprocess.check_output(['git', 'pull']).decode()
             
+            # Install/update dependencies
+            pip_output = subprocess.check_output(['pip', 'install', '-r', 'requirements.txt']).decode()
+            
             # Get TMUX session
             tmux_session = "alya-bot"
             
@@ -52,7 +55,7 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             subprocess.run(restart_cmd, shell=True)
             
             await msg.edit_text(
-                f"*Update Complete\\!*\n```\n{git_output}```\n_Restarting bot\\.\\.\\._ ✨",
+                f"*Update Complete\\!*\n```\n{git_output}\n\nDependencies:\\n{pip_output}```\n_Restarting bot\\.\\.\\._ ✨",
                 parse_mode='MarkdownV2'
             )
             

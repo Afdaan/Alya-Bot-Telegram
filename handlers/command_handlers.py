@@ -8,8 +8,11 @@ from config.settings import (
     SAUCE_PREFIX
 )
 from core.models import user_chats
+from core.search_engine import SearchEngine
 
 logger = logging.getLogger(__name__)
+
+search_engine = SearchEngine()
 
 async def start(update: Update, context: CallbackContext) -> None:
     """Send a message when the command /start is issued."""
@@ -77,3 +80,23 @@ async def reset_command(update: Update, context: CallbackContext) -> None:
         del user_chats[user_id]
     
     await update.message.reply_text("History chat telah dihapus!")
+
+async def handle_search(update: Update, context: CallbackContext):
+    """Handle search requests"""
+    query = ' '.join(context.args)
+    
+    if not query:
+        await update.message.reply_text(
+            "Cara penggunaan:\n!search <kata kunci>\n\n"
+            "Contoh:\n!search jadwal KRL lempuyangan jogja"
+        )
+        return
+
+    # Check if detailed search is requested
+    detailed = any(flag in query.lower() for flag in ['-d', '--detail', 'detail'])
+    if detailed:
+        query = query.replace('-d', '').replace('--detail', '').replace('detail', '').strip()
+
+    await update.message.reply_text("🔍 Sedang mencari informasi...")
+    result = await search_engine.search(query, detailed=detailed)
+    await update.message.reply_text(result, parse_mode='HTML')

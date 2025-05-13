@@ -6,6 +6,10 @@ logger = logging.getLogger(__name__)
 def format_markdown_response(text: str, username: str = None) -> str:
     """Format response for MarkdownV2 with better escape."""
     try:
+        if not isinstance(text, str):
+            # Convert non-string responses to string
+            text = str(text)
+            
         # Handle username first if provided
         if username:
             # Escape dashes in username
@@ -53,4 +57,4 @@ def format_markdown_response(text: str, username: str = None) -> str:
         return text
     except Exception as e:
         logger.error(f"Error formatting markdown: {e}")
-        return text.replace('-', '\\-').replace('!', '\\!')
+        return f"Error: {str(e)}".replace('-', '\\-').replace('!', '\\!')

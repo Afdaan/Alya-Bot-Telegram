@@ -69,6 +69,12 @@ Restricted to authorized developers:
 
 Example webhook flow:
 
+## Search Commands
+### Web Search
+- `!search <query>` - Cari informasi di internet
+- `!search -d <query>` - Cari informasi detail
+- Example: `!search jadwal KRL lempuyangan jogja`
+
 ## Usage Examples
 ```bash
 # Regular chat
