@@ -130,9 +130,9 @@ async def debug_command(update: Update, context: CallbackContext) -> None:
         except Exception as e:
             error_msg = str(e).replace('.', '\\.').replace('-', '\\-')
             await update.message.reply_text(
-                f"*❌ Debug Error:*\n`{error_msg}`",
+                f"*❌ Error saat membaca logs:*\n`{error_msg}`",
                 parse_mode='MarkdownV2'
-            )
+             )   
     
     return await dev_command_wrapper(update, context, handler)
 
