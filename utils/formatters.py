@@ -15,41 +15,52 @@ def format_markdown_response(text: str, username: str = None, telegram_username:
             # Telegram mention for MarkdownV2: [username](tg://user?id=USER_ID) is not supported for @username, so just use @username
             safe_mention = telegram_username
 
-        # If mention, replace [username] and all variants with @username (not [username]-kun, but @username)
-        if safe_mention:
-            # Replace all [username], [user], [nama], and their -kun/-chan variants with @username
-            text = re.sub(r'\[username\](\-kun|\-chan)?', safe_mention, text, flags=re.IGNORECASE)
-            text = re.sub(r'\[user\](\-kun|\-chan)?', safe_mention, text, flags=re.IGNORECASE)
-            text = re.sub(r'\[nama\](\-kun|\-chan)?', safe_mention, text, flags=re.IGNORECASE)
-            text = re.sub(r'\[username\]', safe_mention, text, flags=re.IGNORECASE)
-            text = re.sub(r'\[user\]', safe_mention, text, flags=re.IGNORECASE)
-            text = re.sub(r'\[nama\]', safe_mention, text, flags=re.IGNORECASE)
-            text = re.sub(r'(\{usertele\}|\[mention\])', safe_mention, text, flags=re.IGNORECASE)
-            # Also replace [username]-kun, [username]-chan, etc. with @username
-            text = re.sub(r'@?(\w+)\-kun', safe_mention, text, flags=re.IGNORECASE)
-            text = re.sub(r'@?(\w+)\-chan', safe_mention, text, flags=re.IGNORECASE)
-        elif username:
-            # Fallback: replace [username] and variants with username-kun/chan if present
+        # Handle username first if provided
+        if username:
+            # Escape dashes in username
             safe_username = username.replace('-', '\\-')
+            
+            # Fix for words that match username patterns but aren't actual placeholders
+            # Periksa dulu kata-kata yang bukan placeholder username
+            non_placeholder_patterns = [
+                'search', 'carikan', 'find', 'cari', 'tolong', 'please',
+                'help', 'bantu', 'tanya', 'ask'
+            ]
+            
+            # Untuk kata-kata pada non_placeholder_patterns, jangan diganti menjadi [username]
+            for word in non_placeholder_patterns:
+                # Protect these words from username replacement
+                text = text.replace(f"[{word}]", f"__PROTECTED__{word}__PROTECTED__")
+            
+            # Expanded username patterns to catch more variations
             username_patterns = [
                 r'\[user\]', r'\[nama\]', r'\[username\]',
                 r'\[User\]', r'\[Nama\]', r'\[Username\]',
-                r'\[USER\]', r'\[NAMA\]', r'\[USERNAME\]',
-                r'\[user-kun\]', r'\[nama-kun\]', r'\[username-kun\]',
-                r'\[user-chan\]', r'\[nama-chan\]', r'\[username-chan\]'
+                r'\[USER\]', r'\[NAMA\]', r'\[USERNAME\]'
             ]
+            
+            # Ganti placeholder username dengan username yang benar
             for pattern in username_patterns:
                 text = re.sub(pattern, safe_username, text, flags=re.IGNORECASE)
+                
+            # Ganti pattern dengan spasi seperti [user] kun, [nama] chan, dll.
             text = re.sub(r'\[\s*(?:user|nama|username)\s*\][\s\-]*(?:kun|chan)?', safe_username, text, flags=re.IGNORECASE)
+            
+            # Explicit replacements untuk pattern umum
             text = text.replace("[user]-kun", safe_username)
             text = text.replace("[nama]-kun", safe_username)
             text = text.replace("[username]-kun", safe_username)
             text = text.replace("[user]-chan", safe_username)
             text = text.replace("[nama]-chan", safe_username)
             text = text.replace("[username]-chan", safe_username)
-            text = re.sub(r"(?<!\[)user-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
-            text = re.sub(r"(?<!\[)nama-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
-            text = re.sub(r"(?<!\[)username-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
+            
+            # Kembalikan kata-kata yang dilindungi
+            for word in non_placeholder_patterns:
+                text = text.replace(f"__PROTECTED__{word}__PROTECTED__", f"[{word}]")
+            
+            # If we have a mention, use it for direct mentions
+            if safe_mention:
+                text = re.sub(r'(\{usertele\}|\[mention\])', safe_mention, text, flags=re.IGNORECASE)
 
         # Escape special characters with explicit order
         escapes = [
@@ -71,6 +82,7 @@ def format_markdown_response(text: str, username: str = None, telegram_username:
             ('!', '\\!'),
             ('.', '\\.')
         ]
+        
         for char, escape in escapes:
             text = text.replace(char, escape)
 
@@ -82,6 +94,7 @@ def format_markdown_response(text: str, username: str = None, telegram_username:
             (r'([😀-🙏💕✨🌸])', r'\1'),            # Emojis
             (r'\s\\~\s', r' ~ ')                   # Decorative tildes
         ]
+
         for pattern, replacement in fixes:
             text = re.sub(pattern, replacement, text)
 

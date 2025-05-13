@@ -31,7 +31,7 @@ async def update_command(update: Update, context: CallbackContext) -> None:
     """Git pull and restart bot."""
     async def handler(update: Update, context: CallbackContext):
         msg = await update.message.reply_text(
-            "*Updating Bot System*\n_Please wait\\.\\.\\._ 🔄",
+            "*Updating Bot System*\n_Please wait_ 🔄",
             parse_mode='MarkdownV2'
         )
         
@@ -40,7 +40,7 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             git_output = subprocess.check_output(['git', 'pull']).decode()
             
             # Install/update dependencies
-            pip_output = "Dependencies updated successfully."
+            pip_output = "Dependencies updated successfully"
             subprocess.check_output(['pip', 'install', '-r', 'requirements.txt'])
             
             # Get TMUX session
@@ -53,26 +53,39 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             """
             subprocess.run(restart_cmd, shell=True)
 
-            # Truncate and escape output for MarkdownV2
-            git_output_safe = git_output.replace('`', '').replace('\\', '')
-            # Telegram MarkdownV2: code block must not contain triple backticks, so use single backtick or none
+            # Completely sanitize output for MarkdownV2 - remove all special chars
+            git_output_clean = ""
+            for char in git_output[:1000]:  # Limit output to 1000 chars
+                if char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \n":
+                    git_output_clean += char
+                else:
+                    git_output_clean += " "  # Replace special chars with spaces
+            
+            # Simple format without markdown inside code blocks
             update_message = (
-                "*Update Complete\\!*\n"
-                "*Git Changes:*\n"
-                "```\n"
-                f"{git_output_safe[:1500]}"
-                "\n```\n"
-                f"*Status:* {pip_output}\n"
-                "_Restarting bot\\.\\.\\._ ✨"
+                "*Update Complete*\n\n"
+                "*Git Changes*\n"
+                f"```\n{git_output_clean}\n```\n\n"
+                f"*Status* Dependencies updated\n\n"
+                "*Restarting bot* ✨"
             )
+            
             await msg.edit_text(
                 update_message,
                 parse_mode='MarkdownV2'
             )
         except Exception as e:
-            error_msg = str(e).replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('`', '')
+            # Create a safe error message without special characters
+            error_msg = str(e)
+            safe_error = ""
+            for char in error_msg[:200]:  # Limit to 200 chars
+                if char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \n":
+                    safe_error += char
+                else:
+                    safe_error += " "  # Replace special chars with spaces
+                    
             await msg.edit_text(
-                f"*Update Failed\\!*\n```\n{error_msg}\n```",
+                f"*Update Failed*\n\n{safe_error}",
                 parse_mode='MarkdownV2'
             )
     return await dev_command_wrapper(update, context, handler)
