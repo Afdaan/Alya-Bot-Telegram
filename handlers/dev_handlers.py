@@ -81,8 +81,25 @@ async def update_command(update: Update, context: CallbackContext) -> None:
         )
         
         try:
+            # Get current commit hash before pull
+            old_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
+            
             # Git pull without specifying branch
             git_output = subprocess.check_output(['git', 'pull']).decode()
+            
+            # Get new commit hash after pull
+            new_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
+            
+            # Get commit messages between old and new (if different)
+            commit_messages = ""
+            if old_hash != new_hash:
+                # Format: [hash] commit message
+                commit_log = subprocess.check_output(
+                    ['git', 'log', '--pretty=format:• `%h` %s', f'{old_hash}..{new_hash}']
+                ).decode()
+                commit_messages = commit_log if commit_log else "No new commits"
+            else:
+                commit_messages = "No changes detected"
             
             # Install/update dependencies
             pip_output = "Dependencies updated successfully"
@@ -98,21 +115,14 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             """
             subprocess.run(restart_cmd, shell=True)
 
-            # Sanitize git output for MarkdownV2
-            git_output_clean = ""
-            for char in git_output[:1000]:  # Limit output to 1000 chars
-                if char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \n":
-                    git_output_clean += char
-                else:
-                    git_output_clean += " "  # Replace special chars with spaces
-            
-            # Format final update message
+            # Format final update message with commit details
             update_message = (
-                "*Update Complete*\n\n"
-                "*Git Changes*\n"
-                f"```\n{git_output_clean}\n```\n\n"
-                f"*Status* Dependencies updated\n\n"
-                "*Restarting bot* ✨"
+                "*Update Complete* ✨\n\n"
+                "*Changes Applied:*\n"
+                f"{commit_messages.replace('#', '\\#')}\n\n"
+                "*Dependencies:* Updated\n"
+                "*Status:* Bot restarting\n\n"
+                "_Alya\\-chan will be back online shortly\\!_ 🌸"
             )
             
             await msg.edit_text(
