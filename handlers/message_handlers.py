@@ -4,8 +4,9 @@ from telegram.ext import CallbackContext
 
 from config.settings import CHAT_PREFIX
 from core.models import generate_chat_response
-from core.personas import get_enhanced_persona
+from core.personas import get_enhanced_persona, get_toxic_persona
 from utils.formatters import format_markdown_response
+from utils.commands import is_roast_command
 
 logger = logging.getLogger(__name__)
 
@@ -31,15 +32,22 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
         
-        # Add username context to message
-        user_context = f"{user.first_name}: {message_text}"
-        
-        # Generate response with history
-        response = generate_chat_response(
-            user_context,  # Pass message with username context
-            user.id,  # Pass user ID for history tracking
-            persona_context=get_enhanced_persona()
-        )
+        # Check for roasting command with keywords
+        is_roast, target, is_github, keywords = is_roast_command(message_text)
+        if is_roast:
+            response = get_toxic_persona(
+                username=target,
+                is_github=is_github,
+                keywords=keywords
+            )
+        else:
+            # Regular chat response
+            user_context = f"{user.first_name}: {message_text}"
+            response = generate_chat_response(
+                user_context,
+                user.id,
+                persona_context=get_enhanced_persona()
+            )
         
         # Format and send response
         safe_response = format_markdown_response(

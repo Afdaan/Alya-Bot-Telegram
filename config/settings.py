@@ -16,10 +16,11 @@ STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")  # Optional
 # Chat prefix for group chats
 CHAT_PREFIX = "!ai"
 ANALYZE_PREFIX = "!trace"  # New prefix for document/image analysis
+SAUCE_PREFIX = "!sauce"    # For reverse image search
 
 # Model Configuration
-DEFAULT_MODEL = "gemini-2.0-flash"
-IMAGE_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = "gemini-2.0-flash-exp"
+IMAGE_MODEL = "gemini-2.0-flash-exp"
 
 # Generation Configuration
 GENERATION_CONFIG = {
@@ -40,3 +41,14 @@ SAFETY_SETTINGS = {
 # Chat Configuration
 MAX_HISTORY = 10  # Maximum number of messages to keep in history
 HISTORY_EXPIRE = 3600  # History expiration in seconds (1 hour)
+
+# Roast Configuration
+ROAST_PREFIX = "!roast"
+GITHUB_CACHE_DURATION = 3600  # Cache GitHub data for 1 hour
+
+# Logging Configuration
+LOGGING_CONFIG = {
+    'SHOW_HTTP_SUCCESS': False,  # Don't show successful HTTP requests
+    'LOG_LEVEL': 'INFO',
+    'LOG_FORMAT': '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+}

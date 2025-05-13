@@ -53,6 +53,47 @@ python main.py
 - `GEMINI_API_KEY`: Google Gemini API Key
 - `STABILITY_API_KEY`: (Optional) Stability AI API Key for image generation
 
+## Commands and Features
+
+### Basic Commands
+- `/start` - Start bot and show main menu
+- `/help` - Show help message
+- `/mode` - Change bot mode
+- `/reset` - Reset chat history
+- `/ping` - Check bot status and system info
+
+### Chat Commands
+- Private chat: Send message directly
+- Group chat: Use `!ai` prefix
+  Example: `!ai Hello Alya-chan!`
+
+### Analysis Commands
+- Document/Image analysis: Send with `!trace` caption
+  Example: `!trace Please analyze this image`
+
+### Roasting Commands
+1. GitHub Roasts:
+   - `!ai roast github <username>`
+   - `!ai github roast <username>`
+   - `!ai check github <username>`
+   
+2. General Roasts:
+   - `!ai roast <target>`
+   - `!ai toxic <target>`
+   - `!ai flame <target>`
+   - `!ai bully <target>`
+
+### Example Usage
+```bash
+# GitHub roasting
+!ai roast github afdaan
+!ai check github someone
+
+# General roasting
+!ai roast someone
+!ai toxic someone
+```
+
 ## Contributing
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/AmazingFeature`)

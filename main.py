@@ -4,16 +4,33 @@ from dotenv import load_dotenv
 # Load environment variables first
 load_dotenv()
 
-from telegram import Update
-from telegram.ext import Application
-from config.settings import TELEGRAM_TOKEN
-from core.bot import setup_handlers
+# Configure logging filters
+class HTTPFilter(logging.Filter):
+    def filter(self, record):
+        # Filter out successful HTTP request logs
+        return not (
+            'HTTP Request:' in record.getMessage() and 
+            'HTTP/1.1 200' in record.getMessage()
+        )
 
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+
+# Add filter to root logger
+logging.getLogger().addFilter(HTTPFilter())
+# Set httpx logger to WARNING level
+logging.getLogger("httpx").setLevel(logging.WARNING)
+# Set urllib3 logger to WARNING level
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+from telegram import Update
+from telegram.ext import Application
+from config.settings import TELEGRAM_TOKEN
+from core.bot import setup_handlers
+
 logger = logging.getLogger(__name__)
 
 def main() -> None:
