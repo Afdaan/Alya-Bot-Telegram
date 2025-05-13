@@ -1,3 +1,10 @@
+"""
+Developer Command Handlers for Alya Telegram Bot.
+
+This module provides handlers for administrative commands restricted to developers,
+including system management, debugging, statistics, and language settings.
+"""
+
 import logging
 import os
 import psutil
@@ -7,29 +14,67 @@ import shlex
 from datetime import datetime
 from telegram import Update
 from telegram.ext import CallbackContext
-from config.settings import DEVELOPER_IDS
+from config.settings import DEVELOPER_IDS, DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 from core.models import get_user_history
+from utils.language_handler import get_response
 
 logger = logging.getLogger(__name__)
 
+# =========================
+# Developer Authorization
+# =========================
+
 def is_developer(user_id: int) -> bool:
-    """Check if user is a developer."""
+    """
+    Check if user is authorized as a developer.
+    
+    Args:
+        user_id: Telegram user ID to check
+        
+    Returns:
+        True if user is a developer, False otherwise
+    """
     return user_id in DEVELOPER_IDS
 
 async def dev_command_wrapper(update: Update, context: CallbackContext, handler):
-    """Wrapper for developer commands."""
+    """
+    Security wrapper for developer commands.
+    
+    Ensures only authorized developers can execute restricted commands.
+    
+    Args:
+        update: Telegram Update object
+        context: CallbackContext object
+        handler: Async handler function to execute if authorized
+        
+    Returns:
+        Result of handler if authorized, or unauthorized message
+    """
     if not is_developer(update.effective_user.id):
         await update.message.reply_text(
-            "Ara~ Command ini khusus developer sayang~ 💅✨",
+            get_response("dev_only", context),
             parse_mode='MarkdownV2'
         )
         return
     return await handler(update, context)
 
+# =========================
 # System Management Commands
+# =========================
+
 async def update_command(update: Update, context: CallbackContext) -> None:
-    """Git pull and restart bot."""
+    """
+    Git pull and restart bot.
+    
+    Updates the bot with latest code from repository and restarts
+    the bot process within its TMUX session.
+    
+    Args:
+        update: Telegram Update object
+        context: CallbackContext object
+    """
     async def handler(update: Update, context: CallbackContext):
+        # Send initial message
         msg = await update.message.reply_text(
             "*Updating Bot System*\n_Please wait_ 🔄",
             parse_mode='MarkdownV2'
@@ -53,7 +98,7 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             """
             subprocess.run(restart_cmd, shell=True)
 
-            # Completely sanitize output for MarkdownV2 - remove all special chars
+            # Sanitize git output for MarkdownV2
             git_output_clean = ""
             for char in git_output[:1000]:  # Limit output to 1000 chars
                 if char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \n":
@@ -61,7 +106,7 @@ async def update_command(update: Update, context: CallbackContext) -> None:
                 else:
                     git_output_clean += " "  # Replace special chars with spaces
             
-            # Simple format without markdown inside code blocks
+            # Format final update message
             update_message = (
                 "*Update Complete*\n\n"
                 "*Git Changes*\n"
@@ -75,27 +120,43 @@ async def update_command(update: Update, context: CallbackContext) -> None:
                 parse_mode='MarkdownV2'
             )
         except Exception as e:
-            # Create a safe error message without special characters
+            # Create safe error message
             error_msg = str(e)
             safe_error = ""
-            for char in error_msg[:200]:  # Limit to 200 chars
+            for char in error_msg[:200]:
                 if char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \n":
                     safe_error += char
                 else:
-                    safe_error += " "  # Replace special chars with spaces
+                    safe_error += " "
                     
             await msg.edit_text(
                 f"*Update Failed*\n\n{safe_error}",
                 parse_mode='MarkdownV2'
             )
+    
+    # Run with developer authorization
     return await dev_command_wrapper(update, context, handler)
 
+# =========================
 # Monitoring Commands
+# =========================
+
 async def stats_command(update: Update, context: CallbackContext) -> None:
-    """Get bot statistics."""
+    """
+    Get bot statistics and system information.
+    
+    Provides memory usage, user counts, and other operational statistics.
+    
+    Args:
+        update: Telegram Update object
+        context: CallbackContext object
+    """
     async def handler(update: Update, context: CallbackContext):
+        # Gather system information
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
+        
+        # Compile statistics
         stats = {
             'System': {
                 'CPU': f"{psutil.cpu_percent()}%",
@@ -108,29 +169,40 @@ async def stats_command(update: Update, context: CallbackContext) -> None:
                 'Commands': context.bot_data.get('command_count', 0)
             }
         }
-        # Convert to string with limited length
+        
+        # Convert to formatted JSON string
         stats_json = json.dumps(stats, indent=2)[:2000]  # Limit to 2000 chars
         
+        # Send statistics message
         await update.message.reply_text(
             f"*Bot Statistics*\n```\n{stats_json}```",
             parse_mode='MarkdownV2'
         )
     
+    # Run with developer authorization
     return await dev_command_wrapper(update, context, handler)
 
 async def debug_command(update: Update, context: CallbackContext) -> None:
-    """Toggle debug mode and show debug info."""
+    """
+    Toggle debug mode and show debug information.
+    
+    Enables verbose logging and shows detailed system information.
+    
+    Args:
+        update: Telegram Update object
+        context: CallbackContext object
+    """
     async def handler(update: Update, context: CallbackContext):
         try:
             # Toggle debug mode
             current_mode = context.bot_data.get('debug_mode', False)
             context.bot_data['debug_mode'] = not current_mode
             
-            # Get memory info
+            # Get memory information
             process = psutil.Process()
             memory = process.memory_info()
             
-            # Pre-format values
+            # Format values for display
             memory_mb = "{:.2f}".format(memory.rss / 1024 / 1024)
             cpu_percent = str(psutil.cpu_percent())
             pid = str(os.getpid())
@@ -141,7 +213,7 @@ async def debug_command(update: Update, context: CallbackContext) -> None:
             daily_messages = str(context.bot_data.get('daily_messages', 0))
             mode_status = 'DEBUG ON' if context.bot_data['debug_mode'] else 'DEBUG OFF'
             
-            # Build message without f-strings
+            # Build debug information message
             debug_text = (
                 "*🔍 Debug Information*\n\n"
                 "*System Status:*\n"
@@ -164,18 +236,30 @@ async def debug_command(update: Update, context: CallbackContext) -> None:
                 last_response, daily_messages,
                 "🟢 Debug Mode ON" if context.bot_data['debug_mode'] else "🔴 Debug Mode OFF"
             )
+            
             await update.message.reply_text(debug_text, parse_mode='MarkdownV2')
             
         except Exception as e:
+            # Format error message for MarkdownV2
             error_msg = str(e).replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('`', '\\`')
             msg = "*❌ Error in debug:*\n`{}`".format(error_msg)
             await update.message.reply_text(msg, parse_mode='MarkdownV2')
     
+    # Run with developer authorization
     return await dev_command_wrapper(update, context, handler)
 
 async def shell_command(update: Update, context: CallbackContext) -> None:
-    """Execute shell command."""
+    """
+    Execute shell commands on the host system.
+    
+    Allows developers to run basic system maintenance commands.
+    
+    Args:
+        update: Telegram Update object
+        context: CallbackContext object
+    """
     async def handler(update: Update, context: CallbackContext):
+        # Get command from arguments
         command = ' '.join(context.args)
         if not command:
             await update.message.reply_text(
@@ -185,9 +269,10 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
             return
         
         try:
+            # Execute command with security precautions
             output = subprocess.check_output(shlex.split(command), stderr=subprocess.STDOUT).decode()
             
-            # Import the split function
+            # Import helper for long message splitting
             from utils.formatters import split_long_message
             
             # Split output if too long
@@ -210,8 +295,9 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
                 )
                 
         except subprocess.CalledProcessError as e:
+            # Handle command execution errors
             error_output = e.output.decode() if hasattr(e, 'output') else str(e)
-            # Truncate error if too long
+            # Truncate long error messages
             error_output = error_output[:1000] + "..." if len(error_output) > 1000 else error_output
             
             # Escape markdown characters
@@ -222,6 +308,92 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
                 parse_mode='MarkdownV2'
             )
     
+    # Run with developer authorization
     return await dev_command_wrapper(update, context, handler)
 
-# More commands will be added here...
+# =========================
+# Language Settings
+# =========================
+
+async def set_language_command(update: Update, context: CallbackContext) -> None:
+    """
+    Set the bot's default language.
+    
+    Changes the language used for responses throughout the bot.
+    Available languages defined in SUPPORTED_LANGUAGES.
+    
+    Args:
+        update: Telegram Update object
+        context: CallbackContext object
+    """
+    async def handler(update: Update, context: CallbackContext):
+        # Get current language
+        current_language = context.bot_data.get("language", DEFAULT_LANGUAGE)
+        
+        # If no arguments provided, show help
+        if not context.args:
+            # Show current language and instructions
+            help_text = get_response("lang_help", context, 
+                                    current_code=current_language,
+                                    current_name=SUPPORTED_LANGUAGES.get(current_language, "Unknown"))
+            
+            await update.message.reply_text(
+                help_text,
+                parse_mode="MarkdownV2"
+            )
+            return
+
+        # Get requested language code
+        language_code = context.args[0].lower()
+        
+        # Check if valid language code
+        if language_code not in SUPPORTED_LANGUAGES:
+            invalid_msg = get_response("lang_invalid", context, code=language_code)
+            await update.message.reply_text(
+                invalid_msg,
+                parse_mode="MarkdownV2"
+            )
+            return
+
+        # Update language setting
+        context.bot_data["language"] = language_code
+        language_name = SUPPORTED_LANGUAGES.get(language_code)
+        
+        # Get success message in the NEW language to demonstrate immediate effect
+        # Fix parameter name: change language=language_code, language=language_code to language=language_code, language_name=language_name
+        success_msg = get_response("lang_success", language=language_code, language_name=language_name)
+        
+        # Immediately show confirmation message in the new language
+        await update.message.reply_text(
+            success_msg,
+            parse_mode="MarkdownV2"
+        )
+
+        # Also add an example response to demonstrate new language is working
+        example_responses = {
+            "en": "*Language changed successfully\\!* ✨\n\nAlya\\-chan will now communicate in English\\. Is there anything I can help you with\\?",
+            "id": "*Bahasa berhasil diubah\\!* ✨\n\nAlya\\-chan akan berkomunikasi dalam Bahasa Indonesia sekarang\\. Ada yang bisa Alya bantu\\?"
+        }
+        
+        # Import asyncio at the top of the file if not already imported
+        try:
+            # Send an additional message to demonstrate the new language
+            await asyncio.sleep(1)  # Small delay for better UX
+            await update.message.reply_text(
+                example_responses.get(language_code, example_responses["id"]),
+                parse_mode="MarkdownV2"
+            )
+        except NameError:
+            # If asyncio is not imported
+            import asyncio
+            await asyncio.sleep(1)
+            await update.message.reply_text(
+                example_responses.get(language_code, example_responses["id"]),
+                parse_mode="MarkdownV2"
+            )
+        
+        # Log the change
+        logger.info(f"Language changed to {language_code} ({language_name}) by user {update.effective_user.id}")
+
+    # Run with developer authorization
+    return await dev_command_wrapper(update, context, handler)

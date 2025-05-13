@@ -1,22 +1,40 @@
+"""
+Search Engine module for Alya Telegram Bot.
+
+This module provides web search capabilities using Google Custom Search API,
+including query optimization, structured data extraction, and response formatting.
+"""
+
 import os
 import aiohttp
-from dotenv import load_dotenv
 import logging
-from urllib.parse import quote_plus
-import re
-import json
 import asyncio
+import re
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 load_dotenv()
 
 class SearchEngine:
+    """Handles web searches using Google Custom Search API with formatting capabilities."""
+    
     def __init__(self):
+        """Initialize the search engine with API credentials from environment."""
         self.api_key = os.getenv('GOOGLE_SEARCH_API_KEY')
         self.search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
         self.base_url = "https://www.googleapis.com/customsearch/v1"
         
     async def search(self, query: str, detailed: bool = False) -> str:
+        """
+        Search the web for information and format results.
+        
+        Args:
+            query: The search query
+            detailed: Whether to return detailed results with more entries
+            
+        Returns:
+            Formatted search results as string
+        """
         try:
             if not query or not isinstance(query, str):
                 logger.error(f"Invalid query: {query}")
@@ -59,28 +77,7 @@ class SearchEngine:
                             return structured_data
 
                         # Format results
-                        response_text = f"Hasil pencarian untuk '{query}':\n\n"
-                        
-                        for item in result['items']:
-                            title = item.get('title', 'No title')
-                            snippet = item.get('snippet', 'No description')
-                            link = item.get('link', '#')
-                            
-                            # Clean up the snippet
-                            snippet = snippet.replace('...', '').strip()
-                            
-                            response_text += f"📌 {title}\n"
-                            response_text += f"💡 {snippet}\n"
-                            response_text += f"🔗 {link}\n\n"
-
-                            # Add additional info if detailed
-                            if detailed and 'pagemap' in item:
-                                if 'metatags' in item['pagemap']:
-                                    meta = item['pagemap']['metatags'][0]
-                                    if 'og:description' in meta:
-                                        response_text += f"📝 Detail:\n{meta['og:description']}\n\n"
-
-                        return response_text
+                        return self._format_search_results(result, query, detailed)
                 
                 except asyncio.TimeoutError:
                     logger.error("Search timeout")
@@ -91,7 +88,17 @@ class SearchEngine:
             return "Maaf, terjadi error saat mencari informasi 😢"
 
     def _optimize_query(self, query: str) -> str:
-        """Optimize the search query for better results."""
+        """
+        Optimize the search query for better results.
+        
+        Removes filler words and adds relevant keywords based on topic detection.
+        
+        Args:
+            query: Original search query
+            
+        Returns:
+            Optimized search query
+        """
         if not query:
             return ""
             
@@ -115,7 +122,15 @@ class SearchEngine:
         return query_lower
 
     def _extract_structured_data(self, result):
-        """Extract structured data like schedules or timetables when available."""
+        """
+        Extract structured data like schedules or timetables when available.
+        
+        Args:
+            result: Raw API response from Google
+            
+        Returns:
+            Formatted structured data or None if not available
+        """
         try:
             # Check for special featured snippets
             if 'items' in result and len(result['items']) > 0:
@@ -142,3 +157,38 @@ class SearchEngine:
         except Exception as e:
             logger.error(f"Error extracting structured data: {e}")
             return None
+            
+    def _format_search_results(self, result, query, detailed):
+        """
+        Format search results into a readable response.
+        
+        Args:
+            result: Raw API response from Google
+            query: Original search query
+            detailed: Whether to include additional details
+            
+        Returns:
+            Formatted search results as string
+        """
+        response_text = f"Hasil pencarian untuk '{query}':\n\n"
+                        
+        for item in result['items']:
+            title = item.get('title', 'No title')
+            snippet = item.get('snippet', 'No description')
+            link = item.get('link', '#')
+            
+            # Clean up the snippet
+            snippet = snippet.replace('...', '').strip()
+            
+            response_text += f"📌 {title}\n"
+            response_text += f"💡 {snippet}\n"
+            response_text += f"🔗 {link}\n\n"
+
+            # Add additional info if detailed
+            if detailed and 'pagemap' in item:
+                if 'metatags' in item['pagemap']:
+                    meta = item['pagemap']['metatags'][0]
+                    if 'og:description' in meta:
+                        response_text += f"📝 Detail:\n{meta['og:description']}\n\n"
+
+        return response_text

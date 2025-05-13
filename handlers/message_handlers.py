@@ -1,28 +1,58 @@
+"""
+Message Handler module for Alya Telegram Bot.
+
+This module processes incoming messages, handles persona selection,
+typing indicators, and response formatting/delivery.
+"""
+
 import logging
 import asyncio
 from telegram import Update
-from telegram.constants import ChatAction  # Updated import for newer PTB versions
+from telegram.constants import ChatAction
 from telegram.ext import CallbackContext
 from datetime import datetime
 
 from config.settings import CHAT_PREFIX
 from core.models import generate_chat_response
-from core.personas import WAIFU_PERSONA, TOXIC_PERSONA, SMART_PERSONA
+from core.personas import get_persona_context
 from utils.formatters import format_markdown_response, split_long_message
 from utils.commands import is_roast_command
+from utils.language_handler import get_language, get_response
 
 logger = logging.getLogger(__name__)
 
+# =========================
+# Typing Indicator
+# =========================
+
 async def send_typing_action(context, chat_id, duration=3):
-    """Send typing action periodically to keep it active for longer periods."""
+    """
+    Send typing action periodically to keep it active for longer periods.
+    
+    Args:
+        context: CallbackContext
+        chat_id: Target chat ID
+        duration: How long to maintain typing indicator (seconds)
+    """
     end_time = asyncio.get_event_loop().time() + duration
     while asyncio.get_event_loop().time() < end_time:
         await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
         await asyncio.sleep(4.5)  # Typing action lasts ~5 seconds, refresh before it expires
 
+# =========================
+# Message Processing
+# =========================
+
 async def handle_message(update: Update, context: CallbackContext) -> None:
-    """Handle incoming messages."""
+    """
+    Handle incoming messages with persona selection and response generation.
+    
+    Args:
+        update: Telegram Update object
+        context: CallbackContext for state management
+    """
     try:
+        # Basic validation
         if not update.message or not update.message.text:
             return
 
@@ -42,10 +72,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                     telegram_mention = message_text[entity.offset:entity.offset + entity.length]
                     # Extract username without @ for potential use in message
                     mentioned_username = telegram_mention[1:]  # Remove the @ symbol
-                    # Log the mention for debugging
                     logger.info(f"Detected mention: {telegram_mention}, username: {mentioned_username}")
                     break
 
+        # Handle special commands
+        
         # Handle search command with "!search" prefix
         if message_text.lower().startswith('!search'):
             args = message_text.split(' ')[1:]
@@ -62,27 +93,14 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         if not message_text:
             return
             
+        # Get the current language setting from context
+        language = get_language(context)
+            
         # Start typing indicator in background task that keeps refreshing
         typing_task = asyncio.create_task(send_typing_action(context, chat_id, 30))  # Up to 30 seconds of typing
         
-        # Check for roasting command
-        is_roast, target, is_github, keywords, user_info = is_roast_command(update.message)
-
-        # Use appropriate persona
-        if is_roast:
-            persona = TOXIC_PERSONA
-        else:
-            # If user asks for detail/advanced, or question is long, use SMART_PERSONA
-            info_keywords = ['jadwal', 'siapa', 'apa', 'dimana', 'kapan', 'bagaimana', 
-                            'mengapa', 'cara', 'berapa', 'info', 'cari', 'carikan', 'detail', '-d', '--detail']
-            is_info_query = any(keyword in message_text.lower() for keyword in info_keywords)
-            is_advanced = (
-                'detail' in message_text.lower() or
-                '-d' in message_text.lower() or
-                '--detail' in message_text.lower() or
-                len(message_text.split()) > 12  # consider advanced if question is long
-            )
-            persona = SMART_PERSONA if (is_info_query and is_advanced) else WAIFU_PERSONA
+        # Select appropriate persona based on command type, passing language
+        persona = select_persona(update.message, language)
         
         # Generate response with persona context and timeout handling
         try:
@@ -99,21 +117,25 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             logger.warning(f"Response generation timed out for user {user.id}")
             # Cancel typing indicator before sending error
             typing_task.cancel()
+            
+            # Get localized timeout message
+            timeout_msg = get_response("timeout", context)
+            
             await update.message.reply_text(
-                "Aduh\\, maaf ya\\~ Alya\\-chan butuh waktu lebih lama untuk memikirkan jawaban yang tepat\\. Coba tanyakan dengan cara yang lebih sederhana ya\\? 🥺💕",
+                timeout_msg,
                 parse_mode='MarkdownV2'
             )
             return
 
-        # Format and send response, pass both first_name AND mentioned username when available
-        # This is key - we pass both to handle mentions correctly
+        # Format and send response
         safe_response = format_markdown_response(
             response,
             username=user.first_name,
-            telegram_username=telegram_mention,  # Pass the full @username mention
-            mentioned_username=mentioned_username  # Pass the username without @
+            telegram_username=telegram_mention,
+            mentioned_username=mentioned_username
         )
 
+        # Add debug info if debug mode is on
         if context.bot_data.get('debug_mode', False):
             debug_info = (
                 "*📊 Debug Info*\n"
@@ -136,26 +158,82 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         # Cancel the typing task before sending response
         typing_task.cancel()
         
-        # Send the response
-        if len(safe_response) > 4000:
-            parts = split_long_message(safe_response, 4000)
-            for i, part in enumerate(parts):
-                await update.message.reply_text(
-                    part,
-                    reply_to_message_id=update.message.message_id if i == 0 else None,
-                    parse_mode='MarkdownV2'
-                )
-                await asyncio.sleep(0.5)
-        else:
-            await update.message.reply_text(
-                safe_response,
-                reply_to_message_id=update.message.message_id,
-                parse_mode='MarkdownV2'
-            )
+        # Send the response, split if too long
+        await send_formatted_response(update, safe_response)
 
     except Exception as e:
         logger.error(f"Error in handle_message: {str(e)}")
+        
+        # Use localized error message
+        error_msg = get_response("error", context)
+        
         await update.message.reply_text(
-            "Gomenasai\\~ Ada masalah kecil\\. Alya akan lebih baik lagi ya\\~ 🥺💕",
+            error_msg,
+            parse_mode='MarkdownV2'
+        )
+
+# =========================
+# Helper Functions
+# =========================
+
+def select_persona(message, language="id"):
+    """
+    Select appropriate persona based on message content.
+    
+    Args:
+        message: Telegram message object
+        language: Current language setting
+        
+    Returns:
+        Appropriate persona context string
+    """
+    # Check for roasting command
+    is_roast, target, is_github, keywords, user_info = is_roast_command(message)
+    
+    if is_roast:
+        return get_persona_context("toxic", language)
+        
+    # If user asks for detail/advanced, or question is long, use SMART_PERSONA
+    message_text = message.text
+    info_keywords = [
+        'jadwal', 'siapa', 'apa', 'dimana', 'kapan', 'bagaimana', 
+        'mengapa', 'cara', 'berapa', 'info', 'cari', 'carikan', 
+        'detail', '-d', '--detail'
+    ]
+    is_info_query = any(keyword in message_text.lower() for keyword in info_keywords)
+    is_advanced = (
+        'detail' in message_text.lower() or
+        '-d' in message_text.lower() or
+        '--detail' in message_text.lower() or
+        len(message_text.split()) > 12  # consider advanced if question is long
+    )
+    
+    if is_info_query and is_advanced:
+        return get_persona_context("smart", language) 
+    
+    # Default persona
+    return get_persona_context("waifu", language)
+
+async def send_formatted_response(update, response_text):
+    """
+    Send formatted response, splitting if necessary.
+    
+    Args:
+        update: Telegram Update object
+        response_text: The formatted response text
+    """
+    if len(response_text) > 4000:
+        parts = split_long_message(response_text, 4000)
+        for i, part in enumerate(parts):
+            await update.message.reply_text(
+                part,
+                reply_to_message_id=update.message.message_id if i == 0 else None,
+                parse_mode='MarkdownV2'
+            )
+            await asyncio.sleep(0.5)  # Delay to prevent flood
+    else:
+        await update.message.reply_text(
+            response_text,
+            reply_to_message_id=update.message.message_id,
             parse_mode='MarkdownV2'
         )

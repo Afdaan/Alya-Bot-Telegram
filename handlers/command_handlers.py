@@ -1,3 +1,10 @@
+"""
+Command Handlers for Alya Telegram Bot.
+
+This module provides handlers for various slash commands
+and special command patterns recognized by the bot.
+"""
+
 import logging
 from telegram import Update
 from telegram.ext import CallbackContext
@@ -5,31 +12,56 @@ from telegram.ext import CallbackContext
 from config.settings import (
     CHAT_PREFIX, 
     ANALYZE_PREFIX, 
-    SAUCE_PREFIX
+    SAUCE_PREFIX,
+    DEFAULT_LANGUAGE,
+    SUPPORTED_LANGUAGES
 )
 from core.models import user_chats
 from core.search_engine import SearchEngine
+from utils.language_handler import get_response
 
 logger = logging.getLogger(__name__)
 
+# Initialize search engine
 search_engine = SearchEngine()
 
+# =========================
+# Basic Commands
+# =========================
+
 async def start(update: Update, context: CallbackContext) -> None:
-    """Send a message when the command /start is issued."""
-    user = update.effective_user
-    welcome_message = (
-        f"*Konnichiwa {user.first_name}\\-san\\!* 🌸\n\n"
-        "Alya\\-chan di sini\\~ Aku sangat senang bisa berbicara denganmu\\!\n"
-        "_Bagaimana kabarmu hari ini?_ ✨"
-    )
+    """
+    Handle /start command to initiate conversation with the bot.
     
-    await update.message.reply_text(
-        welcome_message,
-        parse_mode='MarkdownV2'
-    )
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
+    try:
+        # Get localized response
+        response = get_response("start", context)
+        
+        await update.message.reply_text(
+            response,
+            parse_mode='MarkdownV2'
+        )
+    except Exception as e:
+        logger.error(f"Error in start command: {e}")
+        # Fallback to plain text if markdown parsing fails
+        await update.message.reply_text(
+            f"Konnichiwa! Alya-chan di sini! 🌸",
+            parse_mode=None
+        )
 
 async def help_command(update: Update, context: CallbackContext) -> None:
-    """Send a message when the command /help is issued."""
+    """
+    Handle /help command to show available commands.
+    
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
+    # Comprehensive help text with command categories
     help_text = (
         "*Konnichiwa\\!* 🌸 *Alya\\-chan di sini\\~*\n\n"
         "Ini adalah perintah yang bisa kamu gunakan:\n\n"
@@ -88,26 +120,49 @@ async def help_command(update: Update, context: CallbackContext) -> None:
     )
 
 async def reset_command(update: Update, context: CallbackContext) -> None:
-    """Reset chat history."""
+    """
+    Handle /reset command to clear chat history.
+    
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
     user_id = update.effective_user.id
     if user_id in user_chats:
         del user_chats[user_id]
     
-    await update.message.reply_text("History chat telah dihapus!")
+    await update.message.reply_text(
+        get_response("reset", context),
+        parse_mode='MarkdownV2'
+    )
+
+# =========================
+# Search Command
+# =========================
 
 async def handle_search(update: Update, context: CallbackContext):
-    """Handle search requests"""
-    # For messages that start with !search, extract the query
+    """
+    Handle search requests with web search functionality.
+    
+    Supports both !search prefix and /search command with
+    detailed search option.
+    
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
+    # Extract search query
     if update.message.text and update.message.text.startswith('!search'):
         query = update.message.text.replace('!search', '', 1).strip()
     else:
         # For /search command (if still used)
         query = ' '.join(context.args)
     
+    # Show usage if no query provided
     if not query:
         await update.message.reply_text(
-            "Cara penggunaan:\n!search <kata kunci>\n\n"
-            "Contoh:\n!search jadwal KRL lempuyangan jogja"
+            get_response("search_usage", context),
+            parse_mode='MarkdownV2'
         )
         return
 
@@ -116,6 +171,12 @@ async def handle_search(update: Update, context: CallbackContext):
     if detailed:
         query = query.replace('-d', '').replace('--detail', '').replace('detail', '').strip()
 
-    await update.message.reply_text("🔍 Sedang mencari informasi...")
+    # Send searching message
+    await update.message.reply_text(
+        get_response("searching", context),
+        parse_mode='MarkdownV2'
+    )
+    
+    # Perform search and send results
     result = await search_engine.search(query, detailed=detailed)
     await update.message.reply_text(result, parse_mode='HTML')

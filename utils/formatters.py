@@ -1,15 +1,39 @@
+"""
+Text Formatting Utilities for Alya Telegram Bot.
+
+This module provides utilities for formatting text responses with proper
+Markdown escaping, username handling, and message splitting.
+"""
+
 import re
 import logging
 
 logger = logging.getLogger(__name__)
 
-def format_markdown_response(text: str, username: str = None, telegram_username: str = None, mentioned_username: str = None) -> str:
-    """Format response for MarkdownV2 with better escape and support Telegram mention."""
+# =========================
+# Markdown Formatting
+# =========================
+
+def format_markdown_response(text: str, username: str = None, 
+                           telegram_username: str = None, 
+                           mentioned_username: str = None) -> str:
+    """
+    Format response for MarkdownV2 with better escape and Telegram mention support.
+    
+    Args:
+        text: The text to format
+        username: User's first name
+        telegram_username: Full @username mention
+        mentioned_username: Username without @ symbol
+        
+    Returns:
+        Markdown-formatted text with proper escaping
+    """
     try:
         if not isinstance(text, str):
             text = str(text)
         
-        # First protect the mention if it exists - this is the most important part
+        # First protect the mention if it exists
         mention_placeholder = None
         if telegram_username and telegram_username.startswith('@'):
             mention_placeholder = "MENTION_PLACEHOLDER_TOKEN"
@@ -33,8 +57,10 @@ def format_markdown_response(text: str, username: str = None, telegram_username:
                 text = re.sub(pattern, telegram_username, text, flags=re.IGNORECASE)
                 
                 # Also handle [username]-kun/chan patterns
-                text = re.sub(f"\\[{re.escape(mentioned_username)}\\]-kun", telegram_username, text, flags=re.IGNORECASE)
-                text = re.sub(f"\\[{re.escape(mentioned_username)}\\]-chan", telegram_username, text, flags=re.IGNORECASE)
+                text = re.sub(f"\\[{re.escape(mentioned_username)}\\]-kun", 
+                             telegram_username, text, flags=re.IGNORECASE)
+                text = re.sub(f"\\[{re.escape(mentioned_username)}\\]-chan", 
+                             telegram_username, text, flags=re.IGNORECASE)
                 
         elif username:
             # If no telegram mention but we have a regular username
@@ -105,8 +131,15 @@ def format_markdown_response(text: str, username: str = None, telegram_username:
         logger.error(f"Error formatting markdown: {e}")
         return f"Error: {str(e)}".replace('-', '\\-').replace('!', '\\!')
 
+# =========================
+# Message Splitting
+# =========================
+
 def split_long_message(text: str, max_length: int = 4000) -> list:
-    """Split a long message into multiple parts that fit within Telegram limits.
+    """
+    Split a long message into multiple parts that fit within Telegram limits.
+    
+    Attempts to break on paragraph boundaries when possible for more natural splits.
     
     Args:
         text: The message text to split

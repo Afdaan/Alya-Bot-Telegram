@@ -5,6 +5,13 @@
 - `/help` - Show command help
 - `/reset` - Clear chat history
 - `/ping` - Check bot status
+- `/lang` - Change default language
+
+## Language Features
+- **Default Languages**: English (en) or Indonesian (id)
+- **Flexible Communication**: Alya can understand and respond in many languages
+- **Language Switching**: Ask Alya to speak in any language (e.g., "Can you speak in Javanese?")
+- **Change Default**: Use `/lang [code]` to change default language (en/id)
 
 ## Chat Commands
 ### Private Chat
