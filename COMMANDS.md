@@ -47,10 +47,28 @@ Available roast keywords:
 ## Developer Commands
 Restricted to authorized developers:
 - `/update` - Pull updates & restart
+  - Manual update: Use command directly
+  - Auto update: Will trigger automatically on repository changes
+  - Restarts bot in TMUX session after update
+  - Shows git pull output and restart status
 - `/stats` - Show bot statistics
 - `/debug` - Toggle debug mode
 - `/shell` - Execute shell commands
-- `/logs` - View error logs
+
+### Update Command Details
+1. Manual Update:
+```bash
+/update  # Pull latest changes and restart bot
+```
+
+2. Automatic Update:
+- Bot listens for repository webhooks
+- Auto-triggers `/update` on new commits
+- No manual intervention needed
+- Safe restart using TMUX
+- Maintains uptime tracking
+
+Example webhook flow:
 
 ## Usage Examples
 ```bash
