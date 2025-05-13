@@ -27,14 +27,14 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("reset", reset_command))
     
-    # Add search commands with both prefixes
-    application.add_handler(CommandHandler("search", handle_search))
-    application.add_handler(CommandHandler("s", handle_search))  # Add short alias
+    # Remove direct command handler for search to use !search instead
+    # application.add_handler(CommandHandler("search", handle_search))
+    # application.add_handler(CommandHandler("s", handle_search))
     
     # Add ping command
     application.add_handler(CommandHandler("ping", ping_command))
     
-    # Message handlers with prefixes
+    # Message handlers with prefixes - make this higher priority
     application.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(r'^!search'), 
         handle_search,

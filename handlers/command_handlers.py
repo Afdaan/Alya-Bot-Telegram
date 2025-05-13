@@ -53,11 +53,11 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         f"Contoh: `{SAUCE_PREFIX}` untuk mencari sumber gambar anime/artwork\n\n"
         
         "*Smart Search:*\n"
-        f"\\- Command: `/search <query>` atau `!search <query>`\n"
-        f"\\- Detail search: `/search -d <query>` \n"
-        "\\- Contoh: `/search jadwal KRL lempuyangan jogja`\n"
+        "\\- Command: `!search <query>`\n"
+        "\\- Detail search: `!search -d <query>`\n"
+        "\\- Contoh: `!search jadwal KRL lempuyangan jogja`\n"
         "\\- Alya juga bisa langsung menjawab pertanyaan informasi faktual\n"
-        "\\- Contoh: `{CHAT_PREFIX} carikan jadwal kereta dari Bandung ke Jakarta`\n\n"
+        f"\\- Contoh: `{CHAT_PREFIX} carikan jadwal kereta dari Bandung ke Jakarta`\n\n"
         
         "*Roasting Mode:*\n"
         "1\\. Roast Biasa:\n"
@@ -70,6 +70,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         f"`{CHAT_PREFIX}` \\- Untuk chat dengan Alya di grup\n"
         f"`{ANALYZE_PREFIX}` \\- Analisis gambar/dokumen\n"
         f"`{SAUCE_PREFIX}` \\- Cari source gambar\n"
+        "`!search` \\- Cari informasi di internet\n"
         f"`{CHAT_PREFIX} roast` \\- Mode toxic queen\n\n"
         
         "_Fitur Smart:_\n"
@@ -96,7 +97,12 @@ async def reset_command(update: Update, context: CallbackContext) -> None:
 
 async def handle_search(update: Update, context: CallbackContext):
     """Handle search requests"""
-    query = ' '.join(context.args)
+    # For messages that start with !search, extract the query
+    if update.message.text and update.message.text.startswith('!search'):
+        query = update.message.text.replace('!search', '', 1).strip()
+    else:
+        # For /search command (if still used)
+        query = ' '.join(context.args)
     
     if not query:
         await update.message.reply_text(

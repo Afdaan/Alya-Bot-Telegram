@@ -14,9 +14,34 @@ def format_markdown_response(text: str, username: str = None) -> str:
         if username:
             # Escape dashes in username
             safe_username = username.replace('-', '\\-')
-            username_patterns = [r'\[user\]', r'\[nama\]', r'\[username\]']
+            
+            # Expanded username patterns to catch more variations
+            username_patterns = [
+                r'\[user\]', r'\[nama\]', r'\[username\]',
+                r'\[User\]', r'\[Nama\]', r'\[Username\]',
+                r'\[USER\]', r'\[NAMA\]', r'\[USERNAME\]',
+                r'\[user-kun\]', r'\[nama-kun\]', r'\[username-kun\]',
+                r'\[user-chan\]', r'\[nama-chan\]', r'\[username-chan\]'
+            ]
+            
             for pattern in username_patterns:
                 text = re.sub(pattern, safe_username, text, flags=re.IGNORECASE)
+                
+            # Also replace patterns with spaces like [user]-kun, [nama] kun, etc.
+            text = re.sub(r'\[\s*(?:user|nama|username)\s*\][\s\-]*(?:kun|chan)?', safe_username, text, flags=re.IGNORECASE)
+            
+            # Fix remaining patterns directly
+            text = text.replace("[user]-kun", safe_username)
+            text = text.replace("[nama]-kun", safe_username)
+            text = text.replace("[username]-kun", safe_username)
+            text = text.replace("[user]-chan", safe_username)
+            text = text.replace("[nama]-chan", safe_username)
+            text = text.replace("[username]-chan", safe_username)
+            
+            # Also replace without brackets
+            text = re.sub(r"(?<!\[)user-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
+            text = re.sub(r"(?<!\[)nama-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
+            text = re.sub(r"(?<!\[)username-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
 
         # Escape special characters with explicit order
         escapes = [

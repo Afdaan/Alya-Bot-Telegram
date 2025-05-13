@@ -3,6 +3,7 @@ import google.generativeai as genai
 import time
 import re
 import random
+import asyncio
 from datetime import datetime
 from telegram.ext import CallbackContext  # Add this import
 from core.search_engine import SearchEngine
@@ -126,9 +127,19 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
                      any(topic in prompt.lower() for topic in search_topics)
         
         if needs_search:
-            # Get search results
-            search_results = await search_engine.search(prompt)
-            
+            # Get search results with a timeout
+            try:
+                search_results = await asyncio.wait_for(
+                    search_engine.search(prompt),
+                    timeout=10.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Search timed out for: {prompt}")
+                search_results = "Tidak dapat melakukan pencarian karena timeout."
+            except Exception as e:
+                logger.error(f"Search error: {e}")
+                search_results = "Error saat melakukan pencarian."
+                
             # Enhanced prompt for better information synthesis
             smart_prompt = f"""
             {persona_context or ""}
@@ -140,18 +151,27 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
             
             Instructions for your response:
             1. Start with a friendly greeting in your waifu persona style
-            2. Provide clear, accurate information from the search results
-            3. Structure the information in an easy-to-read format
-            4. Include relevant details like times, locations, and dates if available
-            5. If the information is incomplete, suggest where the user can get more details
-            6. End with a supportive, encouraging message
-            7. Use appropriate emoji to enhance your response
-            8. Make sure to maintain your character's personality
+            2. Always call the user as "[username]-kun" or "[username]-chan" (no space)
+            3. Provide clear, accurate information from the search results
+            4. Structure the information in an easy-to-read format
+            5. Include relevant details like times, locations, and dates if available
+            6. If the information is incomplete, suggest where the user can get more details
+            7. End with a supportive, encouraging message
+            8. Use appropriate emoji to enhance your response
+            9. Make sure to maintain your character's personality
             
             Respond in a helpful, informative way while staying in character.
             """
             
-            response = chat.send_message(smart_prompt).text
+            try:
+                response = await asyncio.wait_for(
+                    chat.send_message(smart_prompt),
+                    timeout=30.0  # 30 second timeout for generation
+                )
+                response_text = response.text
+            except asyncio.TimeoutError:
+                logger.warning(f"Response generation timed out for: {prompt}")
+                return "Gomennasai~ Alya butuh waktu lebih lama untuk memproses pertanyaan ini. Bisa ditanyakan dengan cara yang lebih sederhana? 🥺"
         else:
             # Regular chat mode
             chat_prompt = f"""
@@ -160,15 +180,25 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
             User Message: {prompt}
             
             Please respond naturally and in character as Alya-chan.
+            Always call the user as "[username]-kun" or "[username]-chan" (no space between name and honorific).
             """
-            response = chat.send_message(chat_prompt).text
+            
+            try:
+                response = await asyncio.wait_for(
+                    chat.send_message(chat_prompt),
+                    timeout=30.0  # 30 second timeout for generation
+                )
+                response_text = response.text
+            except asyncio.TimeoutError:
+                logger.warning(f"Chat response generation timed out for: {prompt}")
+                return "Gomennasai~ Alya butuh waktu lebih lama untuk memproses pesan ini. Bisa disampaikan dengan cara yang lebih sederhana? 🥺"
 
         # Add to history
         chat_history = get_user_history(user_id)
         chat_history.add_message("user", prompt)
-        chat_history.add_message("assistant", response)
+        chat_history.add_message("assistant", response_text)
 
-        return response
+        return response_text
 
     except Exception as e:
         logger.error(f"Error in generate_chat_response: {e}")

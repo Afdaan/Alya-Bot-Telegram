@@ -1,11 +1,12 @@
 import logging
+import asyncio
 from telegram import Update
 from telegram.ext import CallbackContext
 from datetime import datetime
 
 from config.settings import CHAT_PREFIX
 from core.models import generate_chat_response
-from core.personas import WAIFU_PERSONA, TOXIC_PERSONA, SMART_PERSONA  # Add SMART_PERSONA
+from core.personas import WAIFU_PERSONA, TOXIC_PERSONA, SMART_PERSONA
 from utils.formatters import format_markdown_response
 from utils.commands import is_roast_command
 
@@ -55,13 +56,24 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             is_info_query = any(keyword in message_text.lower() for keyword in info_keywords)
             persona = SMART_PERSONA if is_info_query else WAIFU_PERSONA
         
-        # Generate response with persona context
-        response = await generate_chat_response(
-            message_text,
-            user.id,
-            context=context,
-            persona_context=persona
-        )
+        # Generate response with persona context and timeout handling
+        try:
+            response = await asyncio.wait_for(
+                generate_chat_response(
+                    message_text,
+                    user.id,
+                    context=context,
+                    persona_context=persona
+                ),
+                timeout=45.0  # 45 second timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Response generation timed out for user {user.id}")
+            await update.message.reply_text(
+                "Aduh\\, maaf ya\\~ Alya\\-chan butuh waktu lebih lama untuk memikirkan jawaban yang tepat\\. Coba tanyakan dengan cara yang lebih sederhana ya\\? 🥺💕",
+                parse_mode='MarkdownV2'
+            )
+            return
 
         # Format and send response
         safe_response = format_markdown_response(
@@ -86,11 +98,23 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
             safe_response = debug_info
 
-        await update.message.reply_text(
-            safe_response,
-            reply_to_message_id=update.message.message_id,
-            parse_mode='MarkdownV2'
-        )
+        # Check if response is too long and split if needed
+        from utils.formatters import split_long_message
+        if len(safe_response) > 4000:
+            parts = split_long_message(safe_response, 4000)
+            for i, part in enumerate(parts):
+                await update.message.reply_text(
+                    part,
+                    reply_to_message_id=update.message.message_id if i == 0 else None,
+                    parse_mode='MarkdownV2'
+                )
+                await asyncio.sleep(0.5)  # Small delay between messages
+        else:
+            await update.message.reply_text(
+                safe_response,
+                reply_to_message_id=update.message.message_id,
+                parse_mode='MarkdownV2'
+            )
 
     except Exception as e:
         logger.error(f"Error in handle_message: {str(e)}")

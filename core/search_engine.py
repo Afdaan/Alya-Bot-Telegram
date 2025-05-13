@@ -5,6 +5,7 @@ import logging
 from urllib.parse import quote_plus
 import re
 import json
+import asyncio
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -17,8 +18,16 @@ class SearchEngine:
         
     async def search(self, query: str, detailed: bool = False) -> str:
         try:
+            if not query or not isinstance(query, str):
+                logger.error(f"Invalid query: {query}")
+                return "Maaf, tidak dapat memproses query pencarian."
+
             # Clean and optimize the query
             cleaned_query = self._optimize_query(query)
+            
+            if not self.api_key or not self.search_engine_id:
+                logger.error("Missing API key or search engine ID")
+                return "Maaf, fitur pencarian sedang tidak tersedia."
             
             params = {
                 'key': self.api_key,
@@ -29,45 +38,53 @@ class SearchEngine:
                 'lr': 'lang_id',  # Prefer Indonesian results
             }
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(self.base_url, params=params) as response:
-                    if response.status != 200:
-                        logger.error(f"Search API error: {response.status}")
-                        return "Maaf, terjadi error saat mencari informasi 😢"
+            # Add timeout to prevent hanging
+            timeout = aiohttp.ClientTimeout(total=15)  # 15 seconds timeout
+            
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                try:
+                    async with session.get(self.base_url, params=params) as response:
+                        if response.status != 200:
+                            logger.error(f"Search API error: {response.status}")
+                            return "Maaf, terjadi error saat mencari informasi 😢"
+                            
+                        result = await response.json()
                         
-                    result = await response.json()
-                    
-                    if 'items' not in result:
-                        return "Maaf, tidak menemukan hasil yang relevan 😔"
+                        if 'items' not in result:
+                            return f"Maaf, tidak menemukan hasil yang relevan untuk '{query}' 😔"
 
-                    # Extract structured data when possible
-                    structured_data = self._extract_structured_data(result)
-                    if structured_data:
-                        return structured_data
+                        # Extract structured data when possible
+                        structured_data = self._extract_structured_data(result)
+                        if structured_data:
+                            return structured_data
 
-                    # Format results
-                    response = f"Hasil pencarian untuk '{query}':\n\n"
-                    
-                    for item in result['items']:
-                        title = item.get('title', 'No title')
-                        snippet = item.get('snippet', 'No description')
-                        link = item.get('link', '#')
+                        # Format results
+                        response_text = f"Hasil pencarian untuk '{query}':\n\n"
                         
-                        # Clean up the snippet
-                        snippet = snippet.replace('...', '').strip()
-                        
-                        response += f"📌 {title}\n"
-                        response += f"💡 {snippet}\n"
-                        response += f"🔗 {link}\n\n"
+                        for item in result['items']:
+                            title = item.get('title', 'No title')
+                            snippet = item.get('snippet', 'No description')
+                            link = item.get('link', '#')
+                            
+                            # Clean up the snippet
+                            snippet = snippet.replace('...', '').strip()
+                            
+                            response_text += f"📌 {title}\n"
+                            response_text += f"💡 {snippet}\n"
+                            response_text += f"🔗 {link}\n\n"
 
-                        # Add additional info if detailed
-                        if detailed and 'pagemap' in item:
-                            if 'metatags' in item['pagemap']:
-                                meta = item['pagemap']['metatags'][0]
-                                if 'og:description' in meta:
-                                    response += f"📝 Detail:\n{meta['og:description']}\n\n"
+                            # Add additional info if detailed
+                            if detailed and 'pagemap' in item:
+                                if 'metatags' in item['pagemap']:
+                                    meta = item['pagemap']['metatags'][0]
+                                    if 'og:description' in meta:
+                                        response_text += f"📝 Detail:\n{meta['og:description']}\n\n"
 
-                    return response
+                        return response_text
+                
+                except asyncio.TimeoutError:
+                    logger.error("Search timeout")
+                    return "Maaf, pencarian membutuhkan waktu terlalu lama. Silakan coba lagi nanti."
 
         except Exception as e:
             logger.error(f"Search error: {e}")
@@ -75,6 +92,9 @@ class SearchEngine:
 
     def _optimize_query(self, query: str) -> str:
         """Optimize the search query for better results."""
+        if not query:
+            return ""
+            
         # Remove filler words
         fillers = [
             "tolong", "coba", "bantu", "bisa", "minta", "alya", "dong", "ya", "kak",

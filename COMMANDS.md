@@ -54,21 +54,6 @@ Restricted to authorized developers:
 - `/debug` - Toggle debug mode
 - `/shell` - Execute shell commands
 
-### Update Command Details
-1. Manual Update:
-```bash
-/update  # Pull latest changes and restart bot
-```
-
-2. Automatic Update:
-- Bot listens for repository webhooks
-- Auto-triggers `/update` on new commits
-- No manual intervention needed
-- Safe restart using TMUX
-- Maintains uptime tracking
-
-Example webhook flow:
-
 ## Search Commands
 ### Web Search
 - `!search <query>` - Cari informasi di internet
@@ -89,4 +74,7 @@ Example webhook flow:
 # Roasting
 !ai roast github afdaan
 !ai roast @someone wibu nolep
+
+# Search
+!search jadwal kereta jakarta bandung
 ```
