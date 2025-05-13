@@ -37,8 +37,8 @@ async def update_command(update: Update, context: CallbackContext) -> None:
         )
         
         try:
-            # Git pull
-            git_output = subprocess.check_output(['git', 'pull', 'origin', 'main']).decode()
+            # Git pull without specifying branch
+            git_output = subprocess.check_output(['git', 'pull']).decode()
             
             # Get TMUX session
             tmux_session = "alya-bot"
