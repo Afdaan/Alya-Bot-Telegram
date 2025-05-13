@@ -1,6 +1,7 @@
 import logging
 import asyncio
-from telegram import Update, ChatAction
+from telegram import Update
+from telegram.constants import ChatAction  # Updated import for newer PTB versions
 from telegram.ext import CallbackContext
 from datetime import datetime
 
