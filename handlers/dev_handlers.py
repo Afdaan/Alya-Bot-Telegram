@@ -40,11 +40,11 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             git_output = subprocess.check_output(['git', 'pull']).decode()
             
             # Install/update dependencies
-            pip_output = subprocess.check_output(['pip', 'install', '-r', 'requirements.txt']).decode()
+            pip_output = "Dependencies updated successfully."
+            subprocess.check_output(['pip', 'install', '-r', 'requirements.txt'])
             
             # Get TMUX session
             tmux_session = "alya-bot"
-            pip_output = "Dependencies updated successfully."
             # Restart command
             restart_cmd = f"""
             tmux send-keys -t {tmux_session} C-c
@@ -52,15 +52,27 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             tmux send-keys -t {tmux_session} 'python main.py' Enter
             """
             subprocess.run(restart_cmd, shell=True)
+
+            # Truncate and escape output for MarkdownV2
+            git_output_safe = git_output.replace('`', '').replace('\\', '')
+            # Telegram MarkdownV2: code block must not contain triple backticks, so use single backtick or none
+            update_message = (
+                "*Update Complete\\!*\n"
+                "*Git Changes:*\n"
+                "```\n"
+                f"{git_output_safe[:1500]}"
+                "\n```\n"
+                f"*Status:* {pip_output}\n"
+                "_Restarting bot\\.\\.\\._ ✨"
+            )
             await msg.edit_text(
-                f"*Update Complete\\!*\n```\n{git_output}\n\nDependencies:\\n{pip_output}```\n_Restarting bot\\.\\.\\._ ✨",
+                update_message,
                 parse_mode='MarkdownV2'
             )
         except Exception as e:
-            git_output_safe = git_output.replace('```', '\\`\\`\\`')
-            error_msg = str(e).replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('`', '\\`')
+            error_msg = str(e).replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('`', '')
             await msg.edit_text(
-                f"*Update Failed\\!*\n```\n{error_msg}```",
+                f"*Update Failed\\!*\n```\n{error_msg}\n```",
                 parse_mode='MarkdownV2'
             )
     return await dev_command_wrapper(update, context, handler)
