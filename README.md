@@ -1,32 +1,34 @@
-# Alya Telegram Bot
+# Alya-chan Telegram Bot
 
 ## Description
-Alya is an intelligent Telegram bot powered by Google's Gemini AI, capable of chat interactions, document analysis, and image generation.
+Alya is a kawaii AI waifu bot powered by Google's Gemini AI. With multiple personalities from sweet waifu to toxic queen, she can chat, analyze images, reverse search anime sources, and more!
 
-## Features
-- Natural language conversation
-- Document and image analysis
-- Chat mode with waifu personality
-- Group and private chat support
+## Key Features
+- 🌸 Waifu Chat Mode
+- 💅 Toxic Queen Mode
+- 🔍 Image/Document Analysis
+- 🎨 Source Image Search
+- 🤖 AI-Powered Responses
+- 👥 Group Chat Support
 
-## Prerequisites
+## Tech Stack
 - Python 3.8+
-- Telegram Bot Token
-- Google Gemini API Key
-- (Optional) Stability AI API Key for image generation
+- Google Gemini AI
+- Telegram Bot API
+- SauceNAO API
 
 ## Installation
 
-1. Clone the repository:
+1. Clone repository:
 ```bash
 git clone https://github.com/yourusername/alya-bot-telegram.git
 cd alya-bot-telegram
 ```
 
-2. Create a virtual environment:
+2. Create virtual environment:
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 ```
 
 3. Install dependencies:
@@ -34,77 +36,43 @@ source venv/bin/activate  # On Windows use `venv\Scripts\activate`
 pip install -r requirements.txt
 ```
 
-4. Create and configure `.env` file:
+4. Configure environment:
 ```bash
 cp .env.example .env
+# Edit .env with your API keys
 ```
-Edit `.env` with your API keys:
-- Get Telegram Bot Token from [@BotFather](https://t.me/botfather)
-- Get Gemini API Key from [Google AI Studio](https://makersuite.google.com/app/apikey)
-- (Optional) Get Stability AI Key from [Stability AI](https://platform.stability.ai/)
 
-## Running the Bot
+Required API Keys:
+- `TELEGRAM_BOT_TOKEN` - Get from [@BotFather](https://t.me/botfather)
+- `GEMINI_API_KEY` - Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
+- `SAUCENAO_API_KEY` - Get from [SauceNAO](https://saucenao.com/user.php)
+
+## Deployment
+
+### Regular Python
 ```bash
 python main.py
 ```
 
-## Environment Variables
-- `TELEGRAM_BOT_TOKEN`: Your Telegram Bot Token
-- `GEMINI_API_KEY`: Google Gemini API Key
-- `STABILITY_API_KEY`: (Optional) Stability AI API Key for image generation
-
-## Commands and Features
-
-### Basic Commands
-- `/start` - Start bot and show main menu
-- `/help` - Show help message
-- `/mode` - Change bot mode
-- `/reset` - Reset chat history
-- `/ping` - Check bot status and system info
-
-### Chat Commands
-- Private chat: Send message directly
-- Group chat: Use `!ai` prefix
-  Example: `!ai Hello Alya-chan!`
-
-### Analysis Commands
-- Document/Image analysis: Send with `!trace` caption
-  Example: `!trace Please analyze this image`
-
-### Roasting Commands
-1. GitHub Roasts:
-   - `!ai roast github <username>`
-   - `!ai github roast <username>`
-   - `!ai check github <username>`
-   
-2. General Roasts:
-   - `!ai roast <target>`
-   - `!ai toxic <target>`
-   - `!ai flame <target>`
-   - `!ai bully <target>`
-
-### Example Usage
+### Using TMUX (Recommended)
 ```bash
-# GitHub roasting
-!ai roast github afdaan
-!ai check github someone
-
-# General roasting
-!ai roast someone
-!ai toxic someone
+tmux new-session -s alya-bot
+python main.py
+# Ctrl+B then D to detach
 ```
 
-## Contributing
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+To update bot:
+```bash
+tmux attach -t alya-bot
+# Ctrl+C to stop
+git pull
+python main.py
+```
+
+## Developer Contact
+- Creator: Afdaan
+- Email: [alif@horn-yastudio.com]
+- Website: [alif.horn-yastudio.com]
 
 ## License
-Distributed under the MIT License. See `LICENSE` for more information.
-
-## Contact
-Afdaan - [alif@horn-yastudio.com]
-
-Project Link: [https://github.com/Afdaan/alya-bot-telegram](https://github.com/Afdaan/alya-bot-telegram)
+MIT License. See `LICENSE` for details.

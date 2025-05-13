@@ -12,6 +12,10 @@ from handlers.message_handlers import handle_message
 from handlers.document_handlers import handle_document_image
 from handlers.callback_handlers import button_callback
 from handlers.ping_handlers import ping_command
+from handlers.dev_handlers import (
+    update_command, stats_command, debug_command, shell_command,
+    # Add other dev commands here
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,5 +46,12 @@ def setup_handlers(application: Application) -> None:
         filters.PHOTO | filters.Document.ALL,
         handle_document_image
     ))
+    
+    # Developer Commands
+    application.add_handler(CommandHandler("update", update_command))
+    application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("debug", debug_command))
+    application.add_handler(CommandHandler("shell", shell_command))
+    # Add other dev command handlers
     
     logger.info("All handlers have been set up successfully")

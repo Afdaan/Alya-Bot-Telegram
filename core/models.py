@@ -3,6 +3,8 @@ import google.generativeai as genai
 import time
 import re
 import random
+from datetime import datetime
+from telegram.ext import CallbackContext  # Add this import
 
 from config.settings import (
     GEMINI_API_KEY, 
@@ -98,47 +100,30 @@ def get_developer_response(username: str) -> str:
     ]
     return random.choice(responses)
 
-def generate_chat_response(prompt: str, user_id: int, persona_context: str = None) -> str:
+def generate_chat_response(prompt: str, user_id: int, context: CallbackContext = None, persona_context: str = None) -> str:
+    """Generate response with optional debug info."""
     try:
-        # Check for developer question first
-        if is_developer_question(prompt):
-            username = prompt.split(':')[0] if ':' in prompt else ''
-            return get_developer_response(username)
-            
-        history = get_user_history(user_id)
-        
-        system_prompt = """
-        Important instructions:
-        1. User's name must be followed by honorifics (-kun, -chan, -san)
-        2. The message after "User:" contains the user's message, not their name
-        3. Always use the username from the history/context, not from the message content
-        4. Never interpret the message content as a username
-        """
-        
-        # Combine history and current prompt
-        full_prompt = system_prompt + "\n\n"
-        
-        # Add persona if it's a new conversation
-        if persona_context and not history.messages:
-            full_prompt += f"System: {persona_context}\n"
-        
-        # Add conversation history
-        full_prompt += history.get_history_text()
-        
-        # Add current prompt with username in context
-        username_context = f"Current username: {prompt.split()[0]}\n"  # Get first word as context
-        full_prompt += username_context
-        full_prompt += f"User message: {prompt}\n"
-        
-        # Generate response
         chat = chat_model.start_chat()
-        response = chat.send_message(full_prompt)
         
-        # Save to history
-        history.add_message("user", prompt)
-        history.add_message("assistant", response.text)
-        
-        return response.text
+        if persona_context:
+            # Add persona context first
+            system_prompt = f"""
+            {persona_context}
+            
+            User: {prompt}
+            Assistant: """
+            
+            response = chat.send_message(system_prompt).text
+        else:
+            response = chat.send_message(prompt).text
+
+        # Add to history
+        chat_history = get_user_history(user_id)
+        chat_history.add_message("user", prompt)
+        chat_history.add_message("assistant", response)
+
+        return response
+
     except Exception as e:
         logger.error(f"Error in generate_chat_response: {e}")
-        return "Gomen ne sayang~ Alya sedang bingung.. Bisa diulang? 🥺❤️"
+        return "Gomen ne sayang~ Ada error... 🥺"

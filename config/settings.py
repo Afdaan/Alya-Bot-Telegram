@@ -52,3 +52,26 @@ LOGGING_CONFIG = {
     'LOG_LEVEL': 'INFO',
     'LOG_FORMAT': '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 }
+
+# Get developer IDs from env
+DEVELOPER_IDS = [int(id.strip()) for id in os.getenv('DEVELOPER_IDS', '').split(',')]
+
+# Developer Commands Configuration
+DEV_COMMANDS = {
+    'update': {
+        'enabled': True,
+        'description': 'Pull latest changes and restart bot'
+    },
+    'stats': {
+        'enabled': True,
+        'description': 'Get detailed bot statistics'
+    },
+    'debug': {
+        'enabled': True,
+        'description': 'Toggle debug mode'
+    },
+    'shell': {
+        'enabled': True,
+        'description': 'Execute shell commands'
+    }
+}
