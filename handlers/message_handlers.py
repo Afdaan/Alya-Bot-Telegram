@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from telegram import Update
+from telegram import Update, ChatAction
 from telegram.ext import CallbackContext
 from datetime import datetime
 
@@ -12,6 +12,13 @@ from utils.commands import is_roast_command
 
 logger = logging.getLogger(__name__)
 
+async def send_typing_action(context, chat_id, duration=3):
+    """Send typing action periodically to keep it active for longer periods."""
+    end_time = asyncio.get_event_loop().time() + duration
+    while asyncio.get_event_loop().time() < end_time:
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        await asyncio.sleep(4.5)  # Typing action lasts ~5 seconds, refresh before it expires
+
 async def handle_message(update: Update, context: CallbackContext) -> None:
     """Handle incoming messages."""
     try:
@@ -21,6 +28,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         message_text = update.message.text
         chat_type = update.message.chat.type
         user = update.effective_user
+        chat_id = update.effective_chat.id
         
         # Extract mentioned username for proper handling - IMPROVED DETECTION
         telegram_mention = None
@@ -52,8 +60,9 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
         if not message_text:
             return
-
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+            
+        # Start typing indicator in background task that keeps refreshing
+        typing_task = asyncio.create_task(send_typing_action(context, chat_id, 30))  # Up to 30 seconds of typing
         
         # Check for roasting command
         is_roast, target, is_github, keywords, user_info = is_roast_command(update.message)
@@ -87,6 +96,8 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             )
         except asyncio.TimeoutError:
             logger.warning(f"Response generation timed out for user {user.id}")
+            # Cancel typing indicator before sending error
+            typing_task.cancel()
             await update.message.reply_text(
                 "Aduh\\, maaf ya\\~ Alya\\-chan butuh waktu lebih lama untuk memikirkan jawaban yang tepat\\. Coba tanyakan dengan cara yang lebih sederhana ya\\? 🥺💕",
                 parse_mode='MarkdownV2'
@@ -115,8 +126,16 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                 f"`{message_text}`\n\n"
                 f"*🤖 Response:*\n"
             ) + safe_response
+            
+            if telegram_mention:
+                debug_info += f"\n\n*🏷️ Mention:* {telegram_mention}"
+            
             safe_response = debug_info
 
+        # Cancel the typing task before sending response
+        typing_task.cancel()
+        
+        # Send the response
         if len(safe_response) > 4000:
             parts = split_long_message(safe_response, 4000)
             for i, part in enumerate(parts):
