@@ -52,6 +52,13 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         f"\\- Kirim gambar dengan caption `{SAUCE_PREFIX}`\n"
         f"Contoh: `{SAUCE_PREFIX}` untuk mencari sumber gambar anime/artwork\n\n"
         
+        "*Smart Search:*\n"
+        f"\\- Command: `/search <query>` atau `!search <query>`\n"
+        f"\\- Detail search: `/search -d <query>` \n"
+        "\\- Contoh: `/search jadwal KRL lempuyangan jogja`\n"
+        "\\- Alya juga bisa langsung menjawab pertanyaan informasi faktual\n"
+        "\\- Contoh: `{CHAT_PREFIX} carikan jadwal kereta dari Bandung ke Jakarta`\n\n"
+        
         "*Roasting Mode:*\n"
         "1\\. Roast Biasa:\n"
         f"`{CHAT_PREFIX} roast <username> [keywords]`\n"
@@ -64,6 +71,12 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         f"`{ANALYZE_PREFIX}` \\- Analisis gambar/dokumen\n"
         f"`{SAUCE_PREFIX}` \\- Cari source gambar\n"
         f"`{CHAT_PREFIX} roast` \\- Mode toxic queen\n\n"
+        
+        "_Fitur Smart:_\n"
+        "\\- Alya bisa mencari informasi faktual otomatis\n"
+        "\\- Tanya tentang jadwal, berita, cuaca, atau informasi lainnya\n"
+        "\\- Support pencarian pintar tentang: jadwal kereta, pesawat, bus, dll\n"
+        "\\- Akan otomatis mencari di internet dan merangkum hasilnya\n\n"
         
         "_Yoroshiku onegaishimasu\\!_ ✨"
     )

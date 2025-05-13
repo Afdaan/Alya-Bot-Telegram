@@ -5,7 +5,7 @@ from datetime import datetime
 
 from config.settings import CHAT_PREFIX
 from core.models import generate_chat_response
-from core.personas import WAIFU_PERSONA, TOXIC_PERSONA  # Import personas directly
+from core.personas import WAIFU_PERSONA, TOXIC_PERSONA, SMART_PERSONA  # Add SMART_PERSONA
 from utils.formatters import format_markdown_response
 from utils.commands import is_roast_command
 
@@ -20,6 +20,14 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         message_text = update.message.text
         chat_type = update.message.chat.type
         user = update.effective_user
+
+        # Handle search command with "!search" prefix
+        if message_text.lower().startswith('!search'):
+            # Extract arguments after the command
+            args = message_text.split(' ')[1:]
+            context.args = args  # Set args for the handler
+            from handlers.command_handlers import handle_search
+            return await handle_search(update, context)
 
         # Check for group message prefix
         if chat_type in ['group', 'supergroup']:
@@ -36,12 +44,23 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         # Check for roasting command
         is_roast, target, is_github, keywords, user_info = is_roast_command(update.message)
         
+        # Use appropriate persona
+        if is_roast:
+            persona = TOXIC_PERSONA
+        else:
+            # Check if this might be an informational query
+            info_keywords = ['jadwal', 'siapa', 'apa', 'dimana', 'kapan', 'bagaimana', 
+                            'mengapa', 'cara', 'berapa', 'info', 'cari', 'carikan']
+            
+            is_info_query = any(keyword in message_text.lower() for keyword in info_keywords)
+            persona = SMART_PERSONA if is_info_query else WAIFU_PERSONA
+        
         # Generate response with persona context
         response = await generate_chat_response(
             message_text,
             user.id,
             context=context,
-            persona_context=TOXIC_PERSONA if is_roast else WAIFU_PERSONA  # Use persona directly
+            persona_context=persona
         )
 
         # Format and send response

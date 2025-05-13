@@ -26,10 +26,20 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("reset", reset_command))
-    application.add_handler(CommandHandler("search", handle_search))  # Add search command
+    
+    # Add search commands with both prefixes
+    application.add_handler(CommandHandler("search", handle_search))
+    application.add_handler(CommandHandler("s", handle_search))  # Add short alias
     
     # Add ping command
     application.add_handler(CommandHandler("ping", ping_command))
+    
+    # Message handlers with prefixes
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(r'^!search'), 
+        handle_search,
+        block=False
+    ))
     
     # Callback query handler
     application.add_handler(CallbackQueryHandler(button_callback))
