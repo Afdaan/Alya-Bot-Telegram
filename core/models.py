@@ -185,38 +185,35 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
         else:
             # Regular chat mode
             chat_prompt = f"""
+            {persona_context or ""}
+            
             User Message: {prompt}
             
-            Please respond naturally and in character as Alya-chan.   chat.send_message(chat_prompt),
-            Always call the user as "[username]-kun" or "[username]-chan" (no space between name and honorific). timeout for generation
+            Please respond naturally and in character as Alya-chan.
+            Always call the user as "[username]-kun" or "[username]-chan" (no space between name and honorific).
             """
-            
-            # Use ThreadPoolExecutor to run the synchronous send_message in a separate thread
-            try:                logger.warning(f"Chat response generation timed out for: {prompt}")
-                with ThreadPoolExecutor() as executor:Gomennasai~ Alya butuh waktu lebih lama untuk memproses pesan ini. Bisa disampaikan dengan cara yang lebih sederhana? 🥺"
+            try:
+                with ThreadPoolExecutor() as executor:
                     send_message_task = executor.submit(chat.send_message, chat_prompt)
-                    # Use asyncio.wait_for to add a timeout to the thread execution
                     response = await asyncio.wait_for(
-                        asyncio.wrap_future(send_message_task),        chat_history.add_message("user", prompt)
-                        timeout=30.0sage("assistant", response_text)
+                        asyncio.wrap_future(send_message_task),
+                        timeout=30.0
                     )
-                response_text = response.textxt
+                response_text = response.text
             except (asyncio.TimeoutError, concurrent.futures.TimeoutError):
                 logger.warning(f"Chat response generation timed out for: {prompt}")
+                return "Gomennasai~ Alya butuh waktu lebih lama untuk memproses pesan ini. Bisa disampaikan dengan cara yang lebih sederhana? 🥺"
+            except Exception as e:
+                logger.error(f"Error generating response: {str(e)}")
+                return "Gomennasai~ Ada kesalahan saat memproses permintaan. Bisa dicoba lagi? 🥺"
 
+        # Add to history
+        chat_history = get_user_history(user_id)
+        chat_history.add_message("user", prompt)
+        chat_history.add_message("assistant", response_text)
 
+        return response_text
 
-
-
-
-
-
-
-
-
-
-
-
-
-        return "Gomen ne sayang~ Ada error... 🥺"        logger.error(f"Error in generate_chat_response: {e}")    except Exception as e:        return response_text        chat_history.add_message("assistant", response_text)        chat_history.add_message("user", prompt)        chat_history = get_user_history(user_id)        # Add to history                return "Gomennasai~ Ada kesalahan saat memproses permintaan. Bisa dicoba lagi? 🥺"                logger.error(f"Error generating response: {str(e)}")            except Exception as e:                return "Gomennasai~ Alya butuh waktu lebih lama untuk memproses pesan ini. Bisa disampaikan dengan cara yang lebih sederhana? 🥺"        logger.error(f"Error in generate_chat_response: {e}")
+    except Exception as e:
+        logger.error(f"Error in generate_chat_response: {e}")
         return "Gomen ne sayang~ Ada error... 🥺"
