@@ -10,13 +10,26 @@ def format_markdown_response(text: str, username: str = None, telegram_username:
             text = str(text)
         
         # If ada telegram_username (misal @afdaan), gunakan mention Telegram
+        safe_mention = None
         if telegram_username and telegram_username.startswith('@'):
+            # Telegram mention for MarkdownV2: [username](tg://user?id=USER_ID) is not supported for @username, so just use @username
             safe_mention = telegram_username
-        else:
-            safe_mention = None
 
-        # Handle username first if provided
-        if username:
+        # If mention, replace [username] and all variants with @username (not [username]-kun, but @username)
+        if safe_mention:
+            # Replace all [username], [user], [nama], and their -kun/-chan variants with @username
+            text = re.sub(r'\[username\](\-kun|\-chan)?', safe_mention, text, flags=re.IGNORECASE)
+            text = re.sub(r'\[user\](\-kun|\-chan)?', safe_mention, text, flags=re.IGNORECASE)
+            text = re.sub(r'\[nama\](\-kun|\-chan)?', safe_mention, text, flags=re.IGNORECASE)
+            text = re.sub(r'\[username\]', safe_mention, text, flags=re.IGNORECASE)
+            text = re.sub(r'\[user\]', safe_mention, text, flags=re.IGNORECASE)
+            text = re.sub(r'\[nama\]', safe_mention, text, flags=re.IGNORECASE)
+            text = re.sub(r'(\{usertele\}|\[mention\])', safe_mention, text, flags=re.IGNORECASE)
+            # Also replace [username]-kun, [username]-chan, etc. with @username
+            text = re.sub(r'@?(\w+)\-kun', safe_mention, text, flags=re.IGNORECASE)
+            text = re.sub(r'@?(\w+)\-chan', safe_mention, text, flags=re.IGNORECASE)
+        elif username:
+            # Fallback: replace [username] and variants with username-kun/chan if present
             safe_username = username.replace('-', '\\-')
             username_patterns = [
                 r'\[user\]', r'\[nama\]', r'\[username\]',
@@ -37,10 +50,6 @@ def format_markdown_response(text: str, username: str = None, telegram_username:
             text = re.sub(r"(?<!\[)user-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
             text = re.sub(r"(?<!\[)nama-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
             text = re.sub(r"(?<!\[)username-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
-
-        # Replace {usertele} or [mention] with Telegram mention if available
-        if safe_mention:
-            text = re.sub(r'(\{usertele\}|\[mention\])', safe_mention, text, flags=re.IGNORECASE)
 
         # Escape special characters with explicit order
         escapes = [
