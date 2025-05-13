@@ -3,19 +3,21 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def format_markdown_response(text: str, username: str = None) -> str:
-    """Format response for MarkdownV2 with better escape."""
+def format_markdown_response(text: str, username: str = None, telegram_username: str = None) -> str:
+    """Format response for MarkdownV2 with better escape and support Telegram mention."""
     try:
         if not isinstance(text, str):
-            # Convert non-string responses to string
             text = str(text)
-            
+        
+        # If ada telegram_username (misal @afdaan), gunakan mention Telegram
+        if telegram_username and telegram_username.startswith('@'):
+            safe_mention = telegram_username
+        else:
+            safe_mention = None
+
         # Handle username first if provided
         if username:
-            # Escape dashes in username
             safe_username = username.replace('-', '\\-')
-            
-            # Expanded username patterns to catch more variations
             username_patterns = [
                 r'\[user\]', r'\[nama\]', r'\[username\]',
                 r'\[User\]', r'\[Nama\]', r'\[Username\]',
@@ -23,25 +25,22 @@ def format_markdown_response(text: str, username: str = None) -> str:
                 r'\[user-kun\]', r'\[nama-kun\]', r'\[username-kun\]',
                 r'\[user-chan\]', r'\[nama-chan\]', r'\[username-chan\]'
             ]
-            
             for pattern in username_patterns:
                 text = re.sub(pattern, safe_username, text, flags=re.IGNORECASE)
-                
-            # Also replace patterns with spaces like [user]-kun, [nama] kun, etc.
             text = re.sub(r'\[\s*(?:user|nama|username)\s*\][\s\-]*(?:kun|chan)?', safe_username, text, flags=re.IGNORECASE)
-            
-            # Fix remaining patterns directly
             text = text.replace("[user]-kun", safe_username)
             text = text.replace("[nama]-kun", safe_username)
             text = text.replace("[username]-kun", safe_username)
             text = text.replace("[user]-chan", safe_username)
             text = text.replace("[nama]-chan", safe_username)
             text = text.replace("[username]-chan", safe_username)
-            
-            # Also replace without brackets
             text = re.sub(r"(?<!\[)user-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
             text = re.sub(r"(?<!\[)nama-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
             text = re.sub(r"(?<!\[)username-kun(?!\])", safe_username, text, flags=re.IGNORECASE)
+
+        # Replace {usertele} or [mention] with Telegram mention if available
+        if safe_mention:
+            text = re.sub(r'(\{usertele\}|\[mention\])', safe_mention, text, flags=re.IGNORECASE)
 
         # Escape special characters with explicit order
         escapes = [
@@ -63,7 +62,6 @@ def format_markdown_response(text: str, username: str = None) -> str:
             ('!', '\\!'),
             ('.', '\\.')
         ]
-        
         for char, escape in escapes:
             text = text.replace(char, escape)
 
@@ -75,7 +73,6 @@ def format_markdown_response(text: str, username: str = None) -> str:
             (r'([😀-🙏💕✨🌸])', r'\1'),            # Emojis
             (r'\s\\~\s', r' ~ ')                   # Decorative tildes
         ]
-
         for pattern, replacement in fixes:
             text = re.sub(pattern, replacement, text)
 
