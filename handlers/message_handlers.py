@@ -32,11 +32,13 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
         
-        # Check for roasting command with keywords
-        is_roast, target, is_github, keywords = is_roast_command(message_text)
+        # Check for roasting command with enhanced mention support
+        is_roast, target, is_github, keywords, user_info = is_roast_command(update.message)
         if is_roast:
+            # Use mention info if available
+            display_name = user_info['mention'] if user_info else target
             response = get_toxic_persona(
-                username=target,
+                username=display_name,
                 is_github=is_github,
                 keywords=keywords
             )
