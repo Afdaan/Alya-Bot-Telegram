@@ -170,7 +170,7 @@ async def logs_command(update: Update, context: CallbackContext) -> None:
             if not log_files:
                 await update.message.reply_text(
                     "*📝 Log Files*\n"
-                    "Tidak ada file log yang ditemukan\\!",
+                    "Tidak ada file log yang ditemukan!",
                     parse_mode='MarkdownV2'
                 )
                 return
@@ -193,27 +193,24 @@ async def logs_command(update: Update, context: CallbackContext) -> None:
                         
                     found_errors = True
                     
-                    # Escape special characters for MarkdownV2
-                    formatted_logs = []
-                    for log in error_logs:
-                        escaped_log = log.replace('.', '\\.').replace('-', '\\-').replace('+', '\\+')
-                        formatted_logs.append(escaped_log)
-                    
-                    log_content = '\n'.join(formatted_logs)
+                    # Pre-escape special characters before f-string
+                    safe_logfile = log_file.replace('.', '\\.').replace('-', '\\-')
+                    log_content = '\n'.join(error_logs)
+                    safe_content = log_content.replace('.', '\\.').replace('-', '\\-').replace('+', '\\+')
                     
                     # Send in chunks if needed
-                    if len(log_content) > 3500:  # Reduced size for safety
-                        chunks = [log_content[i:i+3500] for i in range(0, len(log_content), 3500)]
+                    if len(safe_content) > 3500:
+                        chunks = [safe_content[i:i+3500] for i in range(0, len(safe_content), 3500)]
                         for i, chunk in enumerate(chunks, 1):
                             await update.message.reply_text(
-                                f"*📝 Error Logs \\({log_file}\\) Part {i}/{len(chunks)}:*\n"
+                                f"*📝 Error Logs ({safe_logfile}) Part {i}/{len(chunks)}:*\n"
                                 f"```\n{chunk}```",
                                 parse_mode='MarkdownV2'
                             )
                     else:
                         await update.message.reply_text(
-                            f"*📝 Error Logs \\({log_file}\\):*\n"
-                            f"```\n{log_content}```",
+                            f"*📝 Error Logs ({safe_logfile}):*\n"
+                            f"```\n{safe_content}```",
                             parse_mode='MarkdownV2'
                         )
                 
@@ -224,7 +221,7 @@ async def logs_command(update: Update, context: CallbackContext) -> None:
             if not found_errors:
                 await update.message.reply_text(
                     "*📝 Log Status*\n"
-                    "Tidak ada error yang ditemukan dalam log\\!",
+                    "Tidak ada error yang ditemukan dalam log!",
                     parse_mode='MarkdownV2'
                 )
                 
