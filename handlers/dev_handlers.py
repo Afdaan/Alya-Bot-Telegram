@@ -115,11 +115,14 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             """
             subprocess.run(restart_cmd, shell=True)
 
+            # Perhatikan cara escape karakter # dengan variabel terpisah
+            escaped_commit_messages = commit_messages.replace('#', '\\#')
+            
             # Format final update message with commit details
             update_message = (
                 "*Update Complete* ✨\n\n"
                 "*Changes Applied:*\n"
-                f"{commit_messages.replace('#', '\\#')}\n\n"
+                f"{escaped_commit_messages}\n\n"
                 "*Dependencies:* Updated\n"
                 "*Status:* Bot restarting\n\n"
                 "_Alya\\-chan will be back online shortly\\!_ 🌸"
