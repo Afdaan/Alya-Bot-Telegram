@@ -19,6 +19,7 @@ from config.settings import (
 from core.models import user_chats
 from core.search_engine import SearchEngine
 from utils.language_handler import get_response
+from utils.formatters import format_markdown_response
 
 logger = logging.getLogger(__name__)
 
@@ -140,43 +141,126 @@ async def reset_command(update: Update, context: CallbackContext) -> None:
 # Search Command
 # =========================
 
-async def handle_search(update: Update, context: CallbackContext):
+async def handle_search(update: Update, context: CallbackContext) -> None:
     """
-    Handle search requests with web search functionality.
-    
-    Supports both !search prefix and /search command with
-    detailed search option.
+    Handle search command with web search capabilities.
     
     Args:
-        update: Telegram update object
-        context: Callback context
+        update: Telegram Update object
+        context: CallbackContext for state management
     """
-    # Extract search query
-    if update.message.text and update.message.text.startswith('!search'):
-        query = update.message.text.replace('!search', '', 1).strip()
-    else:
-        # For /search command (if still used)
-        query = ' '.join(context.args)
-    
-    # Show usage if no query provided
-    if not query:
-        await update.message.reply_text(
-            get_response("search_usage", context),
+    try:
+        # Perbaikan: pastikan context.args adalah list sebelum join
+        if not context.args:
+            # Jika pesan langsung dimulai dengan '!search' tanpa spasi, ambil query dari text penuh
+            if update.message.text.startswith('!search'):
+                # Skip '!search ' prefix (7 karakter) untuk ambil query
+                query = update.message.text[7:].strip()
+            else:
+                query = ""
+        else:
+            # Jika args ada, join seperti biasa
+            query = " ".join(context.args)
+        
+        # If no query provided, show usage info
+        if not query:
+            usage_msg = get_response("search_usage", context)
+            await update.message.reply_text(
+                usage_msg,
+                parse_mode='MarkdownV2'
+            )
+            return
+        
+        # Log untuk debugging
+        logger.info(f"Search query: '{query}'")
+        
+        # Determine if this is a detailed search
+        is_detailed = query.startswith("-d ") or query.startswith("--detail ")
+        if is_detailed:
+            query = query.replace("-d ", "", 1).replace("--detail ", "", 1).strip()
+        
+        # Send searching indicator message
+        searching_msg = get_response("searching", context)
+        msg = await update.message.reply_text(
+            searching_msg,
             parse_mode='MarkdownV2'
         )
-        return
-
-    # Check if detailed search is requested
-    detailed = any(flag in query.lower() for flag in ['-d', '--detail', 'detail'])
-    if detailed:
-        query = query.replace('-d', '').replace('--detail', '').replace('detail', '').strip()
-
-    # Send searching message
-    await update.message.reply_text(
-        get_response("searching", context),
-        parse_mode='MarkdownV2'
-    )
-    
-    # Perform search and send results
-    result = await search_engine.search(query, detailed=detailed)
-    await update.message.reply_text(result, parse_mode='HTML')
+        
+        # Execute search
+        try:
+            search_result_tuple = await search_engine.search(query, detailed=is_detailed)
+            
+            # Validasi return value dari search()
+            if not isinstance(search_result_tuple, tuple) or len(search_result_tuple) != 2:
+                logger.error(f"Invalid search result format: {type(search_result_tuple)}")
+                search_results = f"Error: Format hasil pencarian tidak valid"
+                image_results = None
+            else:
+                search_results, image_results = search_result_tuple
+                
+        except Exception as search_err:
+            logger.error(f"Search execution error: {search_err}")
+            search_results = "Error saat melakukan pencarian."
+            image_results = None
+        
+        # Pastikan search_results adalah string
+        if not isinstance(search_results, str):
+            logger.error(f"Unexpected search results type: {type(search_results)}")
+            search_results = "Error: Hasil pencarian tidak valid"
+        
+        # Format search results for Markdown
+        safe_results = format_markdown_response(search_results)
+        
+        # If we have image results, send them
+        if image_results and len(image_results) > 0:
+            # First send the text results
+            await msg.edit_text(
+                safe_results,
+                parse_mode='MarkdownV2',
+                disable_web_page_preview=True
+            )
+            
+            # Then send up to 3 images
+            for i, img in enumerate(image_results[:3]):
+                try:
+                    # Escape text for markdown
+                    safe_title = img['title'].replace('.', '\\.').replace('-', '\\-').replace('!', '\\!')
+                    safe_source = img['source'].replace('.', '\\.').replace('-', '\\-').replace('!', '\\!')
+                    
+                    caption = f"*{safe_title}*\nSumber: {safe_source}"
+                    
+                    # Try with full URL first
+                    try:
+                        await update.message.reply_photo(
+                            img['url'], 
+                            caption=caption,
+                            parse_mode='MarkdownV2'
+                        )
+                    except Exception as img_error:
+                        # If full URL fails, try thumbnail
+                        try:
+                            logger.warning(f"Failed to send image, trying thumbnail: {str(img_error)}")
+                            if img.get('thumbnail') and img['thumbnail'] != img['url']:
+                                await update.message.reply_photo(
+                                    img['thumbnail'], 
+                                    caption=caption,
+                                    parse_mode='MarkdownV2'
+                                )
+                        except Exception as thumb_error:
+                            logger.error(f"Failed to send thumbnail: {str(thumb_error)}")
+                            # If both fail, continue to next image
+                except Exception as e:
+                    logger.error(f"Error sending image result: {str(e)}")
+        else:
+            # No images, just send the text results
+            await msg.edit_text(
+                safe_results,
+                parse_mode='MarkdownV2'
+            )
+            
+    except Exception as e:
+        logger.error(f"Search error: {e}", exc_info=True)  # Log full traceback
+        await update.message.reply_text(
+            "Oops\\! Ada masalah saat melakukan pencarian\\. Silakan coba lagi nanti\\.",
+            parse_mode='MarkdownV2'
+        )

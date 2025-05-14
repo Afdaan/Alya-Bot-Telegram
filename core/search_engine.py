@@ -11,6 +11,7 @@ import logging
 import asyncio
 import re
 import random
+from typing import Dict, List, Tuple, Optional
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ class SearchEngine:
         self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
         return api_key
     
-    async def search(self, query: str, detailed: bool = False) -> str:
+    async def search(self, query: str, detailed: bool = False) -> Tuple[str, Optional[List[Dict]]]:
         """
         Search the web for information and format results.
         
@@ -61,14 +62,20 @@ class SearchEngine:
             detailed: Whether to return detailed results with more entries
             
         Returns:
-            Formatted search results as string
+            Tuple of (formatted search results text, image results list or None)
         """
         # Try each API key until one works or all fail
-        for attempt in range(len(self.api_keys)):
+        images_data = None
+        
+        # Jika tidak ada API key yang tersedia
+        if not self.api_keys:
+            return "Maaf, API key untuk pencarian tidak tersedia. Silakan hubungi developer.", None
+        
+        for attempt in range(max(1, len(self.api_keys))):  # Pastikan minimal 1 attempt
             try:
                 if not query or not isinstance(query, str):
                     logger.error(f"Invalid query: {query}")
-                    return "Maaf, tidak dapat memproses query pencarian."
+                    return "Maaf, tidak dapat memproses query pencarian.", None
 
                 # Clean and optimize the query
                 cleaned_query = self._optimize_query(query)
@@ -78,8 +85,9 @@ class SearchEngine:
                 
                 if not api_key or not self.search_engine_id:
                     logger.error("Missing API key or search engine ID")
-                    return "Maaf, fitur pencarian sedang tidak tersedia."
+                    return "Maaf, fitur pencarian sedang tidak tersedia.", None
                 
+                # Configure search parameters with image search enabled
                 params = {
                     'key': api_key,
                     'cx': self.search_engine_id,
@@ -87,7 +95,11 @@ class SearchEngine:
                     'num': 5 if detailed else 3,
                     'gl': 'id',  # Set geography to Indonesia
                     'lr': 'lang_id',  # Prefer Indonesian results
+                    'searchType': 'image' if 'gambar' in query.lower() or 'foto' in query.lower() else None,
                 }
+                
+                # Remove None values from params
+                params = {k: v for k, v in params.items() if v is not None}
                 
                 # Add timeout to prevent hanging
                 timeout = aiohttp.ClientTimeout(total=15)  # 15 seconds timeout
@@ -101,20 +113,23 @@ class SearchEngine:
                                 
                             if response.status != 200:
                                 logger.error(f"Search API error: {response.status}")
-                                return f"Maaf, terjadi error saat mencari informasi (Status: {response.status}) 😢"
+                                return f"Maaf, terjadi error saat mencari informasi (Status: {response.status}) 😢", None
                                 
                             result = await response.json()
                             
                             if 'items' not in result:
-                                return f"Maaf, tidak menemukan hasil yang relevan untuk '{query}' 😔"
+                                return f"Maaf, tidak menemukan hasil yang relevan untuk '{query}' 😔", None
+
+                            # Try to find images in the search results
+                            image_results = self._extract_image_data(result, params.get('searchType') == 'image')
 
                             # Extract structured data when possible
                             structured_data = self._extract_structured_data(result)
                             if structured_data:
-                                return structured_data
+                                return structured_data, image_results
 
                             # Format results
-                            return self._format_search_results(result, query, detailed)
+                            return self._format_search_results(result, query, detailed), image_results
                     
                     except asyncio.TimeoutError:
                         logger.error("Search timeout")
@@ -129,7 +144,61 @@ class SearchEngine:
                 continue  # Try next API key
         
         # If we've exhausted all API keys
-        return "Maaf, pencarian mencapai batas kuota. Silakan coba lagi nanti 🙏"
+        return "Maaf, pencarian mencapai batas kuota. Silakan coba lagi nanti 🙏", None
+        
+    def _extract_image_data(self, result, is_image_search=False) -> Optional[List[Dict]]:
+        """
+        Extract image URLs and data from search results.
+        
+        Args:
+            result: Raw API response from Google
+            is_image_search: Whether the original search was an image search
+            
+        Returns:
+            List of image data (url, title, source) or None
+        """
+        try:
+            images = []
+            
+            # For dedicated image searches
+            if is_image_search and 'items' in result:
+                for item in result['items'][:3]:  # Limit to 3 images
+                    if 'link' in item:
+                        image_data = {
+                            'url': item.get('link'),
+                            'title': item.get('title', 'No title'),
+                            'source': item.get('displayLink', 'Unknown source'),
+                            'thumbnail': item.get('image', {}).get('thumbnailLink', item.get('link'))
+                        }
+                        images.append(image_data)
+                
+                return images if images else None
+            
+            # For regular searches, try to extract images from pagemap
+            elif 'items' in result:
+                for item in result['items']:
+                    if 'pagemap' in item and 'cse_image' in item['pagemap']:
+                        for image in item['pagemap']['cse_image'][:1]:  # Just take the first image
+                            if 'src' in image:
+                                image_data = {
+                                    'url': image.get('src'),
+                                    'title': item.get('title', 'No title'),
+                                    'source': item.get('displayLink', 'Unknown source'),
+                                    'thumbnail': image.get('src')  # Use same URL as thumbnail
+                                }
+                                images.append(image_data)
+                                
+                                # Limit to 3 images maximum
+                                if len(images) >= 3:
+                                    break
+                
+                return images if images else None
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error extracting image data: {e}")
+            return None
 
     def _optimize_query(self, query: str) -> str:
         """

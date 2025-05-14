@@ -171,11 +171,11 @@ async def handle_trace_command(message, user):
         
         # Make sure to properly escape the entire error message for Markdown
         error_str = str(e)
-        for char in ['.', '-', '(', ')', '[', ']', '~', '>', '#', '+', '=', '{', '}', '!', '|']:
+        for char in ['.', '-', '(', ')', '[', ']', '~', '>', '#', '+', '=', '{', '}', '!', '|', '`']:
             error_str = error_str.replace(char, f'\\{char}')
             
         # Also escape the username
-        escaped_username = user.first_name.replace('.', '\\.')
+        escaped_username = user.first_name.replace('.', '\\.').replace('-', '\\-')
         
         await message.reply_text(
             f"*Gomenasai {escaped_username}\\-kun\\~* 😔\n\nAlya tidak bisa menganalisis file ini\\. Error: {error_str}",
@@ -202,68 +202,86 @@ async def process_file(message, user, file, file_ext):
     with tempfile.NamedTemporaryFile(suffix=f'.{file_ext}') as temp_file:
         await file.download_to_drive(temp_file.name)
         
-        # Handle image files with Gemini Vision
-        if file_ext in ['jpg', 'jpeg', 'png']:
-            image = Image.open(temp_file.name)
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            
-            image_prompt = f"""
-            Sebagai Alya-chan, tolong analisis gambar ini dengan detail ya!
-            Berikan penjelasan dengan gaya yang manis dan mudah dimengerti~
-            User: {user.first_name}-kun
-
-            Format output yang diinginkan:
-            1. Deskripsi umum gambar
-            2. Detail penting yang terlihat
-            3. Kesimpulan atau insight
-            """
-            
-            response = model.generate_content([image_prompt, image])
-        
-        # Handle document files with text extraction
-        else:
-            # Try to extract text from document
-            try:
-                content = textract.process(temp_file.name).decode('utf-8')
-            except Exception as e:
-                logger.error(f"Textract error: {e}")
-                content = None
+        try:
+            # Handle image files with Gemini Vision
+            if file_ext.lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+                image = Image.open(temp_file.name)
+                # PERBAIKAN: Ganti ke model gemini-2.0-flash yang free plan
+                model = genai.GenerativeModel('gemini-2.0-flash')
                 
-                # Try multiple encodings if initial extraction fails
-                encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
-                for encoding in encodings:
-                    try:
-                        with open(temp_file.name, 'r', encoding=encoding) as f:
-                            content = f.read()
-                        break
-                    except UnicodeDecodeError:
-                        continue
+                image_prompt = f"""
+                Sebagai Alya-chan, tolong analisis gambar ini dengan detail ya!
+                Berikan penjelasan dengan gaya yang manis dan mudah dimengerti~
+                User: {user.first_name}-kun
 
-            # Handle case where no text could be extracted
-            if not content:
-                raise ValueError("Tidak bisa membaca isi dokumen")
-            
-            # Generate document summary
-            doc_prompt = f"""
-            Alya-chan akan merangkum dokumen ini untuk {user.first_name}-kun dengan format yang rapi~!
+                Format output yang diinginkan:
+                1. Deskripsi umum gambar (singkat)
+                2. Detail penting yang terlihat
+                3. Kesimpulan atau insight
 
-            Format rangkuman yang diinginkan:
-            1. Judul atau Topik Utama
-            2. Poin-poin Penting (3-5 poin)
-            3. Ringkasan Singkat
-            4. Kesimpulan
+                Penting: JANGAN gunakan format kode (``` atau ` ) dalam responmu karena akan menyebabkan error.
+                Gunakan format * untuk bold dan _ untuk italic saja bila perlu.
+                Jangan lebih dari 800 karakter. Jadikan singkat dan efektif.
+                """
+                
+                try:
+                    response = model.generate_content([image_prompt, image], stream=False)
+                    response_text = response.text
+                except Exception as img_error:
+                    logger.error(f"Error analyzing image with Gemini: {img_error}")
+                    # Fallback to simpler response
+                    response_text = f"Alya-chan melihat ada sebuah gambar! Tapi Alya mengalami kesulitan menganalisis secara detail. Sepertinya ini adalah gambar berjenis {file_ext}. Mohon maaf {user.first_name}-kun, Alya akan berusaha lebih baik lagi nanti~ 🌸"
+            
+            # Handle document files with text extraction
+            else:
+                # Try to extract text from document
+                try:
+                    content = textract.process(temp_file.name).decode('utf-8')
+                except Exception as e:
+                    logger.error(f"Textract error: {e}")
+                    content = None
+                    
+                    # Try multiple encodings if initial extraction fails
+                    encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+                    for encoding in encodings:
+                        try:
+                            with open(temp_file.name, 'r', encoding=encoding) as f:
+                                content = f.read()
+                            break
+                        except UnicodeDecodeError:
+                            continue
 
-            Gunakan emoji yang sesuai dan bahas dengan gaya yang manis~!
-            
-            Isi dokumen:
-            {content[:4000]}
-            """
-            
-            chat = chat_model.start_chat(history=[])
-            response = chat.send_message(doc_prompt)
+                # Handle case where no text could be extracted
+                if not content:
+                    raise ValueError("Tidak bisa membaca isi dokumen")
+                
+                # Generate document summary
+                doc_prompt = f"""
+                Alya-chan akan merangkum dokumen ini untuk {user.first_name}-kun dengan format yang rapi~!
+
+                Format rangkuman yang diinginkan:
+                1. Judul atau Topik Utama
+                2. Poin-poin Penting (3-5 poin)
+                3. Ringkasan Singkat
+                4. Kesimpulan
+
+                PENTING: JANGAN gunakan format kode (``` atau ` ) dalam responmu karena akan menyebabkan error.
+                Gunakan format * untuk bold dan _ untuk italic saja bila perlu.
+                Jangan lebih dari 800 karakter. Jadikan singkat dan efektif.
+                Isi dokumen:
+                {content[:4000]}
+                """
+                
+                chat = chat_model.start_chat(history=[])
+                response = chat.send_message(doc_prompt)
+                response_text = response.text
+
+        except Exception as e:
+            logger.error(f"Error processing file: {e}")
+            response_text = f"Alya-chan mengalami kesulitan memproses file ini. Mohon maaf {user.first_name}-kun, Alya akan berusaha lebih baik lagi nanti~ 🌸"
 
     # Format and send the response
-    await send_analysis_response(message, user, response.text)
+    await send_analysis_response(message, user, response_text)
 
 # =========================
 # Response Formatting
