@@ -7,6 +7,19 @@
     Alya-chan Telegram Bot
     <img src="https://i.imgur.com/GUwqdRw.gif" width="174px" style="margin-left: 10px; vertical-align: middle;">
   </h1>
+
+  <!-- Badges -->
+  <p>
+    <img src="https://img.shields.io/github/stars/Afdaan/alya-bot-telegram?style=for-the-badge&color=pink" alt="Stars">
+    <img src="https://img.shields.io/github/forks/Afdaan/alya-bot-telegram?style=for-the-badge&color=lightblue" alt="Forks">
+    <img src="https://img.shields.io/github/issues/Afdaan/alya-bot-telegram?style=for-the-badge&color=violet" alt="Issues">
+    <img src="https://img.shields.io/github/license/Afdaan/alya-bot-telegram?style=for-the-badge&color=lightgreen" alt="License">
+    <br>
+    <img src="https://img.shields.io/badge/Python-3.8+-blue.svg?style=for-the-badge&logo=python" alt="Python">
+    <img src="https://img.shields.io/badge/Telegram-Bot-blue.svg?style=for-the-badge&logo=telegram" alt="Telegram">
+    <img src="https://img.shields.io/badge/Google-Gemini-orange.svg?style=for-the-badge&logo=google" alt="Gemini">
+    <img src="https://img.shields.io/badge/Powered%20by-Waifu-ff69b4.svg?style=for-the-badge" alt="Waifu">
+  </p>
 </div>
 
 ## Description
@@ -83,7 +96,7 @@ Alya-chan (アリサ・ミハイロヴナ・九条) is an AI-powered Telegram bo
 
 1. Clone repository:
 ```bash
-git clone https://github.com/yourusername/alya-bot-telegram.git
+git clone https://github.com/Afdaan/alya-bot-telegram.git
 cd alya-bot-telegram
 ```
 
