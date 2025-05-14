@@ -16,7 +16,11 @@
   Alya: *explains about eye infections*
   You: Any recommended treatments?
   Alya: *provides treatments for eye infections* (understands you're still talking about eye infections)
+  You: How long does recovery take?
+  Alya: *explains recovery time* (still maintains context of eye infections)
   ```
+- Works great for complex topics requiring multiple questions
+- Remembers information from previous exchanges
 
 ## Language Features
 - **Default Languages**: English (en) or Indonesian (id)

@@ -6,17 +6,19 @@ and provides response generation functionality with enhanced search capabilities
 """
 
 import logging
-import google.generativeai as genai
+try:
+    import google.generativeai as genai
+except ImportError:
+    print("Please install google-generativeai: pip install google-generativeai")
+    raise
 import time
 import re
 import random
 import asyncio
 import concurrent.futures
-from datetime import datetime
 from telegram.ext import CallbackContext
 from core.search_engine import SearchEngine
 from concurrent.futures import ThreadPoolExecutor
-# Ganti import sesuai nama fungsi yang tersedia di module
 from utils.language_handler import get_prompt_language_instruction, get_language
 
 from config.settings import (
@@ -30,19 +32,11 @@ from config.settings import (
 
 logger = logging.getLogger(__name__)
 
-# =========================
-# Gemini API Configuration
-# =========================
-
 # Configure Gemini API
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Dictionary to store chat history for each user
 user_chats = {}
-
-# =========================
-# Chat History Management
-# =========================
 
 class ChatHistory:
     """Class to manage user chat history with expiration."""
@@ -100,9 +94,6 @@ def get_user_history(user_id: int) -> ChatHistory:
         user_chats[user_id] = ChatHistory()
     return user_chats[user_id]
 
-# =========================
-# Model Setup & Management
-# =========================
 
 def setup_gemini_model(model_name=DEFAULT_MODEL):
     """
@@ -128,10 +119,6 @@ def setup_gemini_model(model_name=DEFAULT_MODEL):
 # Initialize models with configuration
 chat_model = setup_gemini_model(DEFAULT_MODEL)
 image_model = setup_gemini_model(DEFAULT_MODEL)
-
-# =========================
-# Developer Info Detection
-# =========================
 
 # Patterns to identify questions about the bot's developer
 DEVELOPER_PATTERNS = [
@@ -173,9 +160,6 @@ def get_developer_response(username: str) -> str:
     ]
     return random.choice(responses)
 
-# =========================
-# Response Generation
-# =========================
 
 async def generate_chat_response(prompt: str, user_id: int, context: CallbackContext = None, persona_context: str = None) -> str:
     """
@@ -201,7 +185,7 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
         # Gunakan fungsi get_language yang tersedia di module
         language = get_language(context)
         
-        # Generate language instruction (soft preference, not strict requirement)
+        # Generate language instruction
         language_instruction = get_prompt_language_instruction(language, context)
         
         # Enhanced keyword detection for search queries
@@ -229,6 +213,8 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
             # Get up to 6 last messages (3 exchanges) if available
             relevant_history = history_lines[-min(6, len(history_lines)):]
             context_window = "\n".join(relevant_history)
+        
+        response_text = ""
         
         if needs_search:
             # Get search results with a timeout
@@ -316,4 +302,34 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
             6. By default respond in {"English" if language == "en" else "Indonesian"}, but if user requests another language, feel free to use that
             
             Respond with context awareness while staying in character.
-            """            try:                with ThreadPoolExecutor() as executor:                    send_message_task = executor.submit(chat.send_message, chat_prompt)                    response = await asyncio.wait_for(                        asyncio.wrap_future(send_message_task),                        timeout=30.0                    )                response_text = response.text            except (asyncio.TimeoutError, concurrent.futures.TimeoutError):                logger.warning(f"Chat response generation timed out for: {prompt}")                if language == "en":                    return "Sorry~ Alya needs more time to process this message. Could you express it in a simpler way? 🥺"                return "Gomennasai~ Alya butuh waktu lebih lama untuk memproses pesan ini. Bisa disampaikan dengan cara yang lebih sederhana? 🥺"            except Exception as e:                logger.error(f"Error generating response: {str(e)}")                if language == "en":                    return "Sorry~ There was an error processing your request. Could you try again? 🥺"                return "Gomennasai~ Ada kesalahan saat memproses permintaan. Bisa dicoba lagi? 🥺"        # Add to history        chat_history.add_message("user", prompt)        chat_history.add_message("assistant", response_text)        return response_text    except Exception as e:        logger.error(f"Error in generate_chat_response: {e}")        # Return error message in the appropriate language        if 'language' in locals():            if language == "en":                return "Sorry darling~ There was an error... 🥺"        return "Gomen ne sayang~ Ada error... 🥺"
+            """
+            try:
+                with ThreadPoolExecutor() as executor:
+                    send_message_task = executor.submit(chat.send_message, chat_prompt)
+                    response = await asyncio.wait_for(
+                        asyncio.wrap_future(send_message_task),
+                        timeout=30.0
+                    )
+                response_text = response.text
+            except (asyncio.TimeoutError, concurrent.futures.TimeoutError):
+                logger.warning(f"Chat response generation timed out for: {prompt}")
+                if language == "en":
+                    return "Sorry~ Alya needs more time to process this message. Could you express it in a simpler way? 🥺"
+                return "Gomennasai~ Alya butuh waktu lebih lama untuk memproses pesan ini. Bisa disampaikan dengan cara yang lebih sederhana? 🥺"
+            except Exception as e:
+                logger.error(f"Error generating response: {str(e)}")
+                if language == "en":
+                    return "Sorry~ There was an error processing your request. Could you try again? 🥺"
+                return "Gomennasai~ Ada kesalahan saat memproses permintaan. Bisa dicoba lagi? 🥺"
+        
+        # Add to history
+        chat_history.add_message("user", prompt)
+        chat_history.add_message("assistant", response_text)
+        return response_text
+    
+    except Exception as e:
+        logger.error(f"Error in generate_chat_response: {e}")
+        # Return error message in the appropriate language
+        if language == "en":
+            return "Sorry darling~ There was an error... 🥺"
+        return "Gomen ne sayang~ Ada error... 🥺"
