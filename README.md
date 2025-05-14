@@ -1,4 +1,4 @@
-# Alya-chan Telegram Bot
+# Alya-chan Telegram Bot <img src="https://i.imgur.com/GUwqdRw.gif" alt="Alya-chan" height="60" align="right">
 
 ## Description
 Alya is a kawaii AI waifu bot powered by Google's Gemini AI. With multiple personalities from sweet waifu to toxic queen, she can chat, analyze images, reverse search anime sources, and more!
