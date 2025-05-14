@@ -5,7 +5,7 @@
 <div align="center">
   <h1>
     Alya-chan Telegram Bot
-    <img src="https://i.imgur.com/GUwqdRw.gif" width="70px" style="margin-left: 10px; vertical-align: middle;">
+    <img src="https://i.imgur.com/GUwqdRw.gif" width="174px" style="margin-left: 10px; vertical-align: middle;">
   </h1>
 </div>
 
