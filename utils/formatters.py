@@ -10,9 +10,62 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# =========================
-# Markdown Formatting
-# =========================
+def sanitize_markdown(text: str) -> str:
+    """
+    Sanitize text for MarkdownV2 formatting by removing problematic patterns.
+    
+    Args:
+        text: Text to sanitize
+        
+    Returns:
+        Sanitized text safe for MarkdownV2 formatting
+    """
+    if not text:
+        return ""
+        
+    # Remove code blocks completely as they're often problematic
+    text = re.sub(r'```[\s\S]*?```', '', text)
+    text = re.sub(r'`[^`]*`', '', text)
+    
+    # Fix unmatched formatting characters
+    for char in ['*', '_', '~', '`']:
+        count = text.count(char) - text.count(f'\\{char}')
+        if count % 2 != 0:
+            # Find last unescaped occurrence and remove it
+            pos = len(text) - 1
+            while pos >= 0:
+                if text[pos] == char and (pos == 0 or text[pos-1] != '\\'):
+                    text = text[:pos] + text[pos+1:]
+                    break
+                pos -= 1
+    
+    # Replace problematic sequences
+    text = text.replace('***', '*')
+    text = text.replace('___', '_')
+    
+    return text
+
+def escape_markdown_v2(text):
+    """
+    Escape all special characters for MarkdownV2 format.
+    
+    Args:
+        text: Text to escape
+        
+    Returns:
+        Properly escaped text for MarkdownV2
+    """
+    if not isinstance(text, str):
+        text = str(text)
+        
+    # All characters that need escaping for MarkdownV2
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    
+    # Escape all special characters
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+        
+    return text
 
 def format_markdown_response(text: str, username: str = None, 
                            telegram_username: str = None, 
@@ -34,6 +87,9 @@ def format_markdown_response(text: str, username: str = None,
     try:
         if not isinstance(text, str):
             text = str(text)
+        
+        # First sanitize to remove problematic patterns
+        text = sanitize_markdown(text)
         
         # First, handle the mentioned user properly (keeping it as is)
         if mentioned_text and mentioned_text.startswith('@'):
@@ -89,16 +145,19 @@ def format_markdown_response(text: str, username: str = None,
             ('\\', '\\\\'),  # Must be first
             ('_', '\\_'),
             ('*', '\\*'),
+            ('|', '\\|'),  # Added pipe character escape
+            ('<', '\\<'),  # Added less than
+            ('>', '\\>'),  # Added greater than
+            ('=', '\\='),  # Added equals
+            ('$', '\\$'),  # Added dollar sign
+            ('+', '\\+'),
             ('[', '\\['),
             (']', '\\]'),
             ('(', '\\('),
             (')', '\\)'),
             ('~', '\\~'),
-            ('>', '\\>'),
             ('#', '\\#'),
-            ('+', '\\+'),
             ('-', '\\-'),
-            ('=', '\\='),
             ('{', '\\{'),
             ('}', '\\}'),
             ('!', '\\!'),
@@ -106,7 +165,7 @@ def format_markdown_response(text: str, username: str = None,
         ]
         
         # Apply escapes except for already escaped characters and mentions
-        for char, escape in escapes:
+        for char, escape in escapes:    
             # Skip if it's already escaped
             if char != '\\':  # Skip the backslash itself since it's already handled
                 # Replace the character but don't replace if it's preceded by a backslash
@@ -143,11 +202,8 @@ def format_markdown_response(text: str, username: str = None,
         return text
     except Exception as e:
         logger.error(f"Error formatting markdown: {e}")
-        return f"Error: {str(e)}".replace('-', '\\-').replace('!', '\\!')
-
-# =========================
-# Message Splitting
-# =========================
+        # Return a safe version of text with all special characters escaped
+        return escape_markdown_v2(f"Error: {str(e)}")
 
 def split_long_message(text: str, max_length: int = 4000) -> list:
     """
@@ -162,6 +218,7 @@ def split_long_message(text: str, max_length: int = 4000) -> list:
     Returns:
         List of message parts
     """
+    # If the message is short enough, return it as is
     if len(text) <= max_length:
         return [text]
         

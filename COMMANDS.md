@@ -7,7 +7,7 @@
 - `/ping` - Check bot status
 - `/lang` - Change default language
 
-## Smart Conversation Features (NEW!)
+## Smart Conversation Features
 - **Context Awareness**: Alya remembers previous conversation
 - **Follow-up Questions**: Ask questions without repeating context
 - **Example Usage**:
@@ -76,11 +76,85 @@ Restricted to authorized developers:
 - `/debug` - Toggle debug mode
 - `/shell` - Execute shell commands
 
-## Search Commands
+## Search Commands (ENHANCED!)
 ### Web Search
-- `!search <query>` - Cari informasi di internet
-- `!search -d <query>` - Cari informasi detail
-- Example: `!search jadwal KRL lempuyangan jogja`
+- `!search <query>` - Search for information on the internet using natural language
+- `!search -d <query>` - Detailed search with more results
+- Example: `!search jadwal kereta api dari Jakarta ke Bandung besok`
+
+### Social Media Profile Search (NEW!)
+- `!search profile github username Afdaan` - Find GitHub profile
+- `!search akun instagram dari user selena_gomez` - Find Instagram profile
+- `!search carikan profil twitter elon musk` - Find Twitter profile
+- Note: Works with GitHub, Instagram, Twitter, Facebook, TikTok, LinkedIn, YouTube
+
+### Image Search Modes (NEW!)
+- **With Reply to Image**:
+  - `!search describe` - Analyze image content with AI
+  - `!search source` - Find image source/similar images
+  - Or simply use `!search` when replying to an image to see options
+
+### Smart Search Intent Detection (NEW!)
+Bot automatically understands various search intents:
+- Images: `!search gambar gunung bromo sunrise`
+- Definitions: `!search apa itu machine learning`
+- Locations: `!search dimana lokasi monas jakarta`
+- Schedules: `!search jadwal buka mall grand indonesia`
+- News: `!search berita terbaru tentang teknologi ai`
+
+## Enhanced Search Features (UPDATED!)
+
+### Global Web Search
+- `!search <query>` - Cari informasi di seluruh web dengan bahasa natural
+- `!search -d <query>` - Pencarian detail dengan lebih banyak hasil
+- Contoh: `!search jadwal kereta api dari Jakarta ke Bandung besok`
+
+### Image Search with Fallbacks
+- Pencarian gambar kini lebih andal dengan sistem fallback otomatis
+- Jika gambar gagal dimuat, akan muncul link preview yang dapat diklik
+- Hasil gambar tetap ditampilkan meski sumber asli bermasalah
+
+### Advanced Search Intent Detection
+Bot secara otomatis mengenali berbagai jenis pencarian:
+- **Produk**: `!search beli laptop gaming murah`
+- **Lowongan**: `!search lowongan kerja IT di Jakarta`
+- **Lokasi Lokal**: `!search tempat wisata di sekitar Bandung`
+- **Ulasan**: `!search review smartphone terbaru 2023`
+
+## Enhanced Search Features
+
+### Global Web Search
+- `!search <query>` - Search for information across the entire web using natural language
+- `!search -d <query>` - Detailed search with more comprehensive results
+- Example: `!search train schedule from Jakarta to Bandung tomorrow`
+
+### Image Search with Automatic Fallbacks
+- Image search is now more reliable with automatic fallback system
+- If images fail to load, clickable preview links will appear
+- Results are displayed even if the original source has issues
+- Example: `!search pictures of Mount Bromo sunrise`
+
+### Social Media Profile Search
+- `!search profile github username Afdaan` - Find GitHub profile
+- `!search instagram account selena_gomez` - Find Instagram profile
+- `!search twitter profile elon musk` - Find Twitter profile
+- Note: Works with GitHub, Instagram, Twitter, Facebook, TikTok, LinkedIn, YouTube
+
+### Smart Intent Detection
+The bot automatically recognizes various search intents:
+- **Products**: `!search buy gaming laptop cheap`
+- **Jobs**: `!search IT job vacancies in Jakarta`
+- **Local Places**: `!search tourist spots around Bandung`
+- **Reviews**: `!search reviews of latest 2023 smartphones`
+- **Travel**: `!search route to Borobudur temple`
+- **Weather**: `!search weather in Bali today`
+- **News**: `!search latest news about AI technology`
+
+### Image Search Modes
+- **With Reply to Image**:
+  - `!search describe` - Analyze image content with AI
+  - `!search source` - Find image source/similar images
+  - Or simply use `!search` when replying to an image to see options
 
 ## Usage Examples
 ```bash
@@ -98,5 +172,7 @@ Restricted to authorized developers:
 !ai roast @someone wibu nolep
 
 # Search
-!search jadwal kereta jakarta bandung
+!search train schedule jakarta bandung
+!search pictures of Mount Bromo
+!search profile instagram arianagrande
 ```

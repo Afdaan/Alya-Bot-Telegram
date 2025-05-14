@@ -12,6 +12,7 @@ from io import BytesIO
 from PIL import Image
 import textract
 import google.generativeai as genai
+import hashlib
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
@@ -20,6 +21,7 @@ from config.settings import ANALYZE_PREFIX, SAUCE_PREFIX
 from core.models import chat_model
 from utils.formatters import format_markdown_response
 from utils.saucenao import reverse_search_image
+from utils.cache_manager import response_cache
 
 logger = logging.getLogger(__name__)
 
@@ -186,12 +188,20 @@ async def handle_trace_command(message, user):
 # File Processing
 # =========================
 
+# Fungsi untuk cache image analysis berdasarkan image hash
+def get_image_hash(image_path):
+    """Generate hash dari file gambar untuk caching."""
+    with open(image_path, "rb") as f:
+        file_hash = hashlib.md5()
+        chunk = f.read(8192)
+        while chunk:
+            file_hash.update(chunk)
+            chunk = f.read(8192)
+    return file_hash.hexdigest()
+
 async def process_file(message, user, file, file_ext):
     """
-    Process downloaded file for analysis.
-    
-    Handles different file types (images, documents) and generates
-    appropriate analysis using AI models.
+    Process downloaded file for analysis with caching for efficiency.
     
     Args:
         message: Original Telegram message
@@ -203,36 +213,64 @@ async def process_file(message, user, file, file_ext):
         await file.download_to_drive(temp_file.name)
         
         try:
-            # Handle image files with Gemini Vision
+            # Handle image files with Gemini Vision & caching
             if file_ext.lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
-                image = Image.open(temp_file.name)
-                # PERBAIKAN: Ganti ke model gemini-2.0-flash yang free plan
-                model = genai.GenerativeModel('gemini-2.0-flash')
+                # Generate hash untuk cek cache
+                image_hash = get_image_hash(temp_file.name)
+                cache_key = f"img_analysis_{image_hash}"
                 
+                # Cek cache dulu
+                cached_response = response_cache.get(cache_key)
+                if cached_response:
+                    logger.info(f"Using cached image analysis for {file_ext} file")
+                    return await send_analysis_response(message, user, cached_response)
+                
+                # Jika tidak ada di cache, proses normal
+                image = Image.open(temp_file.name)
+                
+                # Compress image untuk hemat token jika terlalu besar
+                MAX_SIZE = (800, 800)
+                if max(image.size) > MAX_SIZE[0]:
+                    image.thumbnail(MAX_SIZE)
+                
+                # Gunakan model yang lebih andal dan ganti ke mode safety yang lebih lenient
+                model = genai.GenerativeModel(
+                    'gemini-2.0-flash',
+                    safety_settings=[
+                        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"}
+                    ]
+                )
+                
+                # Minimalkan prompt untuk gambar - gunakan versi lebih sederhana untuk mengurangi risiko error
                 image_prompt = f"""
-                Sebagai Alya-chan, tolong analisis gambar ini dengan detail ya!
-                Berikan penjelasan dengan gaya yang manis dan mudah dimengerti~
-                User: {user.first_name}-kun
-
-                Format output yang diinginkan:
-                1. Deskripsi umum gambar (singkat)
-                2. Detail penting yang terlihat
-                3. Kesimpulan atau insight
-
-                Penting: JANGAN gunakan format kode (``` atau ` ) dalam responmu karena akan menyebabkan error.
-                Gunakan format * untuk bold dan _ untuk italic saja bila perlu.
-                Jangan lebih dari 800 karakter. Jadikan singkat dan efektif.
+                Please analyze this image briefly. 
+                Describe what you see in the image in a friendly, cute way.
+                Be brief (maximum 500 characters).
                 """
                 
-                try:
-                    response = model.generate_content([image_prompt, image], stream=False)
-                    response_text = response.text
-                except Exception as img_error:
-                    logger.error(f"Error analyzing image with Gemini: {img_error}")
-                    # Fallback to simpler response
-                    response_text = f"Alya-chan melihat ada sebuah gambar! Tapi Alya mengalami kesulitan menganalisis secara detail. Sepertinya ini adalah gambar berjenis {file_ext}. Mohon maaf {user.first_name}-kun, Alya akan berusaha lebih baik lagi nanti~ 🌸"
-            
-            # Handle document files with text extraction
+                # Implementasi retry mechanism
+                max_attempts = 3
+                for attempt in range(max_attempts):
+                    try:
+                        response = model.generate_content([image_prompt, image], stream=False)
+                        response_text = response.text
+                        
+                        # Cache hasil analisis yang berhasil
+                        response_cache.set(cache_key, response_text)
+                        break
+                    except Exception as img_error:
+                        logger.error(f"Error analyzing image with Gemini (attempt {attempt+1}/{max_attempts}): {img_error}")
+                        # Tunggu sebentar sebelum retry
+                        if attempt < max_attempts - 1:
+                            await asyncio.sleep(1)
+                        else:
+                            # Fallback ke respons sederhana setelah semua retry gagal
+                            response_text = f"Alya-chan melihat ada sebuah gambar! Tapi Alya mengalami kesulitan menganalisis secara detail karena server sedang sibuk. Sepertinya ini adalah gambar berjenis {file_ext}. Mohon maaf {user.first_name}-kun, Alya akan berusaha lebih baik lagi nanti~ 🌸"
+                
+                # Handle document files with text extraction + caching
             else:
                 # Try to extract text from document
                 try:

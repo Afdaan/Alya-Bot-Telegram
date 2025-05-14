@@ -6,7 +6,8 @@ and special command patterns recognized by the bot.
 """
 
 import logging
-from telegram import Update
+import random  # Add missing import for random module
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup  # Added missing import for buttons
 from telegram.ext import CallbackContext
 
 from config.settings import (
@@ -143,14 +144,14 @@ async def reset_command(update: Update, context: CallbackContext) -> None:
 
 async def handle_search(update: Update, context: CallbackContext) -> None:
     """
-    Handle search command with web search capabilities.
+    Handle search command with natural language understanding.
     
     Args:
         update: Telegram Update object
         context: CallbackContext for state management
     """
     try:
-        # Perbaikan: pastikan context.args adalah list sebelum join
+        # Extract query dari pesan user
         if not context.args:
             # Jika pesan langsung dimulai dengan '!search' tanpa spasi, ambil query dari text penuh
             if update.message.text.startswith('!search'):
@@ -171,16 +172,78 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
             )
             return
         
-        # Log untuk debugging
+        # Log query untuk debugging
         logger.info(f"Search query: '{query}'")
+        
+        # Cek apakah user mengirim gambar dengan pencarian
+        has_image = False
+        image_file = None
+        
+        # Jika pesan adalah reply ke gambar, ambil gambar tersebut
+        if update.message.reply_to_message and update.message.reply_to_message.photo:
+            has_image = True
+            photo = update.message.reply_to_message.photo[-1]  # Ambil yang paling besar
+            image_file = await photo.get_file()
+            
+            # Deteksi mode untuk pesan dengan gambar
+            if "describe" in query.lower() or "analisis" in query.lower() or "jelaskan" in query.lower():
+                # Mode 1: Analyze image dengan Gemini Vision
+                # Konfirmasi ke user
+                await update.message.reply_text(
+                    "💡 *Mode Describe* terdeteksi\\! Alya akan menganalisis gambar ini\\.\\.\\.",
+                    parse_mode='MarkdownV2'
+                )
+                
+                # Gunakan document_handlers untuk analisis
+                from handlers.document_handlers import get_image_hash, process_file
+                await process_file(update.message.reply_to_message, update.effective_user, image_file, "jpg")
+                return
+                
+            elif "source" in query.lower() or "sumber" in query.lower() or "sauce" in query.lower():
+                # Mode 2: Mencari sumber gambar
+                # Konfirmasi ke user
+                await update.message.reply_text(
+                    "💡 *Mode Source Search* terdeteksi\\! Alya akan mencari sumber gambar ini\\.\\.\\.",
+                    parse_mode='MarkdownV2'
+                )
+                
+                # Gunakan SauceNAO API atau Google Lens
+                from handlers.document_handlers import handle_sauce_command
+                await handle_sauce_command(update.message.reply_to_message, update.effective_user)
+                return
+                
+            else:
+                # Default: Konfirmasi mode yang tersedia
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📝 Describe (Analisis Gambar)", callback_data=f"img_describe"),
+                        InlineKeyboardButton("🔍 Find Source (Cari Sumber)", callback_data=f"img_source")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    f"*{update.effective_user.first_name}\\-kun\\~* Alya melihat kamu ingin mencari dengan gambar\\!\n\n"
+                    "Silakan pilih mode pencarian yang kamu inginkan:",
+                    reply_markup=reply_markup,
+                    parse_mode='MarkdownV2'
+                )
+                return
         
         # Determine if this is a detailed search
         is_detailed = query.startswith("-d ") or query.startswith("--detail ")
         if is_detailed:
             query = query.replace("-d ", "", 1).replace("--detail ", "", 1).strip()
         
-        # Send searching indicator message
-        searching_msg = get_response("searching", context)
+        # Send searching indicator message - Variasikan pesan menunggu
+        searching_msgs = [
+            "🔍 Sedang mencari informasi\\.\\.\\.",
+            "🔎 Mencari hasil terbaik untuk kamu\\.\\.\\.", 
+            "🧐 Memindai internet untuk informasi\\.\\.\\.",
+            "⏳ Mencari data terbaru\\.\\.\\."
+        ]
+        searching_msg = random.choice(searching_msgs)
+        
         msg = await update.message.reply_text(
             searching_msg,
             parse_mode='MarkdownV2'
@@ -208,55 +271,99 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
             logger.error(f"Unexpected search results type: {type(search_results)}")
             search_results = "Error: Hasil pencarian tidak valid"
         
-        # Format search results for Markdown
-        safe_results = format_markdown_response(search_results)
+        # PERBAIKAN: Gunakan fungsi escape yang lebih kuat
+        # Replace fungsi format_markdown_response dengan escape_telegram_text yang lebih aman
+        safe_results = escape_telegram_text(search_results)
         
-        # If we have image results, send them
+        # If we have image results, send them with improved formatting
         if image_results and len(image_results) > 0:
-            # First send the text results
-            await msg.edit_text(
-                safe_results,
-                parse_mode='MarkdownV2',
-                disable_web_page_preview=True
-            )
+            try:
+                # First send the text results
+                await msg.edit_text(
+                    safe_results,
+                    parse_mode='MarkdownV2',
+                    disable_web_page_preview=True
+                )
+                
+                # Add a divider to indicate image results are coming
+                await update.message.reply_text(
+                    "📸 *Hasil Gambar:*",
+                    parse_mode='MarkdownV2'
+                )
+            except Exception as e:
+                logger.error(f"Error editing message: {e}")
+                # Fallback: Send as new message if edit fails
+                await update.message.reply_text(
+                    safe_results,
+                    parse_mode='MarkdownV2',
+                    disable_web_page_preview=True
+                )
             
             # Then send up to 3 images
             for i, img in enumerate(image_results[:3]):
                 try:
-                    # Escape text for markdown
-                    safe_title = img['title'].replace('.', '\\.').replace('-', '\\-').replace('!', '\\!')
-                    safe_source = img['source'].replace('.', '\\.').replace('-', '\\-').replace('!', '\\!')
+                    # Escape text for markdown - dengan ESCAPE TOTAL
+                    safe_title = escape_telegram_text(img['title'])
+                    safe_source = escape_telegram_text(img['source'])
                     
                     caption = f"*{safe_title}*\nSumber: {safe_source}"
                     
-                    # Try with full URL first
-                    try:
-                        await update.message.reply_photo(
-                            img['url'], 
-                            caption=caption,
-                            parse_mode='MarkdownV2'
-                        )
-                    except Exception as img_error:
-                        # If full URL fails, try thumbnail
-                        try:
-                            logger.warning(f"Failed to send image, trying thumbnail: {str(img_error)}")
-                            if img.get('thumbnail') and img['thumbnail'] != img['url']:
+                    # IMPROVED IMAGE HANDLING: Use a better approach for image URLs
+                    image_sent = False
+                    
+                    # Try sending image with better error handling and URL validation
+                    for url_field in ['url', 'thumbnail', 'image_url', 'source_url']:
+                        if not image_sent and url_field in img and img[url_field]:
+                            try:
+                                url = img[url_field]
+                                
+                                # Skip URLs that don't start with http(s)
+                                if not (url.startswith('http://') or url.startswith('https://')):
+                                    continue
+                                    
+                                # Try sending image
                                 await update.message.reply_photo(
-                                    img['thumbnail'], 
+                                    url,
                                     caption=caption,
                                     parse_mode='MarkdownV2'
                                 )
-                        except Exception as thumb_error:
-                            logger.error(f"Failed to send thumbnail: {str(thumb_error)}")
-                            # If both fail, continue to next image
+                                image_sent = True
+                                break
+                            except Exception as url_error:
+                                logger.warning(f"Failed to send image with {url_field}: {str(url_error)}")
+                                # Continue to next URL field
+                    
+                    # If all attempts failed, send just caption with link
+                    if not image_sent and 'url' in img:
+                        url = img['url']
+                        if url.startswith('http://') or url.startswith('https://'):
+                            try:
+                                # Send text with clickable link
+                                link_text = f"{caption}\n\n🔗 [Lihat Gambar]({url})"
+                                await update.message.reply_text(
+                                    link_text,
+                                    parse_mode='MarkdownV2',
+                                    disable_web_page_preview=False  # Show preview for this one
+                                )
+                            except Exception as link_error:
+                                logger.error(f"Failed to send link: {str(link_error)}")
+                                
                 except Exception as e:
                     logger.error(f"Error sending image result: {str(e)}")
         else:
             # No images, just send the text results
-            await msg.edit_text(
-                safe_results,
-                parse_mode='MarkdownV2'
-            )
+            try:
+                await msg.edit_text(
+                    safe_results,
+                    parse_mode='MarkdownV2'
+                )
+            except Exception as e:
+                # If editing fails (e.g. due to markdown errors), try to send plain text
+                logger.error(f"Failed to edit message with results: {e}")
+                await msg.edit_text(
+                    "Hasil pencarian tidak dapat diformat dengan benar. Berikut hasil mentah:\n\n" + search_results[:3800],
+                    parse_mode=None  # No parse mode = plain text
+                )
             
     except Exception as e:
         logger.error(f"Search error: {e}", exc_info=True)  # Log full traceback
@@ -264,3 +371,53 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
             "Oops\\! Ada masalah saat melakukan pencarian\\. Silakan coba lagi nanti\\.",
             parse_mode='MarkdownV2'
         )
+
+def escape_markdown_v2(text):
+    """
+    Escape all special characters in text for MarkdownV2 format.
+    
+    Args:
+        text: Text to escape
+        
+    Returns:
+        Properly escaped text for MarkdownV2
+    """
+    if not text:
+        return ""
+        
+    # Daftar karakter yang perlu di-escape untuk MarkdownV2
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    
+    # Escape semua karakter khusus
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+        
+    return text
+
+def escape_telegram_text(text):
+    """
+    Super-safe function to escape ALL Telegram MarkdownV2 special characters.
+    
+    Args:
+        text: Text to escape
+        
+    Returns:
+        Text with all special characters escaped
+    """
+    if text is None:
+        return ""
+        
+    if not isinstance(text, str):
+        text = str(text)
+    
+    # First escape backslash itself
+    text = text.replace('\\', '\\\\')
+    
+    # Then escape all other special characters
+    chars_to_escape = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', 
+                       '-', '=', '|', '{', '}', '.', '!']
+    
+    for char in chars_to_escape:
+        text = text.replace(char, f'\\{char}')
+        
+    return text

@@ -11,9 +11,44 @@ Alya is a kawaii AI waifu bot powered by Google's Gemini AI. With multiple perso
 - 🤖 AI-Powered Responses
 - 👥 Group Chat Support
 - 🗣️ Multi-language Support
-- 🧠 Context Awareness (NEW!)
+- 🧠 Context Awareness
 
-## Context-Aware Conversations (NEW!)
+## NEW FEATURES
+
+### 🖼️ Image Search with Results
+- Search for images with `!search gambar <query>` or `!search foto <query>`
+- Receive both text information and actual images
+- Images include title and source information
+- Works with any topic: landmarks, people, animals, etc.
+
+### ⚡ Performance Optimizations
+- **Response Caching**: Stores answers to common questions
+- **Efficient Token Usage**: Gets more out of your Gemini API quota
+- **Multiple API Keys**: Automatic rotation system for handling rate limits
+- **Image Analysis Caching**: Saves results for previously analyzed images
+
+### 🔍 Enhanced Error Handling
+- Better SauceNAO error recovery
+- Improved markdown formatting in responses
+- Format-safe username references
+- Automatic retry system for failed API calls
+
+## 🔍 Enhanced Global Search Engine
+
+- **Global Results**: Search now covers the entire web, not just regional results
+- **Improved Image Results**: Automatic fallback system for failed image URLs
+- **Natural Language Understanding**: Intent detection for more accurate searches
+- **Optimized Query Processing**: Query reformulation for more relevant results
+- **Error Handling**: Better Markdown error handling for search results
+
+## 🌐 Multiple Search Options
+
+- **Regular Web Search**: Search for information across the entire web
+- **Image Search**: Find images with directly displayed results
+- **Social Media Profiles**: Find user profiles across various platforms
+- **Specialized Searches**: Dedicated search options for schedules, news, locations, etc.
+
+## Context-Aware Conversations
 - Alya remembers previous messages in your conversation
 - Ask follow-up questions without re-explaining
 - Bot understands the context of ongoing discussions
@@ -65,7 +100,7 @@ SAUCENAO_API_KEY=     # From SauceNAO
 DEVELOPER_IDS=        # Your Telegram User ID
 ```
 
-## Multiple Google Search API Keys (NEW!)
+## Multiple Google Search API Keys
 
 The bot now supports using multiple Google Search API keys to overcome rate limits:
 
@@ -78,11 +113,32 @@ The bot now supports using multiple Google Search API keys to overcome rate limi
 1. Create several Google Search API keys from Google Cloud Console
 2. Add them to your `.env` file:
 ```properties
-GOOGLE_API_KEY_1=your_first_api_key
-GOOGLE_API_KEY_2=your_second_api_key
-GOOGLE_API_KEY_3=your_third_api_key
-# Add more keys as needed
+GOOGLE_SEARCH_API_KEY=your_primary_google_api_key_here
+GOOGLE_SEARCH_API_KEY_2=your_second_google_api_key_here
+GOOGLE_SEARCH_API_KEY_3=your_third_google_api_key_here
+# Add more keys as needed (up to GOOGLE_SEARCH_API_KEY_10)
 ```
+
+## Model Settings
+
+This bot uses the Gemini AI model with configuration in `config/settings.py`:
+
+- Default Model: `gemini-2.0-flash` (free plan)
+- Optimized token usage & API call efficiency
+- Response caching system for frequently asked questions
+- Reduced API calls through smart preprocessing
+
+### Performance Optimizations
+
+This bot is designed for cost efficiency with several optimizations:
+
+1. **Response Caching**: Stores answers to popular questions
+2. **Rate Limiting**: Manages API calls to avoid quota errors
+3. **Token Optimization**: Efficient prompts to maximize free quota usage
+4. **Multiple API Keys**: Rotation system to handle rate limits
+5. **Image Analysis Caching**: Stores results for previously analyzed images
+
+These strategies provide high performance with minimal cost.
 
 ## Deployment
 

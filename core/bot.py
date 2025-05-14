@@ -18,7 +18,7 @@ from telegram.ext import (
 from handlers.command_handlers import start, help_command, reset_command, handle_search
 from handlers.message_handlers import handle_message
 from handlers.document_handlers import handle_document_image
-from handlers.callback_handlers import button_callback
+from handlers.callback_handlers import handle_button_callback
 from handlers.ping_handlers import ping_command
 from handlers.dev_handlers import (
     update_command, stats_command, debug_command, shell_command,
@@ -55,7 +55,7 @@ def setup_handlers(application: Application) -> None:
     # =========================
     # Callback Handlers
     # =========================
-    application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(CallbackQueryHandler(handle_button_callback))
     
     # =========================
     # General Message Handlers

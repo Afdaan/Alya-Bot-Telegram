@@ -17,6 +17,7 @@ from telegram.ext import CallbackContext
 from config.settings import DEVELOPER_IDS, DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 from core.models import get_user_history
 from utils.language_handler import get_response
+from utils.cache_manager import response_cache
 
 logger = logging.getLogger(__name__)
 
@@ -318,6 +319,32 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
             
             await update.message.reply_text(
                 f"Command failed with error:\n```\n{error_output}```",
+                parse_mode='MarkdownV2'
+            )
+    
+    # Run with developer authorization
+    return await dev_command_wrapper(update, context, handler)
+
+async def clear_cache_command(update: Update, context: CallbackContext) -> None:
+    """
+    Clear response cache to refresh AI responses.
+    
+    Args:
+        update: Telegram Update object
+        context: CallbackContext object
+    """
+    async def handler(update: Update, context: CallbackContext):
+        try:
+            # Clear all cache
+            count = response_cache.clear_all()
+            
+            await update.message.reply_text(
+                f"*Cache Cleared Successfully* ✅\n\n{count} cached responses removed\\.",
+                parse_mode='MarkdownV2'
+            )
+        except Exception as e:
+            await update.message.reply_text(
+                f"*Error Clearing Cache* ❌\n\n`{str(e)}`",
                 parse_mode='MarkdownV2'
             )
     
