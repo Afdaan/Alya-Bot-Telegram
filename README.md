@@ -13,7 +13,7 @@
     <img src="https://img.shields.io/github/stars/Afdaan/alya-bot-telegram?style=for-the-badge&color=pink" alt="Stars">
     <img src="https://img.shields.io/github/forks/Afdaan/alya-bot-telegram?style=for-the-badge&color=lightblue" alt="Forks">
     <img src="https://img.shields.io/github/issues/Afdaan/alya-bot-telegram?style=for-the-badge&color=violet" alt="Issues">
-    <img src="https://img.shields.io/github/license/Afdaan/alya-bot-telegram?style=for-the-badge&color=lightgreen" alt="License">
+    <img src="https://img.shields.io/badge/License-MIT-lightgreen.svg?style=for-the-badge" alt="License">
     <br>
     <img src="https://img.shields.io/badge/Python-3.8+-blue.svg?style=for-the-badge&logo=python" alt="Python">
     <img src="https://img.shields.io/badge/Telegram-Bot-blue.svg?style=for-the-badge&logo=telegram" alt="Telegram">
