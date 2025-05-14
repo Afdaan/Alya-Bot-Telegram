@@ -179,7 +179,7 @@ def get_developer_response(username: str) -> str:
 
 async def generate_chat_response(prompt: str, user_id: int, context: CallbackContext = None, persona_context: str = None) -> str:
     """
-    Generate enhanced AI response with search capability.
+    Generate enhanced AI response with search capability and context awareness.
     
     Args:
         prompt: User message text
@@ -193,6 +193,10 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
     try:
         chat = chat_model.start_chat()
         search_engine = SearchEngine()
+        
+        # Get user's chat history for context awareness
+        chat_history = get_user_history(user_id)
+        history_text = chat_history.get_history_text()
         
         # Gunakan fungsi get_language yang tersedia di module
         language = get_language(context)
@@ -217,6 +221,15 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
         needs_search = any(keyword in prompt.lower() for keyword in search_keywords) or \
                       any(topic in prompt.lower() for topic in search_topics)
 
+        # Format context history untuk AI
+        context_window = ""
+        if history_text:
+            # Extract the last few exchanges (up to 3) for immediate context
+            history_lines = history_text.strip().split('\n')
+            # Get up to 6 last messages (3 exchanges) if available
+            relevant_history = history_lines[-min(6, len(history_lines)):]
+            context_window = "\n".join(relevant_history)
+        
         if needs_search:
             # Get search results with a timeout
             try:
@@ -231,11 +244,14 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
                 logger.error(f"Search error: {e}")
                 search_results = "Error saat melakukan pencarian."
             
-            # Enhanced prompt for better information synthesis with flexible language
+            # Enhanced prompt for better information synthesis with context awareness
             smart_prompt = f"""
             {persona_context or ""}
             
             LANGUAGE PREFERENCE: {language_instruction}
+            
+            CONVERSATION HISTORY:
+            {context_window}
             
             User's Question: {prompt}
             
@@ -245,16 +261,18 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
             Instructions for your response:
             1. Start with a friendly greeting in your waifu persona style
             2. Always call the user as "[username]-kun" or "[username]-chan" (no space)
-            3. Provide clear, accurate information from the search results
-            4. Structure the information in an easy-to-read format
-            5. Include relevant details like times, locations, and dates if available
-            6. If the information is incomplete, suggest where the user can get more details
-            7. End with a supportive, encouraging message
-            8. Use appropriate emoji to enhance your response
-            9. Make sure to maintain your character's personality
-            10. By default respond in {"English" if language == "en" else "Indonesian"}, but if user requests another language, feel free to use that
+            3. Analyze the CONVERSATION HISTORY to understand the current context
+            4. If the user's message is a follow-up question, connect it to the previous context
+            5. Provide clear, accurate information from the search results
+            6. Structure the information in an easy-to-read format
+            7. Include relevant details like times, locations, and dates if available
+            8. If the information is incomplete, suggest where the user can get more details
+            9. End with a supportive, encouraging message
+            10. Use appropriate emoji to enhance your response
+            11. Make sure to maintain your character's personality
+            12. By default respond in {"English" if language == "en" else "Indonesian"}, but if user requests another language, feel free to use that
             
-            Respond in a helpful, informative way while staying in character.
+            Respond in a helpful, informative way while staying in character and maintaining context awareness.
             """
             
             # Use ThreadPoolExecutor to run the synchronous send_message in a separate thread
@@ -278,42 +296,24 @@ async def generate_chat_response(prompt: str, user_id: int, context: CallbackCon
                     return "Sorry~ There was an error processing your request. Could you try again? 🥺"
                 return "Gomennasai~ Ada kesalahan saat memproses permintaan. Bisa dicoba lagi? 🥺"
         else:
-            # Regular chat mode
+            # Regular chat mode with context awareness
             chat_prompt = f"""
             {persona_context or ""}
             
             LANGUAGE PREFERENCE: {language_instruction}
             
+            CONVERSATION HISTORY:
+            {context_window}
+            
             User Message: {prompt}
             
-            Please respond naturally and in character as Alya-chan.
-            Always call the user as "[username]-kun" or "[username]-chan" (no space between name and honorific).
-            By default respond in {"English" if language == "en" else "Indonesian"}, but if user requests another language, feel free to use that.
-            """
-            try:
-                with ThreadPoolExecutor() as executor:
-                    send_message_task = executor.submit(chat.send_message, chat_prompt)
-                    response = await asyncio.wait_for(
-                        asyncio.wrap_future(send_message_task),
-                        timeout=30.0
-                    )
-                response_text = response.text
-            except (asyncio.TimeoutError, concurrent.futures.TimeoutError):
-                logger.warning(f"Chat response generation timed out for: {prompt}")
-                if language == "en":
-                    return "Sorry~ Alya needs more time to process this message. Could you express it in a simpler way? 🥺"
-                return "Gomennasai~ Alya butuh waktu lebih lama untuk memproses pesan ini. Bisa disampaikan dengan cara yang lebih sederhana? 🥺"
-            except Exception as e:
-                logger.error(f"Error generating response: {str(e)}")
-                if language == "en":
-                    return "Sorry~ There was an error processing your request. Could you try again? 🥺"
-                return "Gomennasai~ Ada kesalahan saat memproses permintaan. Bisa dicoba lagi? 🥺"
-
-        # Add to history
-        chat_history = get_user_history(user_id)
-        chat_history.add_message("user", prompt)
-        chat_history.add_message("assistant", response_text)
-
-        return response_text
-
-    except Exception as e:        logger.error(f"Error in generate_chat_response: {e}")        # Return error message in the appropriate language        if 'language' in locals():            if language == "en":                return "Sorry darling~ There was an error... 🥺"        return "Gomen ne sayang~ Ada error... 🥺"
+            Instructions:
+            1. Please respond naturally and in character as Alya-chan
+            2. Always call the user as "[username]-kun" or "[username]-chan" (no space between name and honorific)
+            3. Analyze the CONVERSATION HISTORY to understand the current context
+            4. If the user's message is a follow-up question, connect it to the previous discussion
+            5. Maintain context awareness throughout your response
+            6. By default respond in {"English" if language == "en" else "Indonesian"}, but if user requests another language, feel free to use that
+            
+            Respond with context awareness while staying in character.
+            """            try:                with ThreadPoolExecutor() as executor:                    send_message_task = executor.submit(chat.send_message, chat_prompt)                    response = await asyncio.wait_for(                        asyncio.wrap_future(send_message_task),                        timeout=30.0                    )                response_text = response.text            except (asyncio.TimeoutError, concurrent.futures.TimeoutError):                logger.warning(f"Chat response generation timed out for: {prompt}")                if language == "en":                    return "Sorry~ Alya needs more time to process this message. Could you express it in a simpler way? 🥺"                return "Gomennasai~ Alya butuh waktu lebih lama untuk memproses pesan ini. Bisa disampaikan dengan cara yang lebih sederhana? 🥺"            except Exception as e:                logger.error(f"Error generating response: {str(e)}")                if language == "en":                    return "Sorry~ There was an error processing your request. Could you try again? 🥺"                return "Gomennasai~ Ada kesalahan saat memproses permintaan. Bisa dicoba lagi? 🥺"        # Add to history        chat_history.add_message("user", prompt)        chat_history.add_message("assistant", response_text)        return response_text    except Exception as e:        logger.error(f"Error in generate_chat_response: {e}")        # Return error message in the appropriate language        if 'language' in locals():            if language == "en":                return "Sorry darling~ There was an error... 🥺"        return "Gomen ne sayang~ Ada error... 🥺"``` 

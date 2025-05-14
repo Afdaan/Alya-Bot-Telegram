@@ -7,6 +7,17 @@
 - `/ping` - Check bot status
 - `/lang` - Change default language
 
+## Smart Conversation Features (NEW!)
+- **Context Awareness**: Alya remembers previous conversation
+- **Follow-up Questions**: Ask questions without repeating context
+- **Example Usage**:
+  ```
+  You: What causes eye infection?
+  Alya: *explains about eye infections*
+  You: Any recommended treatments?
+  Alya: *provides treatments for eye infections* (understands you're still talking about eye infections)
+  ```
+
 ## Language Features
 - **Default Languages**: English (en) or Indonesian (id)
 - **Flexible Communication**: Alya can understand and respond in many languages

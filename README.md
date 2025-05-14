@@ -10,9 +10,16 @@ Alya is a kawaii AI waifu bot powered by Google's Gemini AI. With multiple perso
 - 🎨 Source Image Search
 - 🤖 AI-Powered Responses
 - 👥 Group Chat Support
-- 🗣️ Multi-language Support (NEW!)
+- 🗣️ Multi-language Support
+- 🧠 Context Awareness (NEW!)
 
-## Language Features (NEW)
+## Context-Aware Conversations (NEW!)
+- Alya remembers previous messages in your conversation
+- Ask follow-up questions without re-explaining
+- Bot understands the context of ongoing discussions
+- Example: Ask "What causes it?" after discussing a topic, and Alya knows what "it" refers to
+
+## Language Features
 - Default languages: English & Indonesian
 - Flexible language switching: Ask Alya to speak in any language!
 - Usage: `/lang [code]` to set default language (en/id)
