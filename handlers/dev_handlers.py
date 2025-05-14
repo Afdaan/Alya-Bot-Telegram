@@ -277,7 +277,7 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
         command = ' '.join(context.args)
         if not command:
             await update.message.reply_text(
-                "Please provide a command to execute.",
+                "Please provide a command to execute\\.",
                 parse_mode='MarkdownV2'
             )
             return
@@ -289,11 +289,18 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
             # Import helper for long message splitting
             from utils.formatters import split_long_message
             
+            # Escape special characters for MarkdownV2
+            def escape_markdown(text):
+                special_chars = '_*[]()~`>#+-=|{}.!'
+                return ''.join('\\' + c if c in special_chars else c for c in text)
+            
+            escaped_output = escape_markdown(output)
+            
             # Split output if too long
-            if len(output) > 4000:
-                parts = split_long_message(output)
+            if len(escaped_output) > 4000:
+                parts = split_long_message(escaped_output)
                 await update.message.reply_text(
-                    f"*Command Output* (split into {len(parts)} parts due to length):",
+                    f"*Command Output* \\(split into {len(parts)} parts due to length\\):",
                     parse_mode='MarkdownV2'
                 )
                 
@@ -304,7 +311,7 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
                     )
             else:
                 await update.message.reply_text(
-                    f"```\n{output}```",
+                    f"```\n{escaped_output}```",
                     parse_mode='MarkdownV2'
                 )
                 
@@ -315,14 +322,14 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
             error_output = error_output[:1000] + "..." if len(error_output) > 1000 else error_output
             
             # Escape markdown characters
-            error_output = error_output.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('`', '\\`')
+            error_output = escape_markdown(error_output)
             
             await update.message.reply_text(
-                f"Command failed with error:\n```\n{error_output}```",
+                f"*Command failed with error:*\n```\n{error_output}```",
                 parse_mode='MarkdownV2'
             )
     
-    # Run with developer authorization
+    # Run with developer authorization 
     return await dev_command_wrapper(update, context, handler)
 
 async def clear_cache_command(update: Update, context: CallbackContext) -> None:
