@@ -1,7 +1,18 @@
-# Alya-chan Telegram Bot <img src="https://i.imgur.com/GUwqdRw.gif" alt="Alya-chan" height="60" align="right">
+<!-- Meta tags for SEO -->
+<meta name="keywords" content="telegram bot, ai bot, waifu bot, anime bot, alya bot, roshidere bot, python telegram bot, gemini ai bot">
+<meta name="description" content="Alya-chan: A Telegram Bot based on Alisa from Roshidere with AI capabilities powered by Google Gemini">
+
+<div align="center">
+  <h1>
+    Alya-chan Telegram Bot
+    <img src="https://i.imgur.com/GUwqdRw.gif" width="70px" style="margin-left: 10px; vertical-align: middle;">
+  </h1>
+</div>
 
 ## Description
-Alya is a kawaii AI waifu bot powered by Google's Gemini AI. With multiple personalities from sweet waifu to toxic queen, she can chat, analyze images, reverse search anime sources, and more!
+Alya-chan (アリサ・ミハイロヴナ・九条) is an AI-powered Telegram bot based on Alisa Mikhailovna Kujou from "The Angel Next Door Spoils Me Rotten" (Otonari no Tenshi-sama ni Itsu no Ma ni ka Dame Ningen ni Sareteita Ken, also known as Roshidere). With her tsundere personality and Russian-Japanese mixed background, she brings the charm of Alisa to your Telegram chats while providing powerful AI features powered by Google's Gemini!
+
+> 🌟 Your personal Alisa AI assistant that combines the tsundere charm of Roshidere with cutting-edge AI technology
 
 ## Key Features
 - 🌸 Waifu Chat Mode
@@ -16,7 +27,7 @@ Alya is a kawaii AI waifu bot powered by Google's Gemini AI. With multiple perso
 ## NEW FEATURES
 
 ### 🖼️ Image Search with Results
-- Search for images with `!search gambar <query>` or `!search foto <query>`
+- Search for images with `!search picture <query>` or `!search foto <query>`
 - Receive both text information and actual images
 - Images include title and source information
 - Works with any topic: landmarks, people, animals, etc.
