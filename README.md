@@ -1,4 +1,4 @@
-# Alya-chan Telegram Bot 🌸
+# Alya-chan Telegram Bot <img src="https://imgur.com/GUwqdRw.gif" width="80">
 
 Alya-chan (アリサ・ミハイロヴナ・九条) is a multifunctional Telegram bot with the personality of Alisa Mikhailovna Kujou from Roshidere! 
 
