@@ -130,10 +130,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         # Format and send response
         safe_response = format_markdown_response(
             response,
-            username=user.first_name,  # Selalu gunakan first_name user asli
-            telegram_username=None,    # Jangan gunakan mention sebagai username utama
+            username=user.first_name,           # User yang mengirim pesan (untuk sapaan)
+            telegram_username=None,             # Kita tidak perlu menampilkan link username pengirim
             mentioned_username=mentioned_username,
-            mentioned_text=telegram_mention
+            mentioned_text=telegram_mention    # Mention text asli untuk diteruskan
         )
 
         # Add debug info if debug mode is on

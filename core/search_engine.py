@@ -10,6 +10,7 @@ import aiohttp
 import logging
 import asyncio
 import re
+import random
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -20,10 +21,37 @@ class SearchEngine:
     
     def __init__(self):
         """Initialize the search engine with API credentials from environment."""
-        self.api_key = os.getenv('GOOGLE_SEARCH_API_KEY')
+        # Support for multiple API keys to handle rate limits
+        self.api_keys = self._load_api_keys()
+        self.current_key_index = 0
         self.search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
         self.base_url = "https://www.googleapis.com/customsearch/v1"
         
+    def _load_api_keys(self):
+        """Load multiple API keys from environment variables."""
+        # Primary API key
+        primary_key = os.getenv('GOOGLE_SEARCH_API_KEY')
+        api_keys = [primary_key] if primary_key else []
+        
+        # Additional API keys (GOOGLE_SEARCH_API_KEY_2, GOOGLE_SEARCH_API_KEY_3, etc.)
+        for i in range(2, 11):  # Support up to 10 API keys
+            key = os.getenv(f'GOOGLE_SEARCH_API_KEY_{i}')
+            if key:
+                api_keys.append(key)
+                
+        logger.info(f"Loaded {len(api_keys)} Google Search API keys")
+        return api_keys
+        
+    def _get_next_api_key(self):
+        """Get the next available API key using round-robin selection."""
+        if not self.api_keys:
+            return None
+            
+        # Round-robin selection
+        api_key = self.api_keys[self.current_key_index]
+        self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
+        return api_key
+    
     async def search(self, query: str, detailed: bool = False) -> str:
         """
         Search the web for information and format results.
@@ -35,57 +63,73 @@ class SearchEngine:
         Returns:
             Formatted search results as string
         """
-        try:
-            if not query or not isinstance(query, str):
-                logger.error(f"Invalid query: {query}")
-                return "Maaf, tidak dapat memproses query pencarian."
+        # Try each API key until one works or all fail
+        for attempt in range(len(self.api_keys)):
+            try:
+                if not query or not isinstance(query, str):
+                    logger.error(f"Invalid query: {query}")
+                    return "Maaf, tidak dapat memproses query pencarian."
 
-            # Clean and optimize the query
-            cleaned_query = self._optimize_query(query)
-            
-            if not self.api_key or not self.search_engine_id:
-                logger.error("Missing API key or search engine ID")
-                return "Maaf, fitur pencarian sedang tidak tersedia."
-            
-            params = {
-                'key': self.api_key,
-                'cx': self.search_engine_id,
-                'q': cleaned_query,
-                'num': 5 if detailed else 3,
-                'gl': 'id',  # Set geography to Indonesia
-                'lr': 'lang_id',  # Prefer Indonesian results
-            }
-            
-            # Add timeout to prevent hanging
-            timeout = aiohttp.ClientTimeout(total=15)  # 15 seconds timeout
-            
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                try:
-                    async with session.get(self.base_url, params=params) as response:
-                        if response.status != 200:
-                            logger.error(f"Search API error: {response.status}")
-                            return "Maaf, terjadi error saat mencari informasi 😢"
-                            
-                        result = await response.json()
-                        
-                        if 'items' not in result:
-                            return f"Maaf, tidak menemukan hasil yang relevan untuk '{query}' 😔"
-
-                        # Extract structured data when possible
-                        structured_data = self._extract_structured_data(result)
-                        if structured_data:
-                            return structured_data
-
-                        # Format results
-                        return self._format_search_results(result, query, detailed)
+                # Clean and optimize the query
+                cleaned_query = self._optimize_query(query)
                 
-                except asyncio.TimeoutError:
-                    logger.error("Search timeout")
-                    return "Maaf, pencarian membutuhkan waktu terlalu lama. Silakan coba lagi nanti."
+                # Get next API key
+                api_key = self._get_next_api_key()
+                
+                if not api_key or not self.search_engine_id:
+                    logger.error("Missing API key or search engine ID")
+                    return "Maaf, fitur pencarian sedang tidak tersedia."
+                
+                params = {
+                    'key': api_key,
+                    'cx': self.search_engine_id,
+                    'q': cleaned_query,
+                    'num': 5 if detailed else 3,
+                    'gl': 'id',  # Set geography to Indonesia
+                    'lr': 'lang_id',  # Prefer Indonesian results
+                }
+                
+                # Add timeout to prevent hanging
+                timeout = aiohttp.ClientTimeout(total=15)  # 15 seconds timeout
+                
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    try:
+                        async with session.get(self.base_url, params=params) as response:
+                            if response.status == 429:  # Too Many Requests (Rate Limit)
+                                logger.warning(f"Rate limit hit for API key {self.current_key_index}, trying next key")
+                                continue  # Try next API key
+                                
+                            if response.status != 200:
+                                logger.error(f"Search API error: {response.status}")
+                                return f"Maaf, terjadi error saat mencari informasi (Status: {response.status}) 😢"
+                                
+                            result = await response.json()
+                            
+                            if 'items' not in result:
+                                return f"Maaf, tidak menemukan hasil yang relevan untuk '{query}' 😔"
 
-        except Exception as e:
-            logger.error(f"Search error: {e}")
-            return "Maaf, terjadi error saat mencari informasi 😢"
+                            # Extract structured data when possible
+                            structured_data = self._extract_structured_data(result)
+                            if structured_data:
+                                return structured_data
+
+                            # Format results
+                            return self._format_search_results(result, query, detailed)
+                    
+                    except asyncio.TimeoutError:
+                        logger.error("Search timeout")
+                        continue  # Try next API key on timeout
+                    
+                    except Exception as e:
+                        logger.error(f"Search request error with API key {self.current_key_index}: {e}")
+                        continue  # Try next API key on error
+
+            except Exception as e:
+                logger.error(f"Search error: {e}")
+                continue  # Try next API key
+        
+        # If we've exhausted all API keys
+        return "Maaf, pencarian mencapai batas kuota. Silakan coba lagi nanti 🙏"
 
     def _optimize_query(self, query: str) -> str:
         """

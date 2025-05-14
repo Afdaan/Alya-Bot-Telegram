@@ -65,6 +65,25 @@ SAUCENAO_API_KEY=     # From SauceNAO
 DEVELOPER_IDS=        # Your Telegram User ID
 ```
 
+## Multiple Google Search API Keys (NEW!)
+
+The bot now supports using multiple Google Search API keys to overcome rate limits:
+
+### How It Works
+- Configure multiple API keys in your `.env` file
+- Bot automatically rotates through keys when rate limits are hit
+- Seamlessly continues searching without interruption
+
+### Setting Up Multiple API Keys
+1. Create several Google Search API keys from Google Cloud Console
+2. Add them to your `.env` file:
+```properties
+GOOGLE_API_KEY_1=your_first_api_key
+GOOGLE_API_KEY_2=your_second_api_key
+GOOGLE_API_KEY_3=your_third_api_key
+# Add more keys as needed
+```
+
 ## Deployment
 
 ### Running with Python

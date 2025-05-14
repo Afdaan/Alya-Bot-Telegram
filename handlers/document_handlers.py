@@ -126,8 +126,12 @@ async def handle_trace_command(message, user):
     """
     # Inform user that analysis is starting
     type_text = "gambar" if message.photo else "dokumen"
+    
+    # Make sure we escape any potential dots in the username
+    escaped_username = user.first_name.replace('.', '\\.').replace('-', '\\-')
+    
     await message.reply_text(
-        f"*Alya\\-chan* akan menganalisis {type_text} dari {user.first_name}\\-kun\\~ ✨\n",
+        f"*Alya\\-chan* akan menganalisis {type_text} dari {escaped_username}\\-kun\\~ ✨\n",
         parse_mode='MarkdownV2'
     )
     
@@ -164,8 +168,17 @@ async def handle_trace_command(message, user):
         
     except Exception as e:
         logger.error(f"Error in trace command: {e}")
+        
+        # Make sure to properly escape the entire error message for Markdown
+        error_str = str(e)
+        for char in ['.', '-', '(', ')', '[', ']', '~', '>', '#', '+', '=', '{', '}', '!', '|']:
+            error_str = error_str.replace(char, f'\\{char}')
+            
+        # Also escape the username
+        escaped_username = user.first_name.replace('.', '\\.')
+        
         await message.reply_text(
-            f"*Gomenasai {user.first_name}\\-kun\\~* 😔\n\nAlya tidak bisa menganalisis file ini\\. Error: {str(e)}",
+            f"*Gomenasai {escaped_username}\\-kun\\~* 😔\n\nAlya tidak bisa menganalisis file ini\\. Error: {error_str}",
             parse_mode='MarkdownV2'
         )
 
@@ -266,13 +279,19 @@ async def send_analysis_response(message, user, response_text):
         response_text: Analysis text to send
     """
     # Format response for Markdown
+    from utils.formatters import format_markdown_response
+    
+    # Apply proper markdown formatting with special handling for dots/periods
     formatted_response = format_markdown_response(response_text)
+    
+    # Escape dots in username for safe Markdown formatting
+    escaped_username = user.first_name.replace('.', '\\.').replace('-', '\\-')
     
     # Split and send if response is too long
     if len(formatted_response) > 4000:
         parts = [formatted_response[i:i+4000] for i in range(0, len(formatted_response), 4000)]
         header = (
-            f"*Rangkuman dari Alya\\-chan untuk {user.first_name}\\-kun* 💕\n\n"
+            f"*Rangkuman dari Alya\\-chan untuk {escaped_username}\\-kun* 💕\n\n"
             f"_{len(parts)} bagian rangkuman akan dikirim\\~_ 📝\n\n"
         )
         
@@ -286,7 +305,7 @@ async def send_analysis_response(message, user, response_text):
             await asyncio.sleep(1)  # Delay to prevent flood
     else:
         # Send as a single message if not too long
-        header = f"*Rangkuman dari Alya\\-chan untuk {user.first_name}\\-kun* 💕\n\n"
+        header = f"*Rangkuman dari Alya\\-chan untuk {escaped_username}\\-kun* 💕\n\n"
         await message.reply_text(
             header + formatted_response,
             reply_to_message_id=message.message_id,

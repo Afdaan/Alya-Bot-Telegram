@@ -146,6 +146,11 @@ def setup_gemini_model(model_name: str = DEFAULT_MODEL):
         raise
 
 
+# Inisialisasi model saat module dimuat
+chat_model = setup_gemini_model(DEFAULT_MODEL)
+image_model = setup_gemini_model(DEFAULT_MODEL)
+
+
 def is_developer_question(text: str) -> bool:
     """
     Cek apakah pesan bertanya tentang developer.
@@ -215,7 +220,6 @@ async def generate_chat_response(
     """
     try:
         # Inisialisasi model dan tool
-        chat_model = setup_gemini_model()
         chat = chat_model.start_chat()
         search_engine = SearchEngine()
         
@@ -271,17 +275,18 @@ async def generate_chat_response(
             
             Instructions for your response:
             1. Start with a friendly greeting in your waifu persona style
-            2. Always call the user as "[username]-kun" or "[username]-chan" (no space)
-            3. Analyze the CONVERSATION HISTORY to understand the current context
-            4. If the user's message is a follow-up question, connect it to the previous context
-            5. Provide clear, accurate information from the search results
-            6. Structure the information in an easy-to-read format
-            7. Include relevant details like times, locations, and dates if available
-            8. If the information is incomplete, suggest where the user can get more details
-            9. End with a supportive, encouraging message
-            10. Use appropriate emoji to enhance your response
-            11. Make sure to maintain your character's personality
-            12. By default respond in {"English" if language == "en" else "Indonesian"}, but if user requests another language, feel free to use that
+            2. Always call the user as "[username]-kun" or "[username]-chan" - they are the one asking the question
+            3. If the user mentions someone (like @Someone), refer to that person normally as "@Someone" in your response, not as "[username]-kun"
+            4. Analyze the CONVERSATION HISTORY to understand the current context
+            5. If the user's message is a follow-up question, connect it to the previous context
+            6. Provide clear, accurate information from the search results
+            7. Structure the information in an easy-to-read format
+            8. Include relevant details like times, locations, and dates if available
+            9. If the information is incomplete, suggest where the user can get more details
+            10. End with a supportive, encouraging message
+            11. Use appropriate emoji to enhance your response
+            12. Make sure to maintain your character's personality
+            13. By default respond in {"English" if language == "en" else "Indonesian"}, but if user requests another language, feel free to use that
             
             Respond in a helpful, informative way while staying in character and maintaining context awareness.
             """
@@ -298,11 +303,12 @@ async def generate_chat_response(
             
             Instructions:
             1. Please respond naturally and in character as Alya-chan
-            2. Always call the user as "[username]-kun" or "[username]-chan" (no space between name and honorific)
-            3. Analyze the CONVERSATION HISTORY to understand the current context
-            4. If the user's message is a follow-up question, connect it to the previous discussion
-            5. Maintain context awareness throughout your response
-            6. By default respond in {"English" if language == "en" else "Indonesian"}, but if user requests another language, feel free to use that
+            2. Always call the user who is asking the question as "[username]-kun" or "[username]-chan"
+            3. If the user mentions someone else (like @Someone), refer to that person normally by their mention, not as "[username]-kun"
+            4. Analyze the CONVERSATION HISTORY to understand the current context
+            5. If the user's message is a follow-up question, connect it to the previous discussion
+            6. Maintain context awareness throughout your response
+            7. By default respond in {"English" if language == "en" else "Indonesian"}, but if user requests another language, feel free to use that
             
             Respond with context awareness while staying in character.
             """
@@ -322,6 +328,7 @@ async def generate_chat_response(
             chat_history.add_message("assistant", response_text)
             
             return response_text
+            
         except asyncio.TimeoutError:
             logger.warning(f"Generasi respons timeout untuk: {prompt}")
             if language == "en":
@@ -333,8 +340,3 @@ async def generate_chat_response(
         if context and get_language(context) == "en":
             return "Sorry darling~ There was an error... 🥺"
         return "Gomen ne sayang~ Ada error... 🥺"
-
-
-# Inisialisasi model saat module dimuat
-chat_model = setup_gemini_model(DEFAULT_MODEL)
-image_model = setup_gemini_model(DEFAULT_MODEL)

@@ -35,18 +35,23 @@ def format_markdown_response(text: str, username: str = None,
         if not isinstance(text, str):
             text = str(text)
         
-        # First protect the mention if it exists
-        mention_placeholder = None
+        # First, handle the mentioned user properly (keeping it as is)
         if mentioned_text and mentioned_text.startswith('@'):
-            mention_placeholder = "MENTION_PLACEHOLDER_TOKEN"
-            text = text.replace(mentioned_text, mention_placeholder)
+            # Preserve mentions but escape special characters
+            safe_mention = mentioned_text
+            for char in ['_', '*', '[', ']', '(', ')', '~', '>', '#', '+', '-', '=', '{', '}', '.', '!']:
+                safe_mention = safe_mention.replace(char, f'\\{char}')
+            
+            # Replace all raw occurrences of the mention
+            text = text.replace(mentioned_text, safe_mention)
         
+        # Now replace username placeholders with the actual user's name
         if username:
             # Escape username for markdown safety
-            safe_username = username.replace('-', '\\-')
+            safe_username = username.replace('-', '\\-').replace('.', '\\.')
             
             # Replace all username placeholders with the actual name
-            # First, search for specific pattern with brackets
+            # Start with bracket patterns
             bracket_patterns = [
                 r'\[username\]', r'\[user\]', r'\[nama\]',
                 r'\[username\]-kun', r'\[user\]-kun', r'\[nama\]-kun', 
@@ -67,13 +72,17 @@ def format_markdown_response(text: str, username: str = None,
             
             for pattern in suffix_patterns:
                 text = re.sub(pattern, f"{safe_username}", text, flags=re.IGNORECASE)
-                
-        # Handle special case where mentioned person is different than the user
-        # but we want to maintain proper mention functionality
-        if mentioned_text and mention_placeholder:
-            # Replace placeholder with escaped mention
-            safe_mention = mentioned_text.replace('.', '\\.').replace('-', '\\-')
-            text = text.replace(mention_placeholder, safe_mention)
+            
+            # Special case: If there's a mentioned username in brackets (likely from AI confusion)
+            # This handles [Mentioned_Username]-kun patterns replacing them with actual user's name
+            # But only if it's clearly a placeholder, not a genuine reference to that user
+            if mentioned_username:
+                placeholder_patterns = [
+                    f"\\[{re.escape(mentioned_username)}\\]-kun",
+                    f"\\[{re.escape(mentioned_username)}\\]-chan"
+                ]
+                for pattern in placeholder_patterns:
+                    text = re.sub(pattern, safe_username, text, flags=re.IGNORECASE)
 
         # Escape special characters with explicit order
         escapes = [
@@ -96,8 +105,22 @@ def format_markdown_response(text: str, username: str = None,
             ('.', '\\.')
         ]
         
+        # Apply escapes except for already escaped characters and mentions
         for char, escape in escapes:
-            text = text.replace(char, escape)
+            # Skip if it's already escaped
+            if char != '\\':  # Skip the backslash itself since it's already handled
+                # Replace the character but don't replace if it's preceded by a backslash
+                text = re.sub(f'(?<!\\\\){re.escape(char)}', escape, text)
+        
+        # Re-preserve mentions
+        if mentioned_text and mentioned_text.startswith('@'):
+            # Re-escape the mention to ensure it's properly formatted
+            safe_mention = mentioned_text
+            for char in ['_', '*', '[', ']', '(', ')', '~', '>', '#', '+', '-', '=', '{', '}', '.', '!']:
+                safe_mention = safe_mention.replace(char, f'\\{char}')
+                
+            # Make sure mentions stay as they are (don't get double escaped)
+            text = text.replace(f"\\{safe_mention}", safe_mention)
             
         # Fix common patterns that should remain unescaped
         fixes = [
@@ -116,15 +139,6 @@ def format_markdown_response(text: str, username: str = None,
             # More aggressive cleanup for [name]-kun/chan patterns
             text = re.sub(r'\\\[([A-Za-z0-9_-]+)\\\]-kun', f"{safe_username}", text)
             text = re.sub(r'\\\[([A-Za-z0-9_-]+)\\\]-chan', f"{safe_username}", text)
-            
-            # Clean broken mentions or placeholders
-            broken_patterns = [
-                r'_MENTION[^_\s]*_', 
-                r'MENTION_PLACEHOLDER_TOKEN',
-                r'_REAL[^_\s]*_'
-            ]
-            for pattern in broken_patterns:
-                text = re.sub(pattern, safe_username, text)
 
         return text
     except Exception as e:
