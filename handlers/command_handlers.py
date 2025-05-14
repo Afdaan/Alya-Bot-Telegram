@@ -21,6 +21,10 @@ from core.models import user_chats
 from core.search_engine import SearchEngine
 from utils.language_handler import get_response
 from utils.formatters import format_markdown_response
+from utils.rate_limiter import limiter
+import asyncio
+import subprocess
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +142,65 @@ async def reset_command(update: Update, context: CallbackContext) -> None:
         parse_mode='MarkdownV2'
     )
 
+async def update_command(update: Update, context: CallbackContext) -> None:
+    """Update bot from specified git branch."""
+    if update.effective_user.id not in DEVELOPER_IDS:
+        await update.message.reply_text("Sorry, this command is for developers only! 🚫")
+        return
+        
+    try:
+        # Get branch name from command arguments
+        args = context.args
+        branch = args[0] if args else "main"
+        
+        # Send initial status
+        status_msg = await update.message.reply_text(f"🔄 Updating from branch: {branch}...")
+        
+        # Check if branch exists
+        check_branch = subprocess.run(
+            ["git", "fetch", "origin", branch], 
+            capture_output=True, 
+            text=True
+        )
+        if check_branch.returncode != 0:
+            await status_msg.edit_text(f"❌ Branch '{branch}' not found!")
+            return
+            
+        # Fetch updates
+        fetch = subprocess.run(
+            ["git", "fetch", "origin", branch],
+            capture_output=True,
+            text=True
+        )
+        
+        # Reset to origin/branch
+        reset = subprocess.run(
+            ["git", "reset", "--hard", f"origin/{branch}"],
+            capture_output=True,
+            text=True
+        )
+        
+        if fetch.returncode != 0 or reset.returncode != 0:
+            await status_msg.edit_text("❌ Update failed! Check logs for details.")
+            logger.error(f"Git fetch output: {fetch.stderr}")
+            logger.error(f"Git reset output: {reset.stderr}")
+            return
+            
+        # Update successful
+        await status_msg.edit_text(
+            f"✅ Successfully updated to latest {branch}!\n"
+            "🔄 Restarting bot...\n\n"
+            f"Fetch output:\n{fetch.stdout}\n"
+            f"Reset output:\n{reset.stdout}"
+        )
+        
+        # Restart bot
+        os.execl(sys.executable, sys.executable, *sys.argv)
+        
+    except Exception as e:
+        logger.error(f"Update error: {e}")
+        await update.message.reply_text(f"❌ Error during update: {str(e)}")
+
 # =========================
 # Search Command
 # =========================
@@ -150,6 +213,10 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
         update: Telegram Update object
         context: CallbackContext for state management
     """
+    # Check rate limit
+    if not await limiter.acquire_with_feedback(update, context, "search"):
+        return
+
     try:
         # Extract query dari pesan user
         if not context.args:
@@ -256,46 +323,43 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
             # Validasi return value dari search()
             if not isinstance(search_result_tuple, tuple) or len(search_result_tuple) != 2:
                 logger.error(f"Invalid search result format: {type(search_result_tuple)}")
-                search_results = f"Error: Format hasil pencarian tidak valid"
+                search_text = f"Error: Format hasil pencarian tidak valid"
                 image_results = None
             else:
-                search_results, image_results = search_result_tuple
+                search_text, image_results = search_result_tuple
                 
         except Exception as search_err:
             logger.error(f"Search execution error: {search_err}")
-            search_results = "Error saat melakukan pencarian."
+            search_text = "Error saat melakukan pencarian."
             image_results = None
         
         # Pastikan search_results adalah string
-        if not isinstance(search_results, str):
-            logger.error(f"Unexpected search results type: {type(search_results)}")
-            search_results = "Error: Hasil pencarian tidak valid"
+        if not isinstance(search_text, str):
+            logger.error(f"Unexpected search results type: {type(search_text)}")
+            search_text = "Error: Hasil pencarian tidak valid"
         
-        # PERBAIKAN: Gunakan fungsi escape yang lebih kuat
-        # Replace fungsi format_markdown_response dengan escape_telegram_text yang lebih aman
-        safe_results = escape_telegram_text(search_results)
-        
-        # If we have image results, send them with improved formatting
+        # PERBAIKAN: Use plain text mode for search results instead of markdown
+        # This avoids issues with escape sequences showing up in the text
         if image_results and len(image_results) > 0:
             try:
-                # First send the text results
+                # Send text results with plain text mode
                 await msg.edit_text(
-                    safe_results,
-                    parse_mode='MarkdownV2',
+                    search_text,  # No escape needed for plain text
+                    parse_mode=None,  # Use plain text mode
                     disable_web_page_preview=True
                 )
                 
                 # Add a divider to indicate image results are coming
                 await update.message.reply_text(
-                    "📸 *Hasil Gambar:*",
-                    parse_mode='MarkdownV2'
+                    "📸 Hasil Gambar:",
+                    parse_mode=None
                 )
             except Exception as e:
                 logger.error(f"Error editing message: {e}")
                 # Fallback: Send as new message if edit fails
                 await update.message.reply_text(
-                    safe_results,
-                    parse_mode='MarkdownV2',
+                    search_text,
+                    parse_mode=None,
                     disable_web_page_preview=True
                 )
             
@@ -354,14 +418,14 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
             # No images, just send the text results
             try:
                 await msg.edit_text(
-                    safe_results,
-                    parse_mode='MarkdownV2'
+                    search_text,
+                    parse_mode=None  # Use plain text mode
                 )
             except Exception as e:
                 # If editing fails (e.g. due to markdown errors), try to send plain text
                 logger.error(f"Failed to edit message with results: {e}")
                 await msg.edit_text(
-                    "Hasil pencarian tidak dapat diformat dengan benar. Berikut hasil mentah:\n\n" + search_results[:3800],
+                    "Hasil pencarian tidak dapat diformat dengan benar. Berikut hasil mentah:\n\n" + search_text[:3800],
                     parse_mode=None  # No parse mode = plain text
                 )
             

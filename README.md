@@ -1,173 +1,84 @@
-# Alya-chan Telegram Bot
+# Alya-chan Telegram Bot 🌸
 
-## Description
-Alya is a kawaii AI waifu bot powered by Google's Gemini AI. With multiple personalities from sweet waifu to toxic queen, she can chat, analyze images, reverse search anime sources, and more!
+Alya-chan (アリサ・ミハイロヴナ・九条) is a multifunctional Telegram bot with the personality of Alisa Mikhailovna Kujou from Roshidere! 
 
-## Key Features
-- 🌸 Waifu Chat Mode
-- 💅 Toxic Queen Mode
-- 🔍 Image/Document Analysis
-- 🎨 Source Image Search
-- 🤖 AI-Powered Responses
-- 👥 Group Chat Support
-- 🗣️ Multi-language Support
-- 🧠 Context Awareness
+> A kawaii AI waifu assistant built with Gemini 2.0
 
-## NEW FEATURES
+Alya-chan is an adorable AI assistant for Telegram with multiple personalities and knowledge capabilities, designed to be your friendly virtual companion.
 
-### 🖼️ Image Search with Results
-- Search for images with `!search gambar <query>` or `!search foto <query>`
-- Receive both text information and actual images
-- Images include title and source information
-- Works with any topic: landmarks, people, animals, etc.
+## ✨ New Features & Improvements
 
-### ⚡ Performance Optimizations
-- **Response Caching**: Stores answers to common questions
-- **Efficient Token Usage**: Gets more out of your Gemini API quota
-- **Multiple API Keys**: Automatic rotation system for handling rate limits
-- **Image Analysis Caching**: Saves results for previously analyzed images
+- **Enhanced Personality**: Now based on Alya Kujou from Roshidere, complete with Russian phrases and tsundere reactions!
+- **Smarter Responses**: More natural conversations with context awareness
+- **Toxic Mode Upgrade**: More creative and savage roasts with anime-style toxicity
+- **Search Enhancement**: Better query understanding and result formatting
+- **Cute Expressions**: Added kaomoji and Russian expressions for more personality
+- **Performance**: Improved caching and response time
 
-### 🔍 Enhanced Error Handling
-- Better SauceNAO error recovery
-- Improved markdown formatting in responses
-- Format-safe username references
-- Automatic retry system for failed API calls
+## ✨ Features
 
-## 🔍 Enhanced Global Search Engine
+- 🌸 **Kawaii Waifu Persona**: Sweet, caring responses with anime-style expressions
+- 🔍 **Smart Search Engine**: Find information across the web with intelligent context awareness
+- 💬 **Natural Conversations**: Engaging chat with memory of past interactions
+- 💕 **Multiple Personalities**: Switch between sweet waifu, informative assistant, or toxic roaster
+- 🖼️ **Image Processing**: Analyze and understand images, including anime character recognition
+- 🌏 **Multilingual Support**: Communicates in both English and Indonesian
 
-- **Global Results**: Search now covers the entire web, not just regional results
-- **Improved Image Results**: Automatic fallback system for failed image URLs
-- **Natural Language Understanding**: Intent detection for more accurate searches
-- **Optimized Query Processing**: Query reformulation for more relevant results
-- **Error Handling**: Better Markdown error handling for search results
+## 🚀 Getting Started
 
-## 🌐 Multiple Search Options
+### Requirements
 
-- **Regular Web Search**: Search for information across the entire web
-- **Image Search**: Find images with directly displayed results
-- **Social Media Profiles**: Find user profiles across various platforms
-- **Specialized Searches**: Dedicated search options for schedules, news, locations, etc.
+- Python 3.9+
+- Telegram Bot Token
+- Google Gemini API Key
 
-## Context-Aware Conversations
-- Alya remembers previous messages in your conversation
-- Ask follow-up questions without re-explaining
-- Bot understands the context of ongoing discussions
-- Example: Ask "What causes it?" after discussing a topic, and Alya knows what "it" refers to
-- Great for multi-turn interactions and complex conversations
-- Works in both English and Indonesian (and other languages upon request)
+### Installation
 
-## Language Features
-- Default languages: English & Indonesian
-- Flexible language switching: Ask Alya to speak in any language!
-- Usage: `/lang [code]` to set default language (en/id)
-- Example: "Can you speak in Japanese?" or "Bisakah bicara dalam bahasa Jawa?"
-
-## Tech Stack
-- Python 3.8+
-- Google Gemini AI
-- Telegram Bot API
-- SauceNAO API
-
-## Installation
-
-1. Clone repository:
 ```bash
+# Clone the repository
 git clone https://github.com/yourusername/alya-bot-telegram.git
 cd alya-bot-telegram
-```
 
-2. Create virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
+# Install dependencies
 pip install -r requirements.txt
-```
 
-4. Configure environment:
-```bash
+# Configure your environment variables
 cp .env.example .env
+# Edit .env file with your API keys
 ```
 
-Required API Keys in `.env`:
-```properties
-TELEGRAM_BOT_TOKEN=   # From @BotFather
-GEMINI_API_KEY=       # From Google AI Studio
-SAUCENAO_API_KEY=     # From SauceNAO
-DEVELOPER_IDS=        # Your Telegram User ID
-```
+## 📋 Usage
 
-## Multiple Google Search API Keys
+Start the bot:
 
-The bot now supports using multiple Google Search API keys to overcome rate limits:
-
-### How It Works
-- Configure multiple API keys in your `.env` file
-- Bot automatically rotates through keys when rate limits are hit
-- Seamlessly continues searching without interruption
-
-### Setting Up Multiple API Keys
-1. Create several Google Search API keys from Google Cloud Console
-2. Add them to your `.env` file:
-```properties
-GOOGLE_SEARCH_API_KEY=your_primary_google_api_key_here
-GOOGLE_SEARCH_API_KEY_2=your_second_google_api_key_here
-GOOGLE_SEARCH_API_KEY_3=your_third_google_api_key_here
-# Add more keys as needed (up to GOOGLE_SEARCH_API_KEY_10)
-```
-
-## Model Settings
-
-This bot uses the Gemini AI model with configuration in `config/settings.py`:
-
-- Default Model: `gemini-2.0-flash` (free plan)
-- Optimized token usage & API call efficiency
-- Response caching system for frequently asked questions
-- Reduced API calls through smart preprocessing
-
-### Performance Optimizations
-
-This bot is designed for cost efficiency with several optimizations:
-
-1. **Response Caching**: Stores answers to popular questions
-2. **Rate Limiting**: Manages API calls to avoid quota errors
-3. **Token Optimization**: Efficient prompts to maximize free quota usage
-4. **Multiple API Keys**: Rotation system to handle rate limits
-5. **Image Analysis Caching**: Stores results for previously analyzed images
-
-These strategies provide high performance with minimal cost.
-
-## Deployment
-
-### Running with Python
 ```bash
 python main.py
 ```
 
-### Using TMUX (Recommended)
-```bash
-tmux new-session -s alya-bot
-python main.py
-# Ctrl+B then D to detach
-```
+### Available Commands
 
-### How to Update
-```bash
-tmux attach -t alya-bot
-# Ctrl+C to stop
-git pull
-python main.py
-```
+- `/start` - Begin chatting with Alya-chan
+- `/help` - View all available commands
+- `/reset` - Reset conversation history
+- `/smart` - Switch to smart assistant mode
+- `/waifu` - Switch to cute waifu mode
+- `/toxic` - Switch to toxic roasting mode
+- `/sauce` - Get source for anime images
 
-## Commands
-See [COMMANDS.md](COMMANDS.md) for complete list of available commands and usage examples.
+## 🔧 Configuration
 
-## Developer Contact
-- Creator: Afdaan
-- Website: [alif.horn-yastudio.com](https://alif.horn-yastudio.com)
+Customize Alya-chan's behavior by editing settings in `config/settings.py`:
 
-## License
-MIT License. See `LICENSE` for details.
+- Set API rate limits
+- Adjust safety settings
+- Configure conversation parameters
+
+## 💖 Credits
+
+- Created by **Afdaan**
+- Visit: [alif.horn-yastudio.com](https://alif.horn-yastudio.com)
+- Powered by Google Gemini 2.0 Flash
+
+---
+
+<p align="center">Made with 💕 for Telegram users who want an AI companion</p>

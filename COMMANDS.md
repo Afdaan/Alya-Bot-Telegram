@@ -1,4 +1,32 @@
-# Alya-chan Command Reference
+# Alya-chan Bot Commands 💕
+
+## Chat Commands
+
+- `!ai <message>` - Chat with Alya-chan in her kawaii tsundere mode
+- `!roast <@username> [keywords]` - Get brutally roasted by Alya in toxic mode
+- `!search <query>` - Search the web with Alya's help
+- `!sauce <image>` - Find anime/image source
+- `!trace <image>` - Analyze image contents
+
+## New Expression Features
+
+Alya now uses Russian expressions in certain situations:
+- When flustered: "п-привет!"
+- When agreeing reluctantly: "д-да..."
+- When thanking: "спасибо"
+- When being tsundere: "хорошо"
+
+## Personality Modes
+
+1. **Normal Mode (Default)**
+   - Tsundere responses with Russian phrases
+   - Mix of professional and cute reactions
+   - Context-aware conversations
+
+2. **Toxic Mode (!roast)**
+   - Super savage roasts with creative insults
+   - Specialized GitHub roasts for developers
+   - Keyword-based targeted roasting
 
 ## Basic Commands
 - `/start` - Start Alya-chan and show menu
@@ -67,11 +95,17 @@ Available roast keywords:
 
 ## Developer Commands
 Restricted to authorized developers:
-- `/update` - Pull updates & restart
-  - Manual update: Use command directly
-  - Auto update: Will trigger automatically on repository changes
-  - Restarts bot in TMUX session after update
+- `/update [branch]` - Pull updates & restart
+  - Manual update: `/update main` or `/update dev`
+  - Default branch: `main` if no branch specified
+  - Examples:
+    ```
+    /update         # Updates from main branch
+    /update dev     # Updates from dev branch
+    /update stable  # Updates from stable branch
+    ```
   - Shows git pull output and restart status
+  - Automatically restarts bot after successful update
 - `/stats` - Show bot statistics
 - `/debug` - Toggle debug mode
 - `/shell` - Execute shell commands

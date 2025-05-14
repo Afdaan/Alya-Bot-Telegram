@@ -97,13 +97,13 @@ IMAGE_MODEL = "gemini-2.0-flash-exp"
 
 # Generation settings
 GENERATION_CONFIG = {
-    "temperature": 1.0,
+    "temperature": 1.0,  # Increased for more personality
     "top_p": 0.95,
     "top_k": 64,
     "max_output_tokens": 2048,
 }
 
-# Safety settings - relaxed for roleplay
+# Safety settings - adjusted for roleplay
 SAFETY_SETTINGS = {
     "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
     "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE", 

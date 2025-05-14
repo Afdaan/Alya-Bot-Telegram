@@ -1,13 +1,24 @@
 # Existing dependencies
-python-telegram-bot>=20.0
-python-dotenv>=1.0.0
-google-generativeai>=0.3.0
-requests>=2.28.0
-numpy>=1.23.0
-Pillow>=9.0.0
-textract>=1.6.0
+python-telegram-bot==20.7
+python-dotenv==1.0.1
+google-generativeai>=0.3.1
+requests==2.31.0
+numpy==1.26.1
+Pillow==10.0.1
+textract==1.6.5
 psutil>=5.9.0
 
 # Caching and optimization
 diskcache>=5.4.0
 lru-dict>=1.2.0
+
+# Additional dependencies
+pandas==2.1.1
+beautifulsoup4~=4.8.0
+lxml==4.9.3
+
+# Google API dependencies
+google-api-python-client>=2.0.0
+cachetools>=4.0.0
+google-auth>=2.0.0
+google-auth-httplib2>=0.1.0

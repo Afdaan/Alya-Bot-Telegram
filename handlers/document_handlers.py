@@ -18,6 +18,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from config.settings import ANALYZE_PREFIX, SAUCE_PREFIX
 
+from core import models
 from core.models import chat_model
 from utils.formatters import format_markdown_response
 from utils.saucenao import reverse_search_image
