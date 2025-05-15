@@ -1,17 +1,6 @@
-# Environment variables
-.env
-
-# Virtual environment
-venv/
-env/
-ENV/
-myenv/
-Alya/
-
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
 .Python
 *.so
 cache
@@ -20,13 +9,54 @@ cache
 dist/
 build/
 *.egg-info/
+*.egg
+build/
+dist/
+eggs/
+.eggs/
 
-# IDE settings
-.idea/
+# Virtual Environments
+venv/
+env/
+ENV/
+.env
+.venv
+Alya/
+
+# Development & IDE
 .vscode/
+.idea/
 *.swp
 *.swo
+*.cache
+.mypy_cache/
+.dmypy.json
+.pytest_cache/
 
-# Logs
-*.log
+# Testing
+tests/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+test-reports/
+test-results/
+test_output/
+.hypothesis/
+.tox/
+.nox/
+pytest-*.xml
+nosetests.xml
+
+# Bot Specific
+cache/
 logs/
+temp/
+.env*
+*.log
+
+# Misc
+*.mo 
+*.pot
+*.manifest
+*.spec

@@ -14,6 +14,12 @@ import random
 from typing import Dict, List, Tuple, Optional
 from dotenv import load_dotenv
 from utils.query_processor import process_query
+import warnings
+from googleapiclient.discovery import build
+from googleapiclient import _auth
+
+# Disable cache warning
+warnings.filterwarnings('ignore', message='file_cache is unavailable when using oauth2client >= 4.0.0')
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -29,15 +35,36 @@ class SearchEngine:
         self.search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
         self.base_url = "https://www.googleapis.com/customsearch/v1"
         
-        # Intent patterns - untuk mengenali maksud user
+        # Enhanced intent patterns with more natural language variations for profile searches
         self.profile_patterns = {
-            'github': r'(?:profile|profil|akun|user|username|cari)\s+(?:github|gh)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|)\s*["\']?(@?\w+)["\']?',
-            'instagram': r'(?:profile|profil|akun|user|username|cari)\s+(?:instagram|ig|insta)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|)\s*["\']?(@?\w+)["\']?',
-            'twitter': r'(?:profile|profil|akun|user|username|cari)\s+(?:twitter|x|tweet|tw)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|)\s*["\']?(@?\w+)["\']?',
-            'facebook': r'(?:profile|profil|akun|user|username|cari)\s+(?:facebook|fb|meta)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|)\s*["\']?(@?\w+)["\']?',
-            'tiktok': r'(?:profile|profil|akun|user|username|cari)\s+(?:tiktok|tt|tik tok)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|)\s*["\']?(@?\w+)["\']?',
-            'linkedin': r'(?:profile|profil|akun|user|username|cari)\s+(?:linkedin|linked in|li)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|)\s*["\']?([\w\.-]+)["\']?',
-            'youtube': r'(?:channel|profil|akun|user|username|cari)\s+(?:youtube|yt)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|)\s*["\']?([\w\s\.-]+)["\']?'
+            # More natural language variations for GitHub profile searches
+            'github': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:github|gh|git)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?(@?\w+)["\']?',
+            
+            # Enhanced Instagram profile searches
+            'instagram': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan|stalking)\s+(?:instagram|ig|insta|instagramnya|ignya)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id|punya)?\s*["\']?(@?\w+)["\']?',
+            
+            # Enhanced Twitter/X profile searches
+            'twitter': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:twitter|x|tweet|tw|twt|tweets)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?(@?\w+)["\']?',
+            
+            # Enhanced Facebook profile searches
+            'facebook': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:facebook|fb|meta|facebooknya|fbnya)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?(@?\w+)["\']?',
+            
+            # Enhanced TikTok profile searches
+            'tiktok': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:tiktok|tt|tik tok|tiktoknya|ttnya)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?(@?\w+)["\']?',
+            
+            # Enhanced LinkedIn profile searches
+            'linkedin': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:linkedin|linked in|li|linkedinnya)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?([\w\.-]+)["\']?',
+            
+            # Enhanced YouTube channel searches
+            'youtube': r'(?:channel|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:youtube|yt|youtubenya|ytnya)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id|channel)?\s*["\']?([\w\s\.-]+)["\']?',
+            
+            # Add new platforms
+            'reddit': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:reddit|rddt|redd|subreddit|r/)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id|u/|user)?\s*["\']?([\w\.-]+)["\']?',
+            
+            'pinterest': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:pinterest|pin|pins)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?([\w\.-]+)["\']?',
+            
+            # Generic username search pattern that will be used as fallback
+            'generic': r'(?:username|user|profile|akun|profil|cari|search)\s+(?:di|on|at|in|untuk|untuk platform|platform)?\s*([a-zA-Z0-9_]+)\s+(?:username|user|nama|name|id|dengan username|dengan nama|dengan id)?\s*["\']?(@?[\w\.-]+)["\']?'
         }
         
         # Platform URL templates - untuk membuat URL spesifik platform
@@ -48,7 +75,9 @@ class SearchEngine:
             'facebook': "https://facebook.com/{username}",
             'tiktok': "https://tiktok.com/@{username}",
             'linkedin': "https://linkedin.com/in/{username}",
-            'youtube': "https://youtube.com/@{username}"
+            'youtube': "https://youtube.com/@{username}",
+            'reddit': "https://reddit.com/user/{username}",
+            'pinterest': "https://pinterest.com/{username}"
         }
         
         # Intent detection untuk jenis pencarian khusus
@@ -60,6 +89,19 @@ class SearchEngine:
             'news_search': r'(?:berita|kabar|news|artikel)\s+(?:terbaru|latest|tentang|mengenai|about|)\s*(.*?)(?:\s|$)'
         }
         
+        # Initialize service with memory cache
+        self._init_search_service()
+        
+    def _init_search_service(self):
+        """Initialize search service with memory cache."""
+        # Use memory cache instead of file cache
+        self.service = build(
+            "customsearch", 
+            "v1", 
+            developerKey=self._get_next_api_key(),
+            cache_discovery=False  # Disable file caching
+        )
+
     def _load_api_keys(self):
         """Load multiple API keys from environment variables."""
         # Primary API key
@@ -96,139 +138,68 @@ class SearchEngine:
         Returns:
             Tuple of (formatted search results text, image results list or None)
         """
-        # Process query with natural language understanding
-        optimized_query, query_metadata = process_query(query)
-        
-        # Intent detection & query reformulation
-        intent_data = self._detect_intent(query)
-        
-        # Use the processed query if available
-        if 'intent' in query_metadata and query_metadata['intent'] != 'general':
-            reformulated_query = optimized_query
-            # Log the query transformation for debugging
-            logger.info(f"Transformed query: '{query}' → '{reformulated_query}' (Intent: {query_metadata['intent']})")
-        else:
-            # Custom handling untuk platform profile search
-            if intent_data['intent'] == 'profile_search' and 'direct_url' in intent_data:
-                platform = intent_data['entities']['platform']
-                username = intent_data['entities']['username']
-                direct_url = intent_data['direct_url']
+        try:
+            # Process query with natural language understanding and intent detection
+            intent_data = self._detect_intent(query)
+            
+            # Use detected intent to optimize search
+            if intent_data['intent'] == 'profile_search' and 'entities' in intent_data:
+                # Handle profile search specifically
+                platform = intent_data['entities'].get('platform')
+                username = intent_data['entities'].get('username')
                 
-                # Buat respons khusus profil dengan direct URL
-                profile_response = f"*Profil yang ditemukan:*\n\n"
-                profile_response += f"🔍 *Platform*: {platform.capitalize()}\n"
-                profile_response += f"👤 *Username*: {username}\n"
-                profile_response += f"🔗 *Link*: {direct_url}\n\n"
-                
-                # Tambahkan informasi tentang platform
-                if platform == 'github':
-                    profile_response += f"*Info*: GitHub adalah platform hosting kode dan pengembangan software kolaboratif.\n"
-                elif platform == 'instagram':
-                    profile_response += f"*Info*: Instagram adalah media sosial untuk berbagi foto dan video.\n"
-                # dan seterusnya untuk platform lain...
-                
-                # Tetap lakukan pencarian untuk mendapatkan informasi tambahan
-                reformulated_query = f"{platform} {username} profile"
+                if platform and username:
+                    # Generate profile-specific response
+                    formatted_text = f"Profile search for {username} on {platform}:\n\n"
+                    
+                    # If we have a direct URL template for this platform, provide it
+                    if platform in self.platform_urls:
+                        profile_url = self.platform_urls[platform].format(username=username)
+                        formatted_text += f"Direct link: {profile_url}\n\n"
+                    
+                    # Also do a web search for more information
+                    reformulated_query = f"{platform} {username} profile account"
+                else:
+                    # Use original query if incomplete intent detection
+                    reformulated_query = query
             else:
-                # Gunakan query yang sudah direformulasi untuk pencarian
-                reformulated_query = intent_data['reformulated_query']
-        
-        # Try each API key until one works or all fail
-        images_data = None
-        
-        # Jika tidak ada API key yang tersedia
-        if not self.api_keys:
-            return "Maaf, API key untuk pencarian tidak tersedia. Silakan hubungi developer.", None
-        
-        for attempt in range(max(1, len(self.api_keys))):  # Pastikan minimal 1 attempt
-            try:
-                if not query or not isinstance(query, str):
-                    logger.error(f"Invalid query: {query}")
-                    return "Maaf, tidak dapat memproses query pencarian.", None
-
-                # Clean and optimize the query
-                cleaned_query = reformulated_query
+                # Regular search with the original query
+                reformulated_query = query
+            
+            # Get API key using rotation mechanism
+            api_key = self._get_next_api_key()
+            if not api_key:
+                return "Sorry, no API keys available for search.", None
                 
-                # Get next API key
-                api_key = self._get_next_api_key()
+            if not self.search_engine_id:
+                return "Search engine ID not configured.", None
                 
-                if not api_key or not self.search_engine_id:
-                    logger.error("Missing API key or search engine ID")
-                    return "Maaf, fitur pencarian sedang tidak tersedia.", None
-                
-                # Configure search parameters with improved settings for global search
-                params = {
-                    'key': api_key,
-                    'cx': self.search_engine_id,
-                    'q': cleaned_query,
-                    'num': 5 if detailed else 3,
-                    # Remove regional restrictions for global search
-                    'gl': 'us',        # US-based search (standard)
-                    'hl': 'id',        # UI language for user 
-                    'safe': 'off',     # Less content filtering
-                }
-                
-                # For specific searches, add specialized parameters
-                if any(word in query.lower() for word in ['gambar', 'foto', 'image', 'picture', 'pic']):
-                    params['searchType'] = 'image'
-                    params['imgSize'] = 'large'    # Prefer large images
-                    params['imgType'] = 'photo'    # Prefer photos over clipart
-                
-                # For news searches
-                if any(word in query.lower() for word in ['berita', 'news', 'artikel', 'terbaru', 'update']):
-                    params['sort'] = 'date'        # Sort by date for news
-                
-                # For video searches
-                if any(word in query.lower() for word in ['video', 'youtube', 'tiktok', 'reels']):
-                    params['videoSyndicated'] = 'true'  # Include syndicated videos
-                
-                # Remove None values from params
-                params = {k: v for k, v in params.items() if v is not None}
-                
-                # Add timeout to prevent hanging
-                timeout = aiohttp.ClientTimeout(total=15)  # 15 seconds timeout
-                
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    try:
-                        async with session.get(self.base_url, params=params) as response:
-                            if response.status == 429:  # Too Many Requests (Rate Limit)
-                                logger.warning(f"Rate limit hit for API key {self.current_key_index}, trying next key")
-                                continue  # Try next API key
-                    
-                            if response.status != 200:
-                                logger.error(f"Search API error: {response.status}")
-                                return f"Maaf, terjadi error saat mencari informasi (Status: {response.status}) 😢", None
-                                
-                            result = await response.json()
-                            
-                            if 'items' not in result:
-                                return f"Maaf, tidak menemukan hasil yang relevan untuk '{query}' 😔", None
-
-                            # Try to find images in the search results
-                            image_results = self._extract_image_data(result, params.get('searchType') == 'image')
-
-                            # Extract structured data when possible
-                            structured_data = self._extract_structured_data(result)
-                            if structured_data:
-                                return structured_data, image_results
-
-                            # Format results
-                            return self._format_search_results(result, query, detailed), image_results
-                    
-                    except asyncio.TimeoutError:
-                        logger.error("Search timeout")
-                        continue  # Try next API key on timeout
-                    
-                    except Exception as e:
-                        logger.error(f"Search request error with API key {self.current_key_index}: {e}")
-                        continue  # Try next API key on error
-
-            except Exception as e:
-                logger.error(f"Search error: {e}")
-                continue  # Try next API key
-        
-        # If we've exhausted all API keys
-        return "Maaf, pencarian mencapai batas kuota. Silakan coba lagi nanti 🙏", None
+            # Build the search service
+            import googleapiclient.discovery
+            service = googleapiclient.discovery.build(
+                "customsearch", "v1", developerKey=api_key
+            )
+            
+            # Execute search
+            search_results = service.cse().list(
+                q=reformulated_query,
+                cx=self.search_engine_id,
+                num=10 if detailed else 5
+            ).execute()
+            
+            # Format results as text
+            formatted_text = self._format_search_results(search_results, query, detailed)
+            
+            # Extract image data if available
+            image_results = self._extract_image_data(search_results)
+            
+            # Return both text results and image data
+            return formatted_text, image_results
+            
+        except Exception as e:
+            logger.error(f"Search error: {str(e)}")
+            # Return error message and empty image results on failure
+            return f"Sorry, I encountered an error while searching: {str(e)}", None
 
     def _extract_image_data(self, result, is_image_search=False) -> Optional[List[Dict]]:
         """
@@ -362,13 +333,52 @@ class SearchEngine:
             'reformulated_query': query
         }
         
+        # Direct username mention detection (e.g., "cari username johndoe" without platform)
+        direct_username_match = re.search(r'(?:cari|search|find|temukan|lihat|show)\s+(?:username|user|profile|akun|id)\s+([a-zA-Z0-9_\.]+)', query_lower)
+        if direct_username_match:
+            username = direct_username_match.group(1)
+            # This is a generic username search without specific platform
+            result['intent'] = 'profile_search'
+            result['entities'] = {
+                'platform': 'general',
+                'username': username
+            }
+            result['reformulated_query'] = f"{username} profile social media account"
+            return result
+        
         # Cek profile search patterns
         for platform, pattern in self.profile_patterns.items():
             match = re.search(pattern, query_lower)
             if match:
-                username = match.group(1)
+                username = None
+                
+                # Extract username based on the pattern match groups
+                if platform == 'generic':
+                    # For generic pattern, we have platform in group(1) and username in group(2)
+                    platform_name = match.group(1)
+                    username = match.group(2)
+                    
+                    # Map common platform variations to our supported platforms
+                    platform_mapping = {
+                        'ig': 'instagram',
+                        'insta': 'instagram',
+                        'fb': 'facebook',
+                        'tweet': 'twitter',
+                        'twt': 'twitter',
+                        'gh': 'github',
+                        'git': 'github',
+                        'yt': 'youtube',
+                        'pin': 'pinterest'
+                    }
+                    
+                    # Try to map to a known platform
+                    platform = platform_mapping.get(platform_name.lower(), platform_name.lower())
+                else:
+                    # For specific platform patterns
+                    username = match.group(1)
+                
                 # Hapus @ jika ada di depan username
-                if username.startswith('@'):
+                if username and username.startswith('@'):
                     username = username[1:]
                 
                 result['intent'] = 'profile_search'
@@ -380,8 +390,12 @@ class SearchEngine:
                 # Reformulate query based on platform
                 if platform in self.platform_urls:
                     # Langsung target URL profil
-                    result['reformulated_query'] = f"{platform} {username} profile"
+                    result['reformulated_query'] = f"{platform} {username} profile account"
                     result['direct_url'] = self.platform_urls[platform].format(username=username)
+                else:
+                    # For unknown platforms, do a general search
+                    result['reformulated_query'] = f"{platform} {username} profile account social media"
+                
                 return result
         
         # Cek search intent khusus
@@ -464,22 +478,19 @@ class SearchEngine:
         Returns:
             Formatted search results as string
         """
-        # Escape query for markdown safety
-        safe_query = query.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('_', '\\_')
-        safe_query = safe_query.replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(')
-        safe_query = safe_query.replace(')', '\\)').replace('~', '\\~').replace('`', '\\`').replace('>', '\\>')
-        safe_query = safe_query.replace('#', '\\#').replace('+', '\\+').replace('=', '\\=').replace('|', '\\|')
-        safe_query = safe_query.replace('{', '\\{').replace('}', '\\}')
+        # No need to escape, since we'll use plain text mode in the handler
+        response_text = f"Results for '{query}':\n\n"
         
-        response_text = f"Hasil pencarian untuk '{safe_query}':\n\n"
+        if "items" not in result:
+            return f"No results found for '{query}'."
                     
-        for item in result['items']:
-            # Safely handle and escape all fields
-            title = self._escape_markdown(item.get('title', 'No title'))
-            snippet = self._escape_markdown(item.get('snippet', 'No description'))
-            link = self._escape_markdown(item.get('link', '#'))
+        for item in result["items"]:
+            # Get values directly without escaping
+            title = item.get("title", "No title")
+            snippet = item.get("snippet", "No description")
+            link = item.get("link", "#")
             
-            # Clean up the snippet
+            # Clean up the snippet (remove ellipses without escaping)
             snippet = snippet.replace('...', '').strip()
             
             response_text += f"📌 {title}\n"
@@ -487,33 +498,21 @@ class SearchEngine:
             response_text += f"🔗 {link}\n\n"
 
             # Add additional info if detailed
-            if detailed and 'pagemap' in item:
-                if 'metatags' in item['pagemap']:
-                    meta = item['pagemap']['metatags'][0]
-                    if 'og:description' in meta:
-                        extra_details = self._escape_markdown(meta['og:description'])
+            if detailed and "pagemap" in item:
+                if "metatags" in item["pagemap"]:
+                    meta = item["pagemap"]["metatags"][0]
+                    if "og:description" in meta:
+                        extra_details = meta["og:description"]
                         response_text += f"📝 Detail:\n{extra_details}\n\n"
         
         return response_text
 
     def _escape_markdown(self, text):
         """
-        Escape all special Markdown V2 characters in text.
-        
-        Args:
-            text: Text to escape
-            
-        Returns:
-            Escaped text safe for MarkdownV2 format
+        Legacy method - kept for compatibility.
+        We're now using plain text mode instead of MarkdownV2.
         """
         if not isinstance(text, str):
             text = str(text)
         
-        # Order matters! Escape backslash first
-        escaped = text.replace('\\', '\\\\')
-        
-        # Then escape all other special characters - make sure to include the pipe character
-        for char in ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
-            escaped = escaped.replace(char, f'\\{char}')
-        
-        return escaped
+        return text

@@ -1,76 +1,30 @@
-"""
-Settings Configuration for Alya Telegram Bot.
-
-This module loads and provides access to environment variables and
-configurable settings used throughout the application.
-"""
+"""Settings Configuration for Alya Bot."""
 
 import os
 from typing import Optional, Dict, Any, List
 
-# =========================
-# Environment Utilities
-# =========================
-
-def get_env_var(key: str) -> Optional[str]:
-    """
-    Get environment variable with error handling.
-    
-    Args:
-        key: Environment variable name
-    
-    Returns:
-        Environment variable value or None if not found
-    
-    Raises:
-        ValueError: If the environment variable is missing
-    """
+def get_env_var(key: str, required: bool = True) -> str:
+    """Get environment variable with validation."""
     value = os.getenv(key)
-    if not value:
-        raise ValueError(f"Missing environment variable: {key}")
+    if value is None and required:
+        raise ValueError(f"Required environment variable missing: {key}")
     return value
-
-def get_env_list(key: str, separator: str = ',', default: List = []) -> List:
-    """
-    Get environment variable as a list.
-    
-    Args:
-        key: Environment variable name
-        separator: Character used to split the value
-        default: Default value if environment variable is not set
-        
-    Returns:
-        List of strings from the environment variable
-    """
-    value = os.getenv(key)
-    if not value:
-        return default
-    return [item.strip() for item in value.split(separator) if item.strip()]
-
-def get_env_int_list(key: str, separator: str = ',', default: List[int] = []) -> List[int]:
-    """
-    Get environment variable as a list of integers.
-    
-    Args:
-        key: Environment variable name
-        separator: Character used to split the value
-        default: Default value if environment variable is not set
-        
-    Returns:
-        List of integers from the environment variable
-    """
-    try:
-        return [int(item) for item in get_env_list(key, separator)]
-    except (ValueError, TypeError):
-        return default
 
 # =========================
 # Bot Configuration
 # =========================
 
-TELEGRAM_TOKEN = get_env_var("TELEGRAM_BOT_TOKEN")
-GEMINI_API_KEY = get_env_var("GEMINI_API_KEY")
-STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")  # Optional
+# Credentials from .env
+TELEGRAM_BOT_TOKEN = get_env_var('TELEGRAM_BOT_TOKEN', required=True)
+DEVELOPER_IDS = [int(id) for id in get_env_var('DEVELOPER_IDS').split(',')]
+GEMINI_API_KEY = get_env_var('GEMINI_API_KEY', required=True)
+GOOGLE_SEARCH_API_KEY = get_env_var('GOOGLE_SEARCH_API_KEY', required=True)
+GOOGLE_SEARCH_ENGINE_ID = get_env_var('GOOGLE_SEARCH_ENGINE_ID', required=True)
+SAUCENAO_API_KEY = get_env_var('SAUCENAO_API_KEY', required=True)
+
+# Model & Config Settings (hardcoded in codebase)
+DEFAULT_MODEL = "gemini-2.0-flash-exp"
+IMAGE_MODEL = "gemini-2.0-flash-exp"
 
 # Command prefixes
 CHAT_PREFIX = "!ai"  # Main prefix for group chats
@@ -97,13 +51,13 @@ IMAGE_MODEL = "gemini-2.0-flash-exp"
 
 # Generation settings
 GENERATION_CONFIG = {
-    "temperature": 1.0,
+    "temperature": 0.9,  # Increased for more personality
     "top_p": 0.95,
     "top_k": 64,
     "max_output_tokens": 2048,
 }
 
-# Safety settings - relaxed for roleplay
+# Safety settings - adjusted for roleplay
 SAFETY_SETTINGS = {
     "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
     "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE", 
@@ -124,7 +78,7 @@ GITHUB_CACHE_DURATION = 3600  # Cache GitHub data for 1 hour
 # =========================
 
 # Developer IDs for restricted commands
-DEVELOPER_IDS = get_env_int_list('DEVELOPER_IDS')
+DEVELOPER_IDS = [int(id) for id in get_env_var('DEVELOPER_IDS').split(',')]
 
 # Developer command configuration
 DEV_COMMANDS = {
