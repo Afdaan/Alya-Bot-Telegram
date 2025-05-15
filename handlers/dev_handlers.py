@@ -66,18 +66,25 @@ async def dev_command_wrapper(update: Update, context: CallbackContext, handler)
 # =========================
 
 async def update_command(update: Update, context: CallbackContext) -> None:
-    """Git pull and restart bot."""
+    """Git pull and restart bot. Usage: /update [branch]"""
     async def handler(update: Update, context: CallbackContext):
+        # Get target branch
+        branch = context.args[0] if context.args else 'main'
+        
         # Send initial message
         msg = await update.message.reply_text(
-            "*Updating Bot System*\n_Please wait_ 🔄",
+            f"*Updating Bot System*\n_Switching to branch:_ `{branch}` 🔄",
             parse_mode='MarkdownV2'
         )
         
         try:
-            # Get changes info
+            # Stash any changes
+            subprocess.run(['git', 'stash'], check=True)
+            
+            # Switch branch and pull
             old_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
-            git_output = subprocess.check_output(['git', 'pull']).decode()
+            subprocess.run(['git', 'checkout', branch], check=True)
+            git_output = subprocess.check_output(['git', 'pull', 'origin', branch]).decode()
             new_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
             
             # Get commit messages & escape special chars
@@ -95,11 +102,12 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             
             # Format update message with proper escaping
             update_message = (
-                "*Update Complete* ✨\n\n"
-                "*Changes:*\n"
+                f"*Update Complete* ✨\n\n"
+                f"*Branch:* `{branch}`\n"
+                f"*Changes:*\n"
                 f"{commit_log}\n\n"
-                "*Status:* Bot restarting\n\n"
-                "_Alya\\-chan will be back online shortly\\!_ 🌸"
+                f"*Status:* Bot restarting\n\n"
+                f"_Alya\\-chan will be back online shortly\\!_ 🌸"
             )
             
             await msg.edit_text(
@@ -109,11 +117,8 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             
             # Restart bot via tmux
             try:
-                # Send Ctrl+C to tmux session running the bot
                 subprocess.run(['tmux', 'send-keys', '-t', 'alya-bot', 'C-c'], check=True)
-                # Wait a moment for the bot to stop
                 subprocess.run(['sleep', '2'])
-                # Start bot again
                 subprocess.run(['tmux', 'send-keys', '-t', 'alya-bot', 'python main.py', 'Enter'], check=True)
             except subprocess.CalledProcessError as e:
                 logger.error(f"Failed to restart bot in tmux: {e}")
@@ -121,7 +126,6 @@ async def update_command(update: Update, context: CallbackContext) -> None:
             
         except Exception as e:
             error_msg = str(e)
-            # Escape error message for MarkdownV2
             safe_error = re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', error_msg[:200])
             await msg.edit_text(
                 f"*Update Failed*\n\n{safe_error}",
