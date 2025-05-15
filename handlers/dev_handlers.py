@@ -11,6 +11,7 @@ import psutil
 import subprocess
 import json
 import shlex
+import re
 from datetime import datetime
 from telegram import Update
 from telegram.ext import CallbackContext
@@ -65,16 +66,7 @@ async def dev_command_wrapper(update: Update, context: CallbackContext, handler)
 # =========================
 
 async def update_command(update: Update, context: CallbackContext) -> None:
-    """
-    Git pull and restart bot.
-    
-    Updates the bot with latest code from repository and restarts
-    the bot process within its TMUX session.
-    
-    Args:
-        update: Telegram Update object
-        context: CallbackContext object
-    """
+    """Git pull and restart bot."""
     async def handler(update: Update, context: CallbackContext):
         # Send initial message
         msg = await update.message.reply_text(
@@ -83,49 +75,29 @@ async def update_command(update: Update, context: CallbackContext) -> None:
         )
         
         try:
-            # Get current commit hash before pull
+            # Get changes info
             old_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
-            
-            # Git pull without specifying branch
             git_output = subprocess.check_output(['git', 'pull']).decode()
-            
-            # Get new commit hash after pull
             new_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
             
-            # Get commit messages between old and new (if different)
-            commit_messages = ""
+            # Get commit messages & escape special chars
             if old_hash != new_hash:
-                # Format: [hash] commit message
                 commit_log = subprocess.check_output(
-                    ['git', 'log', '--pretty=format:• `%h` %s', f'{old_hash}..{new_hash}']
+                    ['git', 'log', '--pretty=format:• %s', f'{old_hash}..{new_hash}']
                 ).decode()
-                commit_messages = commit_log if commit_log else "No new commits"
+                # Escape special characters for MarkdownV2
+                commit_log = re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', commit_log)
             else:
-                commit_messages = "No changes detected"
-            
-            # Install/update dependencies
-            pip_output = "Dependencies updated successfully"
+                commit_log = "No changes detected"
+
+            # Update deps & restart
             subprocess.check_output(['pip', 'install', '-r', 'requirements.txt'])
             
-            # Get TMUX session
-            tmux_session = "alya-bot"
-            # Restart command
-            restart_cmd = f"""
-            tmux send-keys -t {tmux_session} C-c
-            sleep 2
-            tmux send-keys -t {tmux_session} 'python main.py' Enter
-            """
-            subprocess.run(restart_cmd, shell=True)
-
-            # Perhatikan cara escape karakter # dengan variabel terpisah
-            escaped_commit_messages = commit_messages.replace('#', '\\#')
-            
-            # Format final update message with commit details
+            # Format update message with proper escaping
             update_message = (
                 "*Update Complete* ✨\n\n"
-                "*Changes Applied:*\n"
-                f"{escaped_commit_messages}\n\n"
-                "*Dependencies:* Updated\n"
+                "*Changes:*\n"
+                f"{commit_log}\n\n"
                 "*Status:* Bot restarting\n\n"
                 "_Alya\\-chan will be back online shortly\\!_ 🌸"
             )
@@ -134,22 +106,19 @@ async def update_command(update: Update, context: CallbackContext) -> None:
                 update_message,
                 parse_mode='MarkdownV2'
             )
+            
+            # Restart bot via systemd
+            subprocess.run(['sudo', 'systemctl', 'restart', 'alya-bot'])
+            
         except Exception as e:
-            # Create safe error message
             error_msg = str(e)
-            safe_error = ""
-            for char in error_msg[:200]:
-                if char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \n":
-                    safe_error += char
-                else:
-                    safe_error += " "
-                    
+            # Escape error message for MarkdownV2
+            safe_error = re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', error_msg[:200])
             await msg.edit_text(
                 f"*Update Failed*\n\n{safe_error}",
                 parse_mode='MarkdownV2'
             )
-    
-    # Run with developer authorization
+            
     return await dev_command_wrapper(update, context, handler)
 
 # =========================
