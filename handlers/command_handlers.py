@@ -25,6 +25,7 @@ from utils.rate_limiter import limiter
 import asyncio
 import subprocess
 import os
+from config.logging_config import log_command  # Add this import
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +206,7 @@ async def update_command(update: Update, context: CallbackContext) -> None:
 # Search Command
 # =========================
 
+@log_command(logger)
 async def handle_search(update: Update, context: CallbackContext) -> None:
     """
     Handle search command with natural language understanding.

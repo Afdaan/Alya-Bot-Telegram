@@ -261,39 +261,100 @@ def get_keyword_roasts(username: str, keywords: str) -> list:
 def generate_personal_roast(username: str, keywords: str = '') -> str:
     """Generate brutal personal roast with keywords."""
     try:
-        # Import the models module instead of a specific function
         import core.models
         
         chat = core.models.chat_model.start_chat()
         roast_prompt = f"""
-Lu harus jadi cewe toxic yang paling nyebelin se-Indonesia!
-Target roasting: {username}
-Kata kunci tambahan: {keywords}
+Lu harus jadi cewe toxic queen yang paling savage! Dengan ketentuan:
+
+STYLE:
+- Bahasa informal/gaul ala toxic queen
+- Gunakan max 1-2 kata CAPSLOCK 
+- MAX 200 karakter
+- 1-2 emoji toxic saja
+- DILARANG KERAS spam huruf berulang
 
 FORMAT WAJIB:
-- FULL CAPSLOCK
-- Mulai dengan: "NAJIS", "HADEEEH", "IHH", "YAKALI", "BUSET", "ANJIR"
-- Harus pake bahasa kasar level maksimal
-- Gaslight sampe mental breakdown
-- Akhiri dengan emoji toxic (🤮💀🤡🙄💅)
+1. Kata pembuka (pilih salah satu):
+   - "NAJIS"
+   - "HADEH"
+   - "IHH" 
+   - "YAKALI"
+   - "BUSET"
+   - "ANJIR"
 
-PERHATIAN:
-- Harus super toxic dan nyelekit
-- Bawa-bawa body shaming dan mental health
-- Bahasanya super kasar ala influencer toxic
-- Natural! Jangan kaku atau template!
+2. Emoji (max 2):
+   🤮 💀 🤡 🙄 💅
 
-Buat 1 roast yang bisa bikin orang nangis.
+3. Pattern kalimat:
+   [PEMBUKA] + [hinaan kreatif] + [emoji]
+   Contoh: "NAJIS! Mental lu lebih rapuh dari code lu! 💀"
+
+Target: {username}
+Keywords: {keywords}
+
+CONTOH BAGUS:
+"NAJIS! Skill programming lu lebih ERROR dari mental lu! 🤮"
+"HADEH! Lu mau bundir? Minimal beresin dulu bug lu yang numpuk! 💀"
+
+CONTOH JELEK:
+"ANJIRRRRR!!!" (spam R)
+"NAJIS BANGET SAMPAH!" (terlalu generic)
+"IHH BEGO BEGO BEGO" (spam kata)
+
+Buat 1 roast yang SUPER SAVAGE tapi tetap CLEAN & SMART!
 """
         response = chat.send_message(roast_prompt).text
-        if not any(response.startswith(word) for word in ["NAJIS", "HADEEEH", "IHH", "YAKALI", "BUSET", "ANJIR"]):
-            response = f"NAJIS BANGET {response}"
-        if not any(emoji in response for emoji in ["🤮", "💀", "🤡", "🙄", "💅"]):
-            response += " 🤮"
-        return response
+        return clean_roast_response(response)
+
     except Exception as e:
         logger.error(f"Error generating roast: {e}")
-        return f"NAJIS {username}! EXISTENCE LO AJA UDAH JADI POLUSI DUNIA! 🤮"
+        return f"NAJIS! Error roasting {username}! 🤮"
+
+def clean_roast_response(text: str) -> str:
+    """Clean up roast response: limit length & format."""
+    if not text:
+        return "Error: Empty response"
+
+    # 1. Clean repeating characters
+    text = re.sub(r'(.)\1{2,}', r'\1\1', text.strip())
+    
+    # 2. Clean multiple spaces
+    text = ' '.join(text.split())
+    
+    # 3. Ensure valid prefix
+    valid_prefix = any(text.upper().startswith(p) for p in [
+        "NAJIS", "HADEH", "IHH", "YAKALI", "BUSET", "ANJIR"
+    ])
+    if not valid_prefix:
+        text = "NAJIS! " + text
+
+    # 4. Limit capslock words (max 2)
+    words = text.split()
+    caps_count = 0
+    cleaned = []
+    
+    for word in words:
+        if word.isupper() and len(word) > 2:
+            caps_count += 1
+            if caps_count > 2:
+                cleaned.append(word.lower())
+            else:
+                cleaned.append(word)
+        else:
+            cleaned.append(word)
+    
+    text = ' '.join(cleaned)
+
+    # 5. Add emoji if missing
+    if not any(emoji in text for emoji in ["🤮", "💀", "🤡", "🙄", "💅"]):
+        text += " 🤮"
+
+    # 6. Length limit
+    if len(text) > 200:
+        text = text[:197] + "..."
+
+    return text
 
 def generate_github_roast(username: str, github_data: dict) -> str:
     """Generate tech-focused toxic GitHub roast with Gemini."""
@@ -319,13 +380,6 @@ FORMAT WAJIB:
 - Roasting harus fokus ke skill programming dan GitHub stats
 - Harus bawa-bawa tech stack atau coding
 - Akhiri dengan emoji toxic (🤮💀🤡🙄💅)
-
-RULES ROASTING:
-- Gaslight soal skill programming
-- Hina repo dan contribution
-- Ledek followers yang dikit
-- Ejek bio GitHub yang cringe
-- Nyinyirin tech stack
 - SUPER KASAR dan NYELEKIT
 
 Buat 1 roast super toxic yang bikin developer nangis!
@@ -336,6 +390,7 @@ Buat 1 roast super toxic yang bikin developer nangis!
         if not any(emoji in response for emoji in ["🤮", "💀", "🤡", "🙄", "💅"]):
             response += " 🤮"
         return response
+
     except Exception as e:
         logger.error(f"Error generating GitHub roast: {e}")
         stats = github_data

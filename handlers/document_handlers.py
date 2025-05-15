@@ -8,11 +8,17 @@ including analysis with Gemini and reverse image search functionality.
 import logging
 import asyncio
 import tempfile
+import random
+import re  # Add this import
 from io import BytesIO
 from PIL import Image
 import textract
 import google.generativeai as genai
 import hashlib
+import os
+from PIL import Image
+from utils.image_utils import download_image
+from utils.google_lens import search_google_lens  # Add this import if not exists
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
@@ -26,9 +32,13 @@ from utils.cache_manager import response_cache
 
 logger = logging.getLogger(__name__)
 
-# =========================
+def escape_markdown(text: str) -> str:
+    """Escape karakter spesial untuk Telegram MarkdownV2."""
+    return re.sub(r"([_*\[\]()~`>#+=|{}.!-])", r"\\\1", text)
+
+# =============================
 # Main Document Handler
-# =========================
+# =============================
 
 async def handle_document_image(update: Update, context: CallbackContext) -> None:
     """
@@ -70,51 +80,112 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
             parse_mode='MarkdownV2'
         )
 
-# =========================
+# =============================
 # Sauce Command Handler
-# =========================
+# =============================
 
-async def handle_sauce_command(message, user):
-    """
-    Handle reverse image search command.
-    
-    Provides options for finding the source of an image using
-    either SauceNAO (for anime) or Google Lens (for general images).
-    
-    Args:
-        message: Telegram message with image
-        user: User who sent the message
-    """
-    if not message.photo:
-        await message.reply_text(
-            "Gomen ne\\~ Alya butuh gambar untuk dicari sumbernya\\. \\. \\. 🥺",
-            parse_mode='MarkdownV2'
-        )
-        return
+# Store photo data temporarily
+photo_cache = {}
 
-    # Create buttons for search options
+async def search_sauce(message, photo) -> list:
+    """Search for image source using multiple services."""
     keyboard = [
         [
-            InlineKeyboardButton("🔍 SauceNAO (Anime)", callback_data=f"sauce_anime"),
-            InlineKeyboardButton("🔎 Google Lens", callback_data=f"sauce_lens")
+            InlineKeyboardButton("SauceNAO (Anime & Artwork)", callback_data="sauce_nao"),
+            InlineKeyboardButton("Google Lens (General)", callback_data="google_lens")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # Send response with search options
-    await message.reply_text(
-        f"*{user.first_name}\\-kun\\~* Alya\\-chan akan bantu cari sumber gambarnya\\!\n\n"
-        "• *SauceNAO* \\- Untuk anime/manga/fanart\n"
-        "• *Google Lens* \\- Untuk gambar umum\n\n"
-        "_Pilih metode pencarian ya\\~_ ✨",
+    
+    msg = await message.reply_text(
+        escape_markdown("*Pilih metode pencarian source:*\n" 
+        "• SauceNAO - Untuk anime, manga, & artwork\n"
+        "• Google Lens - Untuk gambar umum"),
         reply_markup=reply_markup,
-        reply_to_message_id=message.message_id,
         parse_mode='MarkdownV2'
     )
+    
+    return []
 
-# =========================
+async def handle_sauce_callback(update: Update, context: CallbackContext) -> None:
+    """Handle sauce search button callbacks"""
+    query = update.callback_query
+    data = query.data
+    msg_id = int(data.split('_')[-1])
+    
+    try:
+        photo = photo_cache.get(msg_id)
+        if not photo:
+            await query.edit_message_text(
+                "Gomennasai! Alya tidak dapat menemukan gambar untuk dicari... 🥺"
+            )
+            return
+            
+        # Get photo file
+        photo_file = await photo.get_file()
+        
+        if 'sauce_nao' in data:
+            # Use SauceNAO
+            results = await reverse_search_image(photo_file)
+            if results:
+                response = format_sauce_results(results)
+                await query.edit_message_text(response, parse_mode='MarkdownV2')
+            else:
+                await query.edit_message_text("Gomennasai, Alya tidak menemukan source yang cocok 😔")
+                
+        elif 'google_lens' in data:
+            # Use Google Lens
+            img_url = await get_image_url(photo_file)
+            lens_url = f"https://lens.google.com/uploadbyurl?url={img_url}"
+            
+            keyboard = [[InlineKeyboardButton("🔍 Buka di Google Lens", url=lens_url)]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "*Hasil Pencarian Google Lens*\n"
+                "Silakan klik tombol di bawah untuk melihat hasil pencarian\\~",
+                reply_markup=reply_markup,
+                parse_mode='MarkdownV2'
+            )
+            
+    except Exception as e:
+        logger.error(f"Sauce callback error: {str(e)}")
+        await query.edit_message_text(
+            "Gomen ne~ Ada error saat mencari source... 😔"
+        )
+    finally:
+        # Cleanup cache
+        if msg_id in photo_cache:
+            del photo_cache[msg_id]
+
+async def handle_sauce_command(message, user) -> str:
+    """Handle reverse image search command."""
+    try:
+        # Clean and escape response text
+        def clean_text(text: str) -> str:
+            special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', 
+                           '-', '=', '|', '{', '}', '.', '!']
+            for char in special_chars:
+                text = text.replace(char, f'\\{char}')
+            return text
+
+        # Get image file
+        photo = message.photo[-1] if message.photo else None
+        if not photo:
+            return "Kirim gambar yang mau dicari source-nya ya~"
+            
+        # Perbaikan: Pass message object ke search_sauce
+        results = await search_sauce(message, photo)
+        
+        return "Success - Waiting for user choice" 
+
+    except Exception as e:
+        logger.error(f"Sauce error: {str(e)}")
+        return "Error saat mencari source 😔"
+
+# =============================
 # Trace Command Handler
-# =========================
+# =============================
 
 async def handle_trace_command(message, user):
     """
@@ -149,7 +220,6 @@ async def handle_trace_command(message, user):
                 return
                 
             # Get analysis instructions from caption if any
-            analysis_prompt = ""
             if message.caption:
                 analysis_prompt = message.caption.replace(ANALYZE_PREFIX, "", 1).strip()
                 
@@ -185,9 +255,9 @@ async def handle_trace_command(message, user):
             parse_mode='MarkdownV2'
         )
 
-# =========================
+# ===================================
 # File Processing
-# =========================
+# =============================
 
 # Fungsi untuk cache image analysis berdasarkan image hash
 def get_image_hash(image_path):
@@ -222,7 +292,7 @@ async def process_file(message, user, file, file_ext):
                 
                 # Cek cache dulu
                 cached_response = response_cache.get(cache_key)
-                if cached_response:
+                if (cached_response):
                     logger.info(f"Using cached image analysis for {file_ext} file")
                     return await send_analysis_response(message, user, cached_response)
                 
@@ -322,9 +392,9 @@ async def process_file(message, user, file, file_ext):
     # Format and send the response
     await send_analysis_response(message, user, response_text)
 
-# =========================
+# ===============================
 # Response Formatting
-# =========================
+# =============================
 
 async def send_analysis_response(message, user, response_text):
     """
