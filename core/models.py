@@ -9,7 +9,44 @@ import logging
 import asyncio
 import time
 from typing import Optional, Dict, List
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+
+__all__ = [
+    'ChatHistory',
+    'add_message_to_history',
+    'get_user_history',
+    'clear_user_history',
+    'check_rate_limit',
+    'can_user_chat',
+    'is_message_valid'
+]
+
+# Move ChatHistory class definition to top
+class ChatHistory:
+    """Class to manage user chat history with expiration."""
+    def __init__(self):
+        self.messages: List[Dict] = []
+        self.last_update = time.time()
+
+    def add_message(self, role: str, content: str) -> None:
+        """Add a message to the user's history."""
+        self.messages.append({
+            "role": role,
+            "content": content,
+            "timestamp": datetime.now()
+        })
+        if len(self.messages) > MAX_HISTORY:
+            self.messages.pop(0)
+        self.last_update = time.time()
+
+    def is_expired(self) -> bool:
+        """Check if the chat history has expired."""
+        return (time.time() - self.last_update) > HISTORY_EXPIRE
+
+    def get_history_text(self) -> str:
+        """Return chat history as a formatted text."""
+        return "\n".join(f"{msg['role']}: {msg['content']}" for msg in self.messages)
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -48,41 +85,58 @@ except Exception as e:
     logger.error(f"Error initializing Gemini model: {e}")
     raise
 
-# Dictionary to store user chat history
-user_chats = {}
+# Global variables
+user_chats: Dict[int, ChatHistory] = {}
+rate_limits = {}
 request_timestamps = []
 MAX_REQUESTS_PER_MINUTE = 20
 
-# =========================
-# Chat History Management
-# =========================
-
-class ChatHistory:
-    """Class to manage user chat history with expiration."""
-    def __init__(self):
-        self.messages = []
-        self.last_update = time.time()
-
-    def add_message(self, role: str, content: str) -> None:
-        """Add a message to the user's history."""
-        self.messages.append({"role": role, "parts": [{"text": content}]})
-        if len(self.messages) > MAX_HISTORY:
-            self.messages.pop(0)
-        self.last_update = time.time()
-
-    def is_expired(self) -> bool:
-        """Check if the chat history has expired."""
-        return (time.time() - self.last_update) > HISTORY_EXPIRE
-
-    def get_history_text(self) -> str:
-        """Return chat history as a formatted text."""
-        return "\n".join(f"{msg['role']}: {msg['parts'][0]['text']}" for msg in self.messages)
-
-def get_user_history(user_id: int) -> ChatHistory:
-    """Retrieve or create a new chat history for a user."""
-    if user_id not in user_chats or user_chats[user_id].is_expired():
+def add_message_to_history(user_id: int, content: str, role: str) -> None:
+    """Add message to user chat history."""
+    if user_id is None or content is None or role is None:
+        raise ValueError("Invalid parameters")
+        
+    if role not in ["user", "assistant", "system"]:
+        raise ValueError("Invalid role")
+        
+    if user_id not in user_chats:
         user_chats[user_id] = ChatHistory()
-    return user_chats[user_id]
+        
+    user_chats[user_id].add_message(role, content)
+
+def get_user_history(user_id: int) -> List[Dict]:
+    """Get user chat history messages."""
+    if user_id not in user_chats:
+        user_chats[user_id] = ChatHistory()
+    return user_chats[user_id].messages
+
+def clear_user_history(user_id: int) -> None:
+    """Clear user chat history."""
+    if user_id in user_chats:
+        user_chats[user_id].messages = []
+
+def check_rate_limit(user_id: int) -> bool:
+    """Check if user is rate limited."""
+    now = datetime.now()
+    if user_id in rate_limits:
+        last_request = rate_limits[user_id]
+        if (now - last_request).seconds < 1:  # 1 second cooldown
+            return False
+    rate_limits[user_id] = now
+    return True
+
+def can_user_chat(user_id: int) -> bool:
+    """Check if user can chat."""
+    # Implement ban logic here if needed
+    return True
+
+def is_message_valid(content: str) -> bool:
+    """Validate message content."""
+    if not content or content.isspace():
+        return False
+    if len(content) > 4000:  # Max length
+        return False
+    return True
 
 # =========================
 # Rate Limiting
@@ -120,8 +174,10 @@ async def generate_chat_response(
         await wait_for_rate_limit()
 
         # Get user chat history
-        chat_history = get_user_history(user_id)
-        history_text = chat_history.get_history_text()
+        if user_id not in user_chats:
+            user_chats[user_id] = ChatHistory()
+        chat_history = user_chats[user_id]
+        history_text = "\n".join(f"{msg['role']}: {msg['content']}" for msg in chat_history.messages)
 
         # Get language settings
         language = get_language(context) if context else "id"

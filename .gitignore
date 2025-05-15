@@ -79,6 +79,7 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+.test
 
 # Translations
 *.mo
@@ -161,3 +162,80 @@ temp/
 # Bot response cache files
 *.cache
 /**/cache/*.cache
+
+# Test files
+tests/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Development stuff
+.env.test
+.coverage
+htmlcov/
+.pytest_cache/
+.hypothesis/
+
+# Local development
+*.local
+.vscode/
+.idea/
+
+# Testing stuff
+.tests/
+tests/
+.pytest_cache/
+__pycache__/
+*.pyc
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+test-reports/
+test-results/
+test_output/
+*.pytest_cache
+nosetests.xml
+pytest-*.xml
+
+# Local test env
+.env.test
+.env.local
+.env.*.local
+
+# VS Code test settings
+.vscode/test/
+.vscode/settings.json
+
+# Testing related
+tests/
+.pytest_cache/
+__pycache__/
+*.pyc
+.coverage
+htmlcov/
+test-reports/
+test-results/
+test_output/
+.hypothesis/
+pytest-*.xml
+nosetests.xml
+coverage.xml
+
+# Local test config
+.env.test
+.env.local
+.env.*.local
+
+# Test fixtures & data
+tests/fixtures/
+tests/data/
+tests/temp/
+
+# Development specific
+.vscode/test/
+.vscode/settings.json
+*.cache
+/**/cache/*.cache
+cache/
+logs/

@@ -197,5 +197,16 @@ class ResponseCache:
             
         return count
 
+    def clear(self):
+        """Clear all cached items"""
+        self.memory_cache.clear()
+
+    def is_expired(self, key: str) -> bool:
+        """Check if cache key is expired"""
+        entry = self.memory_cache.get(key)
+        if not entry:
+            return True
+        return (time.time() - entry['timestamp']) > self.ttl
+
 # Singleton instance untuk whole-app caching
 response_cache = ResponseCache()
