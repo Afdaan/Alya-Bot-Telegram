@@ -107,8 +107,17 @@ async def update_command(update: Update, context: CallbackContext) -> None:
                 parse_mode='MarkdownV2'
             )
             
-            # Restart bot via systemd
-            subprocess.run(['sudo', 'systemctl', 'restart', 'alya-bot'])
+            # Restart bot via tmux
+            try:
+                # Send Ctrl+C to tmux session running the bot
+                subprocess.run(['tmux', 'send-keys', '-t', 'alya-bot', 'C-c'], check=True)
+                # Wait a moment for the bot to stop
+                subprocess.run(['sleep', '2'])
+                # Start bot again
+                subprocess.run(['tmux', 'send-keys', '-t', 'alya-bot', 'python main.py', 'Enter'], check=True)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to restart bot in tmux: {e}")
+                raise Exception("Failed to restart bot - check tmux session")
             
         except Exception as e:
             error_msg = str(e)
