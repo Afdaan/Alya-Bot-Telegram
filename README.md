@@ -1,6 +1,6 @@
 <!-- Meta tags for SEO -->
 <meta name="keywords" content="telegram bot, ai bot, waifu bot, anime bot, alya bot, roshidere bot, python telegram bot, gemini ai bot">
-<meta name="description" content="Alya-chan: A Telegram Bot based on Alisa from Roshidere with AI capabilities powered by Google Gemini">
+<meta name="description" content="Alya-chan: A Telegram Bot based on Alya from Roshidere with AI capabilities powered by Google Gemini">
 
 <div align="center">
   <h1>
@@ -23,9 +23,9 @@
 </div>
 
 ## Description
-Alya-chan (アリサ・ミハイロヴナ・九条) is an AI-powered Telegram bot based on Alisa Mikhailovna Kujou from "The Angel Next Door Spoils Me Rotten" (Otonari no Tenshi-sama ni Itsu no Ma ni ka Dame Ningen ni Sareteita Ken, also known as Roshidere). With her tsundere personality and Russian-Japanese mixed background, she brings the charm of Alisa to your Telegram chats while providing powerful AI features powered by Google's Gemini!
+Alya-chan is an AI-powered Telegram bot based on Alya from the anime/manga series "時々ボソッとロシア語でデレる隣のアーリャさん" (Alya Sometimes Hides Her Feelings in Russian), commonly known as "Roshidere". With her unique personality and Russian-Japanese background, Alya occasionally mutters her true feelings in Russian when she can't express them directly in Japanese. This bot brings her charm to your Telegram chats while providing powerful AI features powered by Google's Gemini!
 
-> 🌟 Your personal Alisa AI assistant that combines the tsundere charm of Roshidere with cutting-edge AI technology
+> 🌟 Your personal Alya AI assistant that combines the charm of Roshidere with cutting-edge AI technology
 
 ## Key Features
 - 🌸 Waifu Chat Mode
