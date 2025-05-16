@@ -8,6 +8,7 @@ specifically targeted at anime, manga, and related artwork.
 import logging
 import aiohttp
 import re
+import asyncio  # Tambahkan import asyncio yang hilang
 from typing import Dict, List, Any, Optional
 import traceback
 import random

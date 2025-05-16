@@ -156,10 +156,16 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
 # =============================
 # Sauce Command Handler
 # =============================
-async def handle_sauce_command(update: Update, context: CallbackContext) -> None:
+async def handle_sauce_command(update, context: CallbackContext = None) -> None:
     """Handle the !sauce command to search for image sources using SauceNAO."""
-    msg = update.message
-
+    # Perbaikan untuk menerima parameter berupa Message atau Update
+    if hasattr(update, 'message'):
+        # Jika parameter adalah Update object
+        msg = update.message
+    else:
+        # Jika parameter adalah Message object langsung
+        msg = update
+    
     # tentukan sumber gambar: langsung di msg atau via reply
     if msg.photo or (msg.document and msg.document.mime_type and msg.document.mime_type.startswith('image/')):
         sauce_message = msg
