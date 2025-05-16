@@ -11,7 +11,7 @@ from telegram import Update, InputMediaPhoto
 from telegram.ext import CallbackContext
 from telegram.error import BadRequest
 
-from utils.saucenao import reverse_search_image
+from utils.saucenao import search_with_saucenao
 from utils.formatters import format_markdown_response
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,11 @@ async def handle_button_callback(update: Update, context: CallbackContext) -> No
         if callback_data.startswith('lang_'):
             lang_code = callback_data.split('_')[1]
             await handle_language_callback(query, context, lang_code)
+            return
+        
+        # Handle try_search callback
+        if callback_data == 'try_search':
+            await handle_try_search_callback(query, user)
             return
             
         # Default response for unknown callback
@@ -96,7 +101,6 @@ async def handle_image_search_callback(query, user, mode):
     """
     message = query.message
     original_msg = message.reply_to_message
-    
     if not original_msg or not original_msg.photo:
         try:
             await query.edit_message_text(
@@ -132,7 +136,7 @@ async def handle_image_search_callback(query, user, mode):
                 )
             else:
                 raise e
-                
+        
         # Get file and process
         try:
             photo_file = await photo.get_file()
@@ -147,12 +151,11 @@ async def handle_image_search_callback(query, user, mode):
                 )
             except BadRequest:
                 pass
-    
     elif mode == 'source':
         # Redirect to sauce command handler
         from handlers.document_handlers import handle_sauce_command
         await handle_sauce_command(original_msg, user)
-
+    
 # =========================
 # Sauce Callbacks
 # =========================
@@ -168,7 +171,6 @@ async def handle_sauce_callback(query, user, source_type):
     """
     message = query.message
     original_msg = message.reply_to_message
-    
     if not original_msg or not original_msg.photo:
         try:
             await query.edit_message_text(
@@ -211,7 +213,6 @@ async def handle_sauce_callback(query, user, source_type):
         if source_type == 'anime':
             # Use SauceNAO for anime image search
             sauce_results = await reverse_search_image(photo_file)
-            
             if not sauce_results or len(sauce_results) == 0:
                 # No results found
                 try:
@@ -228,10 +229,9 @@ async def handle_sauce_callback(query, user, source_type):
                     else:
                         raise e
                 return
-                
+            
             # Format and send results
             response = format_sauce_results(sauce_results, user.first_name)
-            
             try:
                 await query.edit_message_text(
                     response,
@@ -248,12 +248,11 @@ async def handle_sauce_callback(query, user, source_type):
                     )
                 else:
                     raise e
-                    
         elif source_type == 'lens':
             # Generate Google Lens URL
             file_url = f"https://lens.google.com/uploadbyurl?url={photo_file.file_path}"
             escaped_username = user.first_name.replace('.', '\\.').replace('-', '\\-')
-            
+                    
             try:
                 await query.edit_message_text(
                     f"*{escaped_username}\\-kun*\\~ Kamu bisa mencari dengan Google Lens\\:\n\n"
@@ -271,11 +270,9 @@ async def handle_sauce_callback(query, user, source_type):
                     )
                 else:
                     raise e
-    
     except Exception as e:
         logger.error(f"Error in sauce callback: {e}")
         error_msg = "Gomen ne\\~ Ada error saat mencari sumber gambar\\. \\. \\. 🥺"
-        
         try:
             await query.edit_message_text(error_msg, parse_mode='MarkdownV2')
         except BadRequest as e:
@@ -283,6 +280,60 @@ async def handle_sauce_callback(query, user, source_type):
                 await message.reply_text(error_msg, parse_mode='MarkdownV2')
             else:
                 raise e
+
+# =========================
+# Try Search Callback
+# =========================
+
+async def handle_try_search_callback(query, user):
+    """
+    Handle try_search button callback from SauceNAO results.
+    
+    Provides user with instructions on using !search command as alternative.
+    
+    Args:
+        query: CallbackQuery object 
+        user: User who triggered the callback
+    """
+    message = query.message
+    
+    # Escape username for MarkdownV2
+    escaped_username = user.first_name.replace('.', '\\.').replace('-', '\\-')
+    
+    # Prepare help message for !search as alternative - FIX ESCAPING CHARACTERS
+    search_help = (
+        f"*{escaped_username}\\-kun*\\~ Alya akan menjelaskan cara mencari dengan \\!search\\!\n\n"
+        "Untuk mencari gambar dengan \\!search\\:\n"
+        "1\\. Reply pada gambar dengan pesan \"\\!search source\"\n"
+        "2\\. Atau kirim \"\\!search gambar \\<kata kunci\\>\"\n\n"
+        "Опции поиска \\(Opsi pencarian\\)\\:\n"
+        "• \\!search describe \\- analisis gambar\n"
+        "• \\!search source \\- cari sumber gambar\n\n"
+        "Alya\\-chan menggunakan mesin pencari berbeda\\, mungkin hasilnya lebih baik\\."
+    )
+    
+    try:
+        # Update message with search help
+        await query.edit_message_text(
+            search_help,
+            parse_mode='MarkdownV2',
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        logger.error(f"Error handling try_search callback: {e}")
+        try:
+            # Fallback to simple Markdown if MarkdownV2 fails
+            await message.reply_text(
+                f"{user.first_name}-kun~ Untuk mencari gambar, gunakan:\n"
+                "• !search source - saat reply ke gambar\n"
+                "• !search gambar <kata kunci> - untuk mencari gambar baru",
+                parse_mode='Markdown'
+            )
+        except Exception:
+            # Last resort without any parsing
+            await message.reply_text(
+                "Untuk mencari dengan !search, reply ke gambar dengan '!search source' atau kirim '!search gambar <kata kunci>'."
+            )
 
 # =========================
 # Language Callbacks
@@ -311,7 +362,7 @@ def format_sauce_results(results, username):
     Args:
         results: List of source matches
         username: User's first name for personalization
-        
+    
     Returns:
         Formatted results string with MarkdownV2 escaping
     """
@@ -374,12 +425,11 @@ def format_sauce_results(results, username):
                     # Otherwise just show the URL text
                     safe_url = url.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!')
                     response += f"🔗 URL: {safe_url}\n"
-            
             response += "\n"
         except Exception as e:
             logger.error(f"Error formatting result {i}: {e}")
             response += f"*Hasil #{i+1}*: Error formatting result\n\n"
-    
+            
     # Add footer with tip
     response += "_Klik link di atas untuk melihat sumber aslinya\\~_ ✨"
     return response

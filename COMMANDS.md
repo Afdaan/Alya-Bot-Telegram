@@ -190,6 +190,25 @@ The bot automatically recognizes various search intents:
   - `!search source` - Find image source/similar images
   - Or simply use `!search` when replying to an image to see options
 
+## Image Search Commands
+
+### !sauce
+Search for the source of images from anime, manga, and artwork.
+
+**Usage:**
+1. Reply to a message containing an image with the command `!sauce`
+2. Or send an image with `!sauce` caption
+
+**Example:**
+```
+!sauce
+```
+
+**Note:**
+- SauceNAO provides best results for anime, manga, and fan art content
+- Google Lens works better for general photos, landmarks, products, etc.
+- SauceNAO results show a similarity score indicating accuracy
+
 ## Usage Examples
 ```bash
 # Regular chat

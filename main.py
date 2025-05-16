@@ -106,8 +106,8 @@ def main() -> None:
     
     # Register callback handler for sauce search
     application.add_handler(CallbackQueryHandler(
-        document_handlers.handle_sauce_callback,
-        pattern='^(sauce_nao|google_lens)_'
+        document_handlers.handle_sauce_command,
+        pattern='^(sauce_nao)_'
     ))
     
     # Start bot

@@ -5,41 +5,114 @@ This module provides handlers for processing documents and images,
 including analysis with Gemini and reverse image search functionality.
 """
 
+# =============================
+# Imports
+# =============================
+# Standard library
 import logging
 import asyncio
 import tempfile
-import random
-import re  # Add this import
+import re
+import os
+import traceback
+import hashlib
 from io import BytesIO
+
+# Third-party libraries
+import aiohttp
+import json
 from PIL import Image
 import textract
 import google.generativeai as genai
-import hashlib
-import os
-from PIL import Image
-from utils.image_utils import download_image
-from utils.google_lens import search_google_lens  # Add this import if not exists
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from telegram.ext import CallbackContext, ConversationHandler
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackContext
-from config.settings import ANALYZE_PREFIX, SAUCE_PREFIX
-
+# Local imports
+from config.settings import ANALYZE_PREFIX, SAUCE_PREFIX, SAUCENAO_API_KEY
 from core import models
 from core.models import chat_model
 from utils.formatters import format_markdown_response
-from utils.saucenao import reverse_search_image
 from utils.cache_manager import response_cache
+from utils.saucenao import search_with_saucenao
 
+# =============================
+# Logger Configuration
+# =============================
 logger = logging.getLogger(__name__)
 
+# =============================
+# Helper Functions
+# =============================
 def escape_markdown(text: str) -> str:
-    """Escape karakter spesial untuk Telegram MarkdownV2."""
+    """Escape special characters for Telegram MarkdownV2."""
     return re.sub(r"([_*\[\]()~`>#+=|{}.!-])", r"\\\1", text)
+
+async def download_image(file_id, context):
+    """Download an image from Telegram and save to a temporary file."""
+    try:
+        new_file = await context.bot.get_file(file_id)
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+        await new_file.download_to_drive(temp_file.name)
+        return temp_file.name
+    except Exception as e:
+        logger.error(f"Failed to download image: {e}")
+        return None
+
+async def get_image_from_message(message: Message):
+    """Extract image from various message types and download it."""
+    if not message:
+        return None
+    
+    try:
+        bot = message.get_bot()
+        
+        if message.photo:
+            # Get largest photo
+            photo = message.photo[-1]
+            file = await bot.get_file(photo.file_id)
+            
+        elif message.document and message.document.mime_type and message.document.mime_type.startswith('image/'):
+            file = await bot.get_file(message.document.file_id)
+            
+        elif message.animation:
+            file = await bot.get_file(message.animation.file_id)
+            
+        else:
+            return None
+            
+        # Buat nama file unik berdasarkan file_id dan waktu
+        file_id_hash = hashlib.md5(file.file_id.encode()).hexdigest()[:10]
+        
+        # Download file to temporary location - PENTING: delete=False agar file tidak langsung dihapus
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f'_{file_id_hash}.jpg')
+        await file.download_to_drive(temp_file.name)
+        return temp_file.name
+        
+    except AttributeError as e:
+        logger.error(f"Invalid message object: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to download image: {e}")
+        return None
+
+def get_image_hash(image_path):
+    """Generate hash from image file for caching."""
+    with open(image_path, "rb") as f:
+        file_hash = hashlib.md5()
+        chunk = f.read(8192)
+        while chunk:
+            file_hash.update(chunk)
+            chunk = f.read(8192)
+    return file_hash.hexdigest()
+
+# Add this helper function to determine file type
+def is_image_file(file_ext):
+    """Check if file extension belongs to image file."""
+    return file_ext.lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp']
 
 # =============================
 # Main Document Handler
 # =============================
-
 async def handle_document_image(update: Update, context: CallbackContext) -> None:
     """
     Handle document and image analysis requests.
@@ -65,7 +138,7 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
         
         # Sauce command: Find source of image using SauceNAO
         if message.photo and is_sauce:
-            await handle_sauce_command(message, user)
+            await handle_sauce_command(update, context)
             return
             
         # Trace command: Analyze image/document content using Gemini
@@ -83,110 +156,62 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
 # =============================
 # Sauce Command Handler
 # =============================
+async def handle_sauce_command(update: Update, context: CallbackContext) -> None:
+    """Handle the !sauce command to search for image sources using SauceNAO."""
+    msg = update.message
 
-# Store photo data temporarily
-photo_cache = {}
+    # tentukan sumber gambar: langsung di msg atau via reply
+    if msg.photo or (msg.document and msg.document.mime_type and msg.document.mime_type.startswith('image/')):
+        sauce_message = msg
+    elif msg.reply_to_message and (
+        msg.reply_to_message.photo or 
+        (msg.reply_to_message.document and 
+         msg.reply_to_message.document.mime_type and 
+         msg.reply_to_message.document.mime_type.startswith('image/'))
+    ):
+        sauce_message = msg.reply_to_message
+    else:
+        await msg.reply_text("Balas pesan dengan gambar atau kirim gambar dengan caption !sauce untuk mencari sumbernya! 🔍")
+        return
 
-async def search_sauce(message, photo) -> list:
-    """Search for image source using multiple services."""
-    keyboard = [
-        [
-            InlineKeyboardButton("SauceNAO (Anime & Artwork)", callback_data="sauce_nao"),
-            InlineKeyboardButton("Google Lens (General)", callback_data="google_lens")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    msg = await message.reply_text(
-        escape_markdown("*Pilih metode pencarian source:*\n" 
-        "• SauceNAO - Untuk anime, manga, & artwork\n"
-        "• Google Lens - Untuk gambar umum"),
-        reply_markup=reply_markup,
-        parse_mode='MarkdownV2'
+    # Konfirmasi pencarian dengan processing message
+    processing_message = await msg.reply_text(
+        "*Alya-chan* akan mencari sumber gambar menggunakan SauceNAO...\n"
+        "Tunggu sebentar ya~ 🔍",
+        parse_mode='Markdown'
     )
     
-    return []
-
-async def handle_sauce_callback(update: Update, context: CallbackContext) -> None:
-    """Handle sauce search button callbacks"""
-    query = update.callback_query
-    data = query.data
-    msg_id = int(data.split('_')[-1])
-    
+    # Mulai pencarian gambar
+    image_path = None
     try:
-        photo = photo_cache.get(msg_id)
-        if not photo:
-            await query.edit_message_text(
-                "Gomennasai! Alya tidak dapat menemukan gambar untuk dicari... 🥺"
-            )
+        # Download gambar - perbaikan disini, simpan file dan pastikan path valid
+        image_path = await get_image_from_message(sauce_message)
+        
+        if not image_path or not os.path.exists(image_path):
+            await processing_message.edit_text("Gomennasai! Alya tidak dapat mengunduh gambarnya... 🥺")
             return
-            
-        # Get photo file
-        photo_file = await photo.get_file()
         
-        if 'sauce_nao' in data:
-            # Use SauceNAO
-            results = await reverse_search_image(photo_file)
-            if results:
-                response = format_sauce_results(results)
-                await query.edit_message_text(response, parse_mode='MarkdownV2')
-            else:
-                await query.edit_message_text("Gomennasai, Alya tidak menemukan source yang cocok 😔")
-                
-        elif 'google_lens' in data:
-            # Use Google Lens
-            img_url = await get_image_url(photo_file)
-            lens_url = f"https://lens.google.com/uploadbyurl?url={img_url}"
-            
-            keyboard = [[InlineKeyboardButton("🔍 Buka di Google Lens", url=lens_url)]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                "*Hasil Pencarian Google Lens*\n"
-                "Silakan klik tombol di bawah untuk melihat hasil pencarian\\~",
-                reply_markup=reply_markup,
-                parse_mode='MarkdownV2'
-            )
-            
+        # Ubah pesan processing
+        await processing_message.edit_text("Mencari sumber gambar dengan SauceNAO... 🔍")
+        
+        # Panggil SauceNAO API dan perbarui pesan dengan hasilnya
+        await search_with_saucenao(processing_message, image_path)
+        
     except Exception as e:
-        logger.error(f"Sauce callback error: {str(e)}")
-        await query.edit_message_text(
-            "Gomen ne~ Ada error saat mencari source... 😔"
-        )
+        logger.error(f"Error in sauce search: {e}\n{traceback.format_exc()}")
+        await processing_message.edit_text(f"Gomennasai! Terjadi kesalahan: {str(e)[:100]}... 😔")
+    
     finally:
-        # Cleanup cache
-        if msg_id in photo_cache:
-            del photo_cache[msg_id]
-
-async def handle_sauce_command(message, user) -> str:
-    """Handle reverse image search command."""
-    try:
-        # Clean and escape response text
-        def clean_text(text: str) -> str:
-            special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', 
-                           '-', '=', '|', '{', '}', '.', '!']
-            for char in special_chars:
-                text = text.replace(char, f'\\{char}')
-            return text
-
-        # Get image file
-        photo = message.photo[-1] if message.photo else None
-        if not photo:
-            return "Kirim gambar yang mau dicari source-nya ya~"
-            
-        # Perbaikan: Pass message object ke search_sauce
-        results = await search_sauce(message, photo)
-        
-        return "Success - Waiting for user choice" 
-
-    except Exception as e:
-        logger.error(f"Sauce error: {str(e)}")
-        return "Error saat mencari source 😔"
+        # Hapus file temporary
+        if image_path and os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+            except Exception as e:
+                logger.error(f"Failed to remove temporary file: {e}")
 
 # =============================
 # Trace Command Handler
 # =============================
-
 async def handle_trace_command(message, user):
     """
     Handle document/image analysis with Gemini.
@@ -255,37 +280,17 @@ async def handle_trace_command(message, user):
             parse_mode='MarkdownV2'
         )
 
-# ===================================
+# =============================
 # File Processing
 # =============================
-
-# Fungsi untuk cache image analysis berdasarkan image hash
-def get_image_hash(image_path):
-    """Generate hash dari file gambar untuk caching."""
-    with open(image_path, "rb") as f:
-        file_hash = hashlib.md5()
-        chunk = f.read(8192)
-        while chunk:
-            file_hash.update(chunk)
-            chunk = f.read(8192)
-    return file_hash.hexdigest()
-
 async def process_file(message, user, file, file_ext):
-    """
-    Process downloaded file for analysis with caching for efficiency.
-    
-    Args:
-        message: Original Telegram message
-        user: User who sent the message
-        file: Downloaded Telegram file
-        file_ext: File extension
-    """
+    """Process downloaded file for analysis with caching for efficiency."""
     with tempfile.NamedTemporaryFile(suffix=f'.{file_ext}') as temp_file:
         await file.download_to_drive(temp_file.name)
         
         try:
             # Handle image files with Gemini Vision & caching
-            if file_ext.lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+            if is_image_file(file_ext):
                 # Generate hash untuk cek cache
                 image_hash = get_image_hash(temp_file.name)
                 cache_key = f"img_analysis_{image_hash}"
@@ -293,7 +298,6 @@ async def process_file(message, user, file, file_ext):
                 # Cek cache dulu
                 cached_response = response_cache.get(cache_key)
                 if (cached_response):
-                    logger.info(f"Using cached image analysis for {file_ext} file")
                     return await send_analysis_response(message, user, cached_response)
                 
                 # Jika tidak ada di cache, proses normal
@@ -315,33 +319,38 @@ async def process_file(message, user, file, file_ext):
                     ]
                 )
                 
-                # Minimalkan prompt untuk gambar - gunakan versi lebih sederhana untuk mengurangi risiko error
-                image_prompt = f"""
+                # Minimalkan prompt untuk gambar
+                image_prompt = """
                 Please analyze this image briefly. 
                 Describe what you see in the image in a friendly, cute way.
                 Be brief (maximum 500 characters).
                 """
                 
-                # Implementasi retry mechanism
+                # Retry Gemini analysis
                 max_attempts = 3
+                response_text = None
+                
                 for attempt in range(max_attempts):
                     try:
                         response = model.generate_content([image_prompt, image], stream=False)
                         response_text = response.text
-                        
-                        # Cache hasil analisis yang berhasil
                         response_cache.set(cache_key, response_text)
                         break
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Response timeout for image analysis (attempt {attempt+1}/{max_attempts})")
+                        if attempt == max_attempts - 1:
+                            response_text = f"Gomennasai~ Alya butuh waktu lebih lama untuk menganalisis gambar ini 🥺💕."
                     except Exception as img_error:
-                        logger.error(f"Error analyzing image with Gemini (attempt {attempt+1}/{max_attempts}): {img_error}")
-                        # Tunggu sebentar sebelum retry
+                        logger.error(f"Error analyzing image (attempt {attempt+1}/{max_attempts}): {img_error}")
                         if attempt < max_attempts - 1:
                             await asyncio.sleep(1)
                         else:
-                            # Fallback ke respons sederhana setelah semua retry gagal
-                            response_text = f"Alya-chan melihat ada sebuah gambar! Tapi Alya mengalami kesulitan menganalisis secara detail karena server sedang sibuk. Sepertinya ini adalah gambar berjenis {file_ext}. Mohon maaf {user.first_name}-kun, Alya akan berusaha lebih baik lagi nanti~ 🌸"
+                            response_text = f"Alya-chan melihat ada gambar tapi servernya sibuk. Sepertinya ini {file_ext} ya~ 🌸"
                 
-                # Handle document files with text extraction + caching
+                if not response_text:
+                    response_text = f"Alya mengalami error saat memproses gambar! Maaf ya 🥺💕."
+            
+            # Handle document files with text extraction + caching
             else:
                 # Try to extract text from document
                 try:
@@ -374,7 +383,7 @@ async def process_file(message, user, file, file_ext):
                 3. Ringkasan Singkat
                 4. Kesimpulan
 
-                PENTING: JANGAN gunakan format kode (``` atau ` ) dalam responmu karena akan menyebabkan error.
+                PENTING: JANGAN gunakan format kode (``` atau ` ) dalam responmu karena akan menyebahkan error.
                 Gunakan format * untuk bold dan _ untuk italic saja bila perlu.
                 Jangan lebih dari 800 karakter. Jadikan singkat dan efektif.
                 Isi dokumen:
@@ -388,53 +397,50 @@ async def process_file(message, user, file, file_ext):
         except Exception as e:
             logger.error(f"Error processing file: {e}")
             response_text = f"Alya-chan mengalami kesulitan memproses file ini. Mohon maaf {user.first_name}-kun, Alya akan berusaha lebih baik lagi nanti~ 🌸"
+        
+        # Format and send the response
+        return await send_analysis_response(message, user, response_text)
 
-    # Format and send the response
-    await send_analysis_response(message, user, response_text)
 
 # ===============================
 # Response Formatting
-# =============================
-
+# ===============================
 async def send_analysis_response(message, user, response_text):
     """
     Format and send analysis response, handling lengthy responses.
-    
-    Args:
-        message: Original Telegram message
-        user: User who sent the message
-        response_text: Analysis text to send
     """
-    # Format response for Markdown
-    from utils.formatters import format_markdown_response
-    
-    # Apply proper markdown formatting with special handling for dots/periods
-    formatted_response = format_markdown_response(response_text)
-    
-    # Escape dots in username for safe Markdown formatting
-    escaped_username = user.first_name.replace('.', '\\.').replace('-', '\\-')
-    
-    # Split and send if response is too long
-    if len(formatted_response) > 4000:
-        parts = [formatted_response[i:i+4000] for i in range(0, len(formatted_response), 4000)]
-        header = (
-            f"*Rangkuman dari Alya\\-chan untuk {escaped_username}\\-kun* 💕\n\n"
-            f"_{len(parts)} bagian rangkuman akan dikirim\\~_ 📝\n\n"
-        )
+    try:
+        formatted_response = format_markdown_response(response_text)
+        escaped_username = user.first_name.replace('.', '\\.').replace('-', '\\-')
         
-        for i, part in enumerate(parts):
-            section_header = f"*Bagian {i+1} dari {len(parts)}* 📚\n\n" if i > 0 else header
+        if len(formatted_response) > 4000:
+            parts = [formatted_response[i:i+4000] for i in range(0, len(formatted_response), 4000)]
+            header = (
+                f"*Rangkuman dari Alya\\-chan untuk {escaped_username}\\-kun* 💕\n\n"
+                f"_{len(parts)} bagian rangkuman akan dikirim\\~_ 📝\n\n"
+            )
+            
+            for i, part in enumerate(parts):
+                section_header = f"*Bagian {i+1} dari {len(parts)}* 📚\n\n" if i > 0 else header
+                await message.reply_text(
+                    section_header + part,
+                    reply_to_message_id=message.message_id if i == 0 else None,
+                    parse_mode='MarkdownV2'
+                )
+                await asyncio.sleep(1)
+        else:
+            header = f"*Rangkuman dari Alya\\-chan untuk {escaped_username}\\-kun* 💕\n\n"
             await message.reply_text(
-                section_header + part,
-                reply_to_message_id=message.message_id if i == 0 else None,
+                header + formatted_response,
+                reply_to_message_id=message.message_id,
                 parse_mode='MarkdownV2'
             )
-            await asyncio.sleep(1)  # Delay to prevent flood
-    else:
-        # Send as a single message if not too long
-        header = f"*Rangkuman dari Alya\\-chan untuk {escaped_username}\\-kun* 💕\n\n"
-        await message.reply_text(
-            header + formatted_response,
-            reply_to_message_id=message.message_id,
-            parse_mode='MarkdownV2'
+    except Exception as e:
+        # Log error dan kirim pesan friendly
+        logger.error(f"Error formatting response: {e}")
+        err_msg = (
+            "Alya-chan error waktu format/mengirim pesan rangkuman 😵‍💫\n"
+            f"Detail: {str(e)[:300]}\n"
+            "Coba ulangi lagi nanti ya~"
         )
+        await message.reply_text(err_msg)
