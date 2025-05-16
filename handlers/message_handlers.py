@@ -7,6 +7,7 @@ typing indicators, and response formatting/delivery.
 
 import logging
 import asyncio
+import re  # Tambahkan import re yang hilang
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import CallbackContext
@@ -18,6 +19,10 @@ from core.personas import get_persona_context
 from utils.formatters import format_markdown_response, split_long_message
 from utils.commands import is_roast_command
 from utils.language_handler import get_language, get_response
+
+# Import tambahan
+import time
+from utils.context_manager import context_manager
 
 logger = logging.getLogger(__name__)
 
@@ -102,11 +107,65 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         # Select appropriate persona based on command type, passing language
         persona = select_persona(update.message, language)
         
-        # Generate response with persona context and timeout handling
+        # Get previous context jika ada
+        user_id = user.id
+        chat_id = update.effective_chat.id
+        prev_context = context_manager.get_context(user_id, chat_id)
+        prev_history = context_manager.get_chat_history(user_id, chat_id, 10)  # Increase from 5 to 10 messages
+        
+        # Enhance prompt dengan context bila ada
+        enhanced_message = message_text
+        
+        if prev_context or prev_history:
+            context_info = []
+            
+            # Extract personal information from history
+            personal_info = extract_personal_info(prev_history)
+            if personal_info:
+                context_info.append("Important personal information about the user:")
+                for key, value in personal_info.items():
+                    context_info.append(f"User's {key}: {value}")
+            
+            # Check commands contexts - keep existing code
+            if prev_context:
+                # Check recent sauce command context
+                if 'sauce' in prev_context and int(time.time()) - prev_context['sauce'].get('timestamp', 0) < 3600:
+                    context_info.append("User recently used !sauce command to find the source of an anime image.")
+                
+                # Check recent trace command context
+                if 'trace' in prev_context and int(time.time()) - prev_context['trace'].get('timestamp', 0) < 3600:
+                    media_type = prev_context['trace'].get('media_type', 'content')
+                    context_info.append(f"User recently used !trace command to analyze {media_type}.")
+                    if prev_context['trace'].get('response_summary'):
+                        context_info.append(f"Your analysis summary: {prev_context['trace']['response_summary']}")
+                
+                # Check recent search command context
+                if 'search' in prev_context and int(time.time()) - prev_context['search'].get('timestamp', 0) < 3600:
+                    context_info.append(f"User recently searched for: '{prev_context['search'].get('query', '')}'")
+                
+            # Improve chat history formatting with clear separation
+            if prev_history:
+                context_info.append("\nRecent conversation history:")
+                for entry in prev_history:
+                    role = "User" if entry['role'] == 'user' else "You (Alya)"
+                    # Include full content for better context
+                    context_info.append(f"{role}: {entry['content']}")
+                
+            # Build enhanced prompt with more directive for memory
+            if context_info:
+                context_string = "\n".join(context_info)
+                enhanced_message = (
+                    f"[CONTEXT - IMPORTANT MEMORY INFORMATION]\n{context_string}\n[/CONTEXT]\n\n"
+                    f"Remember all information above, especially personal details. "
+                    f"The user expects you to remember these details.\n\n"
+                    f"User's current message: {message_text}"
+                )
+        
+        # Generate response dengan enhanced prompt
         try:
             response = await asyncio.wait_for(
                 generate_chat_response(
-                    message_text,
+                    enhanced_message,  # Use context-enhanced message
                     user.id,
                     context=context,
                     persona_context=persona
@@ -161,6 +220,23 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         
         # Send the response, split if too long
         await send_formatted_response(update, safe_response)
+        
+        # Save current message & response ke history
+        context_manager.add_chat_message(user_id, chat_id, update.message.message_id, 'user', message_text)
+        
+        # Extract and save important personal info before saving response
+        extracted_info = extract_important_facts(message_text, response)
+        if extracted_info:
+            for info_type, info_value in extracted_info.items():
+                context_data = {
+                    'command': 'personal_info',
+                    'timestamp': int(time.time()),
+                    'info_type': info_type,
+                    'value': info_value,
+                }
+                context_manager.save_context(user_id, chat_id, f"personal_{info_type}", context_data)
+        
+        context_manager.add_chat_message(user_id, chat_id, 0, 'assistant', response)
 
     except Exception as e:
         logger.error(f"Error in handle_message: {str(e)}")
@@ -238,3 +314,66 @@ async def send_formatted_response(update, response_text):
             reply_to_message_id=update.message.message_id,
             parse_mode='MarkdownV2'
         )
+
+def extract_personal_info(chat_history):
+    """Extract personal information from chat history"""
+    personal_info = {}
+    
+    # Define patterns to identify personal info
+    patterns = {
+        'birthday': [
+            r'ulang\s*tahun[ku|saya|gw]\s*(?:adalah|itu|pada)?\s*tanggal\s*(\d{1,2}\s*[a-zA-Z]+)',
+            r'tanggal\s*ulang\s*tahun[ku|saya|gw]\s*(?:adalah)?\s*(\d{1,2}\s*[a-zA-Z]+)',
+            r'[I|i|saya|gw|aku] born on (\d{1,2}\s*[a-zA-Z]+)',
+            r'[my|My|saya|gw] birthday is (\d{1,2}\s*[a-zA-Z]+)',
+        ],
+        'name': [
+            r'[N|n]ama\s*[saya|gw|ku|aku]\s*(?:adalah)?\s*([A-Za-z]+)',
+            r'[P|p]anggil\s*[aku|saya|gw]\s*([A-Za-z]+)',
+            r'[M|m]y\s*name\s*is\s*([A-Za-z]+)',
+            r'[C|c]all\s*me\s*([A-Za-z]+)',
+        ],
+        'hobby': [
+            r'[H|h]obi\s*[saya|gw|ku|aku]\s*(?:adalah)?\s*([A-Za-z\s]+)',
+            r'[S|s]uka\s*([A-Za-z\s]+)',
+            r'[M|m]y\s*hobby\s*is\s*([A-Za-z\s]+)',
+        ]
+    }
+    
+    # Check each message for personal info
+    for entry in chat_history:
+        if entry['role'] == 'user':
+            content = entry['content']
+            
+            # Apply patterns to extract information
+            for info_type, regex_patterns in patterns.items():
+                for pattern in regex_patterns:
+                    matches = re.findall(pattern, content, re.IGNORECASE)
+                    if matches and matches[0]:
+                        personal_info[info_type] = matches[0]
+                        break
+    
+    return personal_info
+
+def extract_important_facts(user_message, bot_response):
+    """Extract important facts from message exchange"""
+    extracted_info = {}
+    
+    # Check for birthday information
+    birthday_patterns = [
+        r'ulang\s*tahun[ku|saya|gw]\s*(?:adalah|itu|pada)?\s*tanggal\s*(\d{1,2}\s*[a-zA-Z]+)',
+        r'tanggal\s*ulang\s*tahun[ku|saya|gw]\s*(?:adalah)?\s*(\d{1,2}\s*[a-zA-Z]+)',
+        r'[I|i|saya|gw|aku] born on (\d{1,2}\s*[a-zA-Z]+)',
+        r'[my|My|saya|gw] birthday is (\d{1,2}\s*[a-zA-Z]+)',
+    ]
+    
+    for pattern in birthday_patterns:
+        matches = re.findall(pattern, user_message, re.IGNORECASE)
+        if matches:
+            extracted_info['birthday'] = matches[0]
+            break
+    
+    # Check for other critical personal info
+    # ... similar patterns for name, age, location, etc.
+    
+    return extracted_info

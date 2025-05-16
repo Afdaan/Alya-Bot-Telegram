@@ -74,6 +74,25 @@ HISTORY_EXPIRE = 3600  # History expiration in seconds (1 hour)
 GITHUB_CACHE_DURATION = 3600  # Cache GitHub data for 1 hour
 
 # =========================
+# Context Persistence Settings
+# =========================
+
+# Time-to-live untuk context persistence (dalam detik)
+CONTEXT_TTL = 7776000  # 90 days (3 bulan)
+
+# TTL untuk personal facts (dalam detik)
+PERSONAL_FACTS_TTL = 31536000  # 1 tahun
+
+# Path ke SQLite database untuk context storage
+CONTEXT_DB_PATH = "data/context/alya_context.db"
+
+# Maximum jumlah pesan sebelumnya untuk context
+CONTEXT_MAX_HISTORY = 15  # Increase from 5 to 10
+
+# Time window (dalam detik) untuk consider recent commands sebagai context yang relevan
+CONTEXT_RELEVANCE_WINDOW = 7200  # 2 jam
+
+# =========================
 # Developer Settings
 # =========================
 
