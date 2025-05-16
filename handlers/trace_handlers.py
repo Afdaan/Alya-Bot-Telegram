@@ -1,0 +1,75 @@
+"""
+Trace Handlers for Alya Telegram Bot.
+
+This module provides handlers for image and document tracing/analysis
+with persistent context storage.
+"""
+
+import logging
+import time
+from telegram import Update
+from telegram.ext import CallbackContext
+
+from handlers.document_handlers import handle_trace_command
+from utils.context_manager import context_manager
+
+logger = logging.getLogger(__name__)
+
+async def handle_trace_request(update: Update, context: CallbackContext) -> None:
+    """
+    Process !trace command for document/image analysis with context persistence.
+    
+    Args:
+        update: Telegram Update object
+        context: CallbackContext object
+    """
+    message = update.message
+    user = update.effective_user
+    
+    # Process using document handler
+    await handle_trace_command(message, user)
+    
+    # If message has photo, store context
+    if message.photo:
+        # Get the largest photo
+        photo = message.photo[-1]
+        
+        # Store context data
+        context_data = {
+            'command': 'trace',
+            'timestamp': int(time.time()),
+            'media_type': 'image',
+            'file_id': photo.file_id,
+            'chat_type': message.chat.type,
+            'caption': message.caption or "",
+            'response_summary': "Image analysis completed"
+        }
+        
+        # Save trace context to database
+        context_manager.save_context(
+            user.id,
+            message.chat.id,
+            'trace', 
+            context_data
+        )
+        
+    # If message has document, store context
+    elif message.document:
+        context_data = {
+            'command': 'trace',
+            'timestamp': int(time.time()),
+            'media_type': 'document',
+            'file_id': message.document.file_id,
+            'file_name': message.document.file_name,
+            'mime_type': message.document.mime_type,
+            'caption': message.caption or "",
+            'response_summary': "Document analysis completed"
+        }
+        
+        # Save trace context to database
+        context_manager.save_context(
+            user.id,
+            message.chat.id,
+            'trace', 
+            context_data
+        )

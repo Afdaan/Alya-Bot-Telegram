@@ -94,11 +94,16 @@ async def update_command(update: Update, context: CallbackContext) -> None:
                 ).decode()
                 # Escape special characters for MarkdownV2
                 commit_log = re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', commit_log)
+                
+                # Limit commit log length to avoid long messages
+                if len(commit_log) > 500:
+                    commit_log = commit_log[:497] + "..."
             else:
                 commit_log = "No changes detected"
 
-            # Update deps & restart
-            subprocess.check_output(['pip', 'install', '-r', 'requirements.txt'])
+            # Update dependencies silently (don't include in message)
+            subprocess.run(['pip', 'install', '-r', 'requirements.txt'], check=True, 
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             # Format update message with proper escaping
             update_message = (
@@ -195,6 +200,48 @@ async def clear_cache_command(update: Update, context: CallbackContext) -> None:
         
     count = response_cache.clear_all()
     await update.message.reply_text(f"Cache cleared: {count} entries removed")
+
+@log_command(logger)
+async def db_stats_command(update: Update, context: CallbackContext) -> None:
+    """Get database statistics. Usage: /dbstats"""
+    if not is_developer(update.effective_user.id):
+        return
+        
+    from utils.context_manager import context_manager
+    stats = context_manager.get_db_stats()
+    
+    stats_text = (
+        "*Database Statistics*\n\n"
+        f"*Size:* `{stats['db_size_mb']:.2f}` MB\n"
+        f"*User Contexts:* `{stats['user_context_count']}`\n"
+        f"*Chat History:* `{stats['chat_history_count']}`\n"
+        f"*User Facts:* `{stats['user_facts_count']}`\n"
+        f"*Oldest Record:* `{stats['oldest_record_days']:.1f}` days old\n"
+        f"*Newest Record:* `{stats['newest_record_days']:.1f}` days old\n"
+    )
+    
+    await update.message.reply_text(stats_text, parse_mode='MarkdownV2')
+
+@log_command(logger)
+async def rotate_db_command(update: Update, context: CallbackContext) -> None:
+    """Force database rotation. Usage: /rotatedb"""
+    if not is_developer(update.effective_user.id):
+        return
+        
+    await update.message.reply_text("Rotating database... This might take a moment.")
+    
+    try:
+        # Close current context manager and create backup
+        from utils.context_manager import context_manager
+        context_manager._rotate_database()
+        
+        # Re-initialize DB with new file
+        context_manager._init_db()
+        
+        await update.message.reply_text("✅ Database rotated successfully! A backup was created.")
+    except Exception as e:
+        logger.error(f"Error rotating DB: {e}")
+        await update.message.reply_text(f"❌ Error rotating database: {str(e)[:100]}")
 
 # =========================
 # Language Settings

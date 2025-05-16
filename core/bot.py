@@ -22,8 +22,11 @@ from handlers.callback_handlers import handle_button_callback
 from handlers.ping_handlers import ping_command
 from handlers.dev_handlers import (
     update_command, stats_command, debug_command, shell_command,
-    set_language_command
+    set_language_command, db_stats_command, rotate_db_command
 )
+
+# New import for trace handlers with context persistence
+from handlers.trace_handlers import handle_trace_request
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +52,13 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(r'^!search'), 
         handle_search,
+        block=False
+    ))
+    
+    # Add handler for !trace command with text filter
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(r'^!trace'),
+        handle_trace_request,
         block=False
     ))
     
@@ -81,5 +91,7 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("debug", debug_command))
     application.add_handler(CommandHandler("shell", shell_command))
+    application.add_handler(CommandHandler("dbstats", db_stats_command))
+    application.add_handler(CommandHandler("rotatedb", rotate_db_command))
     
     logger.info("All handlers have been set up successfully")

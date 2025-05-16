@@ -26,6 +26,8 @@ import asyncio
 import subprocess
 import os
 from config.logging_config import log_command  # Add this import
+import time
+from utils.context_manager import context_manager
 
 logger = logging.getLogger(__name__)
 
@@ -430,6 +432,33 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
                     "Hasil pencarian tidak dapat diformat dengan benar. Berikut hasil mentah:\n\n" + search_text[:3800],
                     parse_mode=None  # No parse mode = plain text
                 )
+        
+        # Simpan context search
+        context_data = {
+            'command': 'search',
+            'timestamp': int(time.time()),
+            'query': query,
+            'has_image': has_image if 'has_image' in locals() else False,
+            'is_detailed': is_detailed if 'is_detailed' in locals() else False,
+        }
+        
+        # Tambahkan result summary jika ada
+        if 'search_text' in locals() and search_text:
+            # Simpan ringkasan hasil (max 300 char)
+            context_data['result_summary'] = search_text[:300] + ('...' if len(search_text) > 300 else '')
+            
+        # Tambahkan flag image results jika ada
+        if 'image_results' in locals() and image_results:
+            context_data['has_image_results'] = True
+            context_data['image_count'] = len(image_results)
+            
+        # Save ke database
+        context_manager.save_context(
+            update.effective_user.id, 
+            update.effective_chat.id,
+            'search',
+            context_data
+        )
             
     except Exception as e:
         logger.error(f"Search error: {e}", exc_info=True)  # Log full traceback

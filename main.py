@@ -25,6 +25,9 @@ from handlers import document_handlers
 # Import settings after loading .env
 from config.settings import TELEGRAM_BOT_TOKEN, DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 
+# Import tambahan untuk context persistence
+from utils.context_manager import context_manager
+
 # =========================
 # Logging Configuration
 # =========================
@@ -81,6 +84,13 @@ async def error_handler(update: object, context: CallbackContext) -> None:
     elif isinstance(context.error, NetworkError):
         logger.warning(f"Network error: {context.error}")
 
+# Function for cleaning up expired context entries
+async def cleanup_expired_contexts(context: CallbackContext):
+    """Clean up expired contexts and history entries from database."""
+    logger.info("Running scheduled context cleanup...")
+    context_count, history_count = context_manager.cleanup_expired()
+    logger.info(f"Cleanup completed: {context_count} contexts and {history_count} history entries removed")
+
 def main() -> None:
     """Main function to run the bot."""
     # Load dotenv first before everything else
@@ -109,6 +119,15 @@ def main() -> None:
         document_handlers.handle_sauce_command,
         pattern='^(sauce_nao)_'
     ))
+    
+    # Add scheduled job to clean up expired context entries (runs every 12 hours)
+    if application.job_queue:
+        application.job_queue.run_repeating(cleanup_expired_contexts, interval=43200)
+    else:
+        logger.warning("JobQueue not available. Install python-telegram-bot[job-queue] for scheduled tasks")
+        # Jalan cleanup sekali saat startup
+        import asyncio
+        asyncio.create_task(cleanup_expired_contexts(None))
     
     # Start bot
     logger.info("Starting Alya Bot...")

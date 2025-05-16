@@ -17,6 +17,7 @@ import os
 import traceback
 import hashlib
 from io import BytesIO
+import time
 
 # Third-party libraries
 import aiohttp
@@ -34,6 +35,7 @@ from core.models import chat_model
 from utils.formatters import format_markdown_response
 from utils.cache_manager import response_cache
 from utils.saucenao import search_with_saucenao
+from utils.context_manager import context_manager
 
 # =============================
 # Logger Configuration
@@ -158,15 +160,15 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
 # =============================
 async def handle_sauce_command(update, context: CallbackContext = None) -> None:
     """Handle the !sauce command to search for image sources using SauceNAO."""
-    # Perbaikan untuk menerima parameter berupa Message atau Update
+    # Fix to accept parameters as either Message or Update
     if hasattr(update, 'message'):
-        # Jika parameter adalah Update object
+        # If parameter is an Update object
         msg = update.message
     else:
-        # Jika parameter adalah Message object langsung
+        # If parameter is a Message object directly
         msg = update
     
-    # tentukan sumber gambar: langsung di msg atau via reply
+    # Determine image source: directly in msg or via reply
     if msg.photo or (msg.document and msg.document.mime_type and msg.document.mime_type.startswith('image/')):
         sauce_message = msg
     elif msg.reply_to_message and (
@@ -180,17 +182,17 @@ async def handle_sauce_command(update, context: CallbackContext = None) -> None:
         await msg.reply_text("Balas pesan dengan gambar atau kirim gambar dengan caption !sauce untuk mencari sumbernya! 🔍")
         return
 
-    # Konfirmasi pencarian dengan processing message
+    # Confirm search with processing message
     processing_message = await msg.reply_text(
         "*Alya-chan* akan mencari sumber gambar menggunakan SauceNAO...\n"
         "Tunggu sebentar ya~ 🔍",
         parse_mode='Markdown'
     )
     
-    # Mulai pencarian gambar
+    # Start image search
     image_path = None
     try:
-        # Download gambar - perbaikan disini, simpan file dan pastikan path valid
+        # Download image - fix here, save file and ensure valid path
         image_path = await get_image_from_message(sauce_message)
         
         if not image_path or not os.path.exists(image_path):
@@ -200,15 +202,37 @@ async def handle_sauce_command(update, context: CallbackContext = None) -> None:
         # Ubah pesan processing
         await processing_message.edit_text("Mencari sumber gambar dengan SauceNAO... 🔍")
         
-        # Panggil SauceNAO API dan perbarui pesan dengan hasilnya
+        # Call SauceNAO API and update message with results
         await search_with_saucenao(processing_message, image_path)
+        
+        # Save context after successful search
+        if image_path and os.path.exists(image_path):
+            # Get user ID and chat ID
+            if hasattr(update, 'message'):
+                user_id = update.effective_user.id
+                chat_id = update.effective_chat.id
+            else:
+                user_id = update.from_user.id
+                chat_id = update.chat.id
+                
+            # Context data to be saved
+            context_data = {
+                'command': 'sauce',
+                'timestamp': int(time.time()),
+                'image_hash': get_image_hash(image_path),
+                'type': 'image_search',
+                'query_type': 'anime_source',
+            }
+            
+            # Save to database
+            context_manager.save_context(user_id, chat_id, 'sauce', context_data)
         
     except Exception as e:
         logger.error(f"Error in sauce search: {e}\n{traceback.format_exc()}")
         await processing_message.edit_text(f"Gomennasai! Terjadi kesalahan: {str(e)[:100]}... 😔")
     
     finally:
-        # Hapus file temporary
+        # Delete temporary file
         if image_path and os.path.exists(image_path):
             try:
                 os.remove(image_path)
@@ -297,19 +321,19 @@ async def process_file(message, user, file, file_ext):
         try:
             # Handle image files with Gemini Vision & caching
             if is_image_file(file_ext):
-                # Generate hash untuk cek cache
+                # Generate hash for cache check
                 image_hash = get_image_hash(temp_file.name)
                 cache_key = f"img_analysis_{image_hash}"
                 
-                # Cek cache dulu
+                # Check cache first
                 cached_response = response_cache.get(cache_key)
                 if (cached_response):
                     return await send_analysis_response(message, user, cached_response)
                 
-                # Jika tidak ada di cache, proses normal
+                # If not in cache, process normally
                 image = Image.open(temp_file.name)
                 
-                # Compress image untuk hemat token jika terlalu besar
+                # Compress image to save tokens if too large
                 MAX_SIZE = (800, 800)
                 if max(image.size) > MAX_SIZE[0]:
                     image.thumbnail(MAX_SIZE)
@@ -325,7 +349,7 @@ async def process_file(message, user, file, file_ext):
                     ]
                 )
                 
-                # Minimalkan prompt untuk gambar
+                # Minimize prompt for image
                 image_prompt = """
                 Please analyze this image briefly. 
                 Describe what you see in the image in a friendly, cute way.
