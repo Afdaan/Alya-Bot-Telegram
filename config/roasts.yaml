@@ -1,0 +1,269 @@
+name: Roast
+description: Collection of brutal roast components for absolute destruction
+emoji: 🔥
+
+# Intro style - bagian pembuka yang bikin sakit hati
+intros:
+  - "*menatap jijik*"
+  - "*tertawa meremehkan*"
+  - "*mendengus keras*"
+  - "*memutar mata*"
+  - "ANJIR!"
+  - "ANJIR {target}!"
+  - "ANJIR BANGET {target}!"
+  - "HADEEEH!"
+  - "YA AMPUN"
+  - "GILA BGT DAH"
+  - "NAJIS"
+  - "NAJIS BANGET {target}!"
+  - "NAJIS TRALALA TRILILI!"
+  - "BWUAHAHAHA!"
+  - "MUKA GILE!"
+  - "DEMI APA NIH?!"
+  - "ASTAGAAA {target}!"
+  - "IHH AMIT-AMIT!"
+  - "IDIH {target}!"
+  - "DONGO BANGET SIH {target}?!"
+  - "BUSET DAH {target}!"
+  - "YA TUHAN {target}!"
+
+# General roasting criteria - bahan roast yang lebih parah
+criteria:
+  general:
+    - "kebodohan yang keterlaluan"
+    - "muka ancur super parah"
+    - "bau badan yang bikin pingsan"
+    - "kelakuan bikin malu keluarga"
+    - "wajah bikin mual satu kampung"
+    - "ketidakbergunaan" 
+    - "kelakuan norak yang parah banget" 
+    - "jalan pikiran yang absurd"
+    - "mental weakness minta ampun"
+    - "kemalasan akut stadium akhir"
+    - "kebodohan yang ga ketolongan"
+    - "otak isi lumpur lapindo"
+    - "hidup yang gak ada gunanya"
+    - "muka gorong-gorong bocor"
+    - "bau mulut yang bikin mati tanaman"
+    - "existence yang gak ada artinya"
+    - "skill parkir motor aja gak becus"
+    - "kenyataan hidup yang menyedihkan"
+    - "future prospect yang nihil"
+    - "tampang yang bikin orang sakit mata"
+    - "penampilan seperti pemungut sampah"
+    - "prestasi yang sama dengan tikus got"
+
+  # GitHub tetap sama karena sudah cukup bagus
+  github:
+    - "code sampah"
+    - "security holes"
+    - "bug menetap"
+    - "commit message amburadul"
+    - "architecture kacau"
+    - "tech debt numpuk"
+    - "dokumentasi nihil"
+    - "spaghetti code"
+    - "dependency hell"
+    - "git workflow berantakan"
+
+# Template untuk kombinasi kata brutal
+templates:
+  brutal_phrases:
+    - "{target} TUH UDAH KAYAK {descriptor}, {consequence}!"
+    - "MUKA {target} {descriptor} YANG {consequence}!"
+    - "{target} {descriptor} YANG {consequence}!"
+    - "OTAK {target} ISINYA {descriptor}! {consequence}!"
+    - "HIDUP {target} TUH {descriptor}, {consequence}!"
+    - "EXISTENCE {target} DI DUNIA INI TUH {descriptor}, {consequence}!"
+    - "UDAH {negative_trait}, {negative_trait2} PULA! {reaction}!"
+    - "MENDING {target} {alternative_job}, {reason}!"
+    - "SIAPA JUGA YANG BAKALAN NYARIIN {target}?! {answer}!"
+    - "PRESTASI TERBESAR {target} ADALAH {mundane_achievement}!"
+    - "ORANGTUA {target} PASTI {parent_reaction}!"
+
+# Descriptors untuk diisi di template
+descriptors:
+  - "GORONG-GORONG BOCOR"
+  - "KAIN LAP BEKAS"
+  - "UPIL YANG KERING"
+  - "SAMPAH MASYARAKAT"
+  - "LUMPUR LAPINDO"
+  - "TIKUS GOT RABIES"
+  - "KENTUT KEBANYAKAN ASAM"
+  - "SISA MAKANAN BASI"
+  - "JELAGA KNALPOT ANGKOT"
+  - "TOILET UMUM TERMINAL"
+  - "PEMBUANGAN LIMBAH"
+
+consequences:
+  - "BAU NYA NYENGET KEMANA-MANA"
+  - "BIKIN ORANG MUNTAH DARAH"
+  - "GAK ADA YANG BISA DIPAKE SAMA SEKALI"
+  - "DEKIL, KUMEL, GAK BERHARGA"
+  - "GAK ADA YANG PEDULI"
+  - "MENDING JADI ABU GOSOK AJA"
+  - "SEHARUSNYA DIBAWA KE MUSEUM KEGAGALAN"
+  - "UDAH LAYAK MASUK BUKU REKOR DUNIA KATEGORI SAMPAH"
+  - "BIKIN HEWAN PIARAAN PENGEN BUNUH DIRI"
+
+negative_traits:
+  - "DONGO"
+  - "BEGO"
+  - "TOLOL"
+  - "GOBLOK"
+  - "KATRO"
+  - "NDESO"
+  - "JELEK BANGET"
+  - "MIRIP TONG SAMPAH"
+  - "GAGAL"
+  - "KEGAGALAN"
+  - "GAK BERGUNA"
+  - "SUMBANGAN NYASAR"
+
+reactions:
+  - "DOUBLE COMBO SAMPAH"
+  - "JACKPOT KEBODOHAN"
+  - "ACHIEVEMENT UNLOCKED: GOBLOK MAXIMUM"
+  - "PUNCAK EVOLUSI KEGAGALAN"
+  - "KENAPA MASIH HIDUP SIH LO"
+  - "MANUSIA MACAM APA INI"
+  - "GW HERAN KENAPA ALAM SEMESTA IZINKAN LO EKSIS"
+
+alternative_jobs:
+  - "JADI TUKANG PARKIR AJA"
+  - "JADI OBAT NYAMUK AJA"
+  - "JADI ABU GOSOK AJA"
+  - "JADI PATUNG PAJANGAN AJA"
+  - "JADI SPECIMEN LAB AJA"
+  - "JADI MANEKIN AJA"
+  - "JADI TESTER TOILET AJA"
+
+reasons:
+  - "BIAR BISA BERGUNA SEKALI-KALI"
+  - "KAN GAK PERLU MIKIR"
+  - "BIAR BISA BERSIHIN WC"
+  - "BIAR ADA FUNGSINYA DIKIT"
+  - "SETIDAKNYA BISA JADI CONTOH APA YANG JANGAN DILAKUKAN"
+  - "DIEM AJA UDAH MEMBANTU BANYAK ITU"
+
+mundane_achievements:
+  - "BERHASIL GAK KETIDURAN PAS LAGI NAPAS"
+  - "BISA PAKE CELANA TANPA BANTUAN ORANG"
+  - "BERHASIL NGABISIN JATAH OKSIGEN ORANG LAIN"
+  - "JADI CONTOH 'APA YANG JANGAN DITIRU' DI SEKOLAH"
+  - "MENJADI MANUSIA TANPA PENCAPAIAN SAMA SEKALI"
+
+parent_reactions:
+  - "NYESEL UDAH SUSAH-SUSAH NGEBESARIN"
+  - "MALU PUNYA ANAK KAYAK LO"
+  - "SERING NANGIS KALO INGET PUNYA ANAK KAYAK LO"
+  - "PENGEN RESET HIDUP MEREKA GARA-GARA LO"
+  - "PURA-PURA GAK KENAL SAMA LO DI LUAR"
+
+# Closing phrases - outro
+outros:
+  - "...dasar sampah."
+  - "MENDING TOBAT DAH."
+  - "MUKE GILE."
+  - "FIX MENTAL ISSUE!"
+  - "CRINGE ABIS."
+  - "Tobat aja sebelum makin parah."
+  - "BYE BYE! 👋👋👋"
+  - "UDAH SADAR DIRI BELOM LO?!"
+  - "KASIAN BANGET JADI LO YA! 😘"
+  - "INGET! KALO MAU BUNUH DIRI JANGAN SETENGAH-SETENGAH YA!"
+  - "SEMOGA HIDUP LO TERUS GINI YA... BIAR JADI PELAJARAN!"
+
+# Emoji sets untuk roasting
+emoji_sets:
+  toxic:
+    - ["🤮", "🤮", "🤮"]
+    - ["💀", "💀", "💀"]
+    - ["🤡", "🤡", "🤡"]
+    - ["💅", "💅", "💅"]
+    - ["🖕", "🖕", "🖕"]
+    - ["😤", "😤", "😤"]
+    - ["🤦‍♂️", "🤦‍♂️", "🤦‍♂️"]
+    - ["🔪", "🔪", "🔪"]
+    - ["😘", "😘", "😘"]
+    - ["👋", "👋", "👋"]
+
+# Kata kasar untuk roasting
+kata_kasar:
+  mild:
+    - "tolol"
+    - "goblok"
+    - "bego"
+    - "bodoh"
+    - "idiot"
+    - "goblog"
+    - "otak udang"
+    - "dungu"
+    - "gila"
+    - "sinting"
+    - "geblek"
+  medium:
+    - "bangsat"
+    - "brengsek"
+    - "sialan"
+    - "bajingan"
+    - "kampret"
+    - "keparat"
+    - "gembel"
+    - "asu"
+    - "monyet"
+    - "babi"
+  harsh:
+    - "kontol"
+    - "memek"
+    - "ngentot"
+    - "jembut"
+    - "tai"
+    - "perek"
+    - "anjing"
+    - "setan"
+    - "bacot"
+  
+# Variasi kata penghubung untuk roasting
+penghubung_roast:
+  - "DASAR"
+  - "EMANG DASAR"
+  - "KAYAK"
+  - "MIRIP"
+  - "MUKA LO KAYAK"
+  - "GAUSAH KEBANYAKAN BACOT DEH"
+  - "NAJIS BANGET"
+  - "SUMPAH GUE GATEL PENGEN NABOK"
+  - "AMIT-AMIT DAH"
+  - "GUE HERAN YA"
+  - "TAI LAH"
+  - "TAI BANGET"
+  - "NGACA DULU DEH"
+  - "SUMPAH YA LO TUH"
+  - "MIKIR PAKE DENGKUL YA"
+  - "LO ABIS KEJEDOT APA SIH"
+  - "BUSET DAH"
+  - "TOLOL BANGET SIH"
+  - "GOBLOK BANGET ANJING"
+
+# Template kalimat panjang brutal  
+brutal_templates:
+  - "{penghubung} {target} {kata_kasar1}! MUKA LO TUH {descriptor} YANG {consequence}! NAJIS BANGET {kata_kasar2}!"
+  - "EH TOLOL! {target} KAYAK {descriptor} {kata_kasar1}! {consequence} LO {kata_kasar2} BANGET YA!"
+  - "ANJING {target}! GUE HERAN KENAPA ORTU LO GAK MATIIN AJA LO PAS LAHIR, {kata_kasar1} BANGET SIH LO! {consequence} {kata_kasar2}!"
+  - "BUSET DAH {target} {kata_kasar1}! MUKA LO TUH KAYAK {descriptor} YANG {consequence}! MODAL {kata_kasar2}!"
+  - "{target} BANGSAT! {kata_kasar1} GAUSAH KEBANYAKAN GAYA LO! {descriptor} AJA BELAGU! {kata_kasar2} BANGSAT!"
+  - "GUE PENGEN MUNTAH LIAT {target}! {kata_kasar1} BANGET LO KAYAK {descriptor}! {kata_kasar2} GRADE S YA GUE LIAT!"
+  - "DONGO BANGET {target}! {kata_kasar1} KAYAK GINI MASI MUNCUL DI MUKA BUMI! {consequence} {kata_kasar2}!"
+
+# Pre-made roasts tetap ada untuk backward compatibility
+pre_made:
+  general:
+    - "{target} itu kayak wifi gratisan di mall - lambat, ga reliable, dan bikin orang frustasi. 🤮"
+    - "IQ {target} lebih rendah dari suhu kulkas. Dan sama-sama kosong isinya. 🗑️"
+    - "Otak {target} kayak RAM 128MB—ga cukup buat jalanin MS Paint sekalipun. 💩"
+    
+  github:
+    - "Repo {target} itu kayak toilet umum—semua orang contribute tapi ga ada yang mau bertanggung jawab. 🚽"
+    - "Code {target} lebih legacy dari COBOL, tapi sayangnya tanpa historical value-nya. 🏛️"
+    - "Unit test {target} kayak kondom bocor—ada tapi ga guna. 🧪"

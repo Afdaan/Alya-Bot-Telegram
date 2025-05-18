@@ -60,3 +60,19 @@ temp/
 *.pot
 *.manifest
 *.spec
+
+#database
+.data/
+data/
+
+# Cache files
+__pycache__/
+.pytest_cache/
+system/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Copilot instructions
+.github/copilot-instructions.md

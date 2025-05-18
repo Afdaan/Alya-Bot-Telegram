@@ -433,32 +433,39 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
                     parse_mode=None  # No parse mode = plain text
                 )
         
-        # Simpan context search
-        context_data = {
-            'command': 'search',
-            'timestamp': int(time.time()),
-            'query': query,
-            'has_image': has_image if 'has_image' in locals() else False,
-            'is_detailed': is_detailed if 'is_detailed' in locals() else False,
-        }
-        
-        # Tambahkan result summary jika ada
-        if 'search_text' in locals() and search_text:
-            # Simpan ringkasan hasil (max 300 char)
-            context_data['result_summary'] = search_text[:300] + ('...' if len(search_text) > 300 else '')
+        # Simpan context search dengan validasi tipe data yang lebih robust
+        try:
+            user_id = int(update.effective_user.id)
+            chat_id = int(update.effective_chat.id)
             
-        # Tambahkan flag image results jika ada
-        if 'image_results' in locals() and image_results:
-            context_data['has_image_results'] = True
-            context_data['image_count'] = len(image_results)
+            context_data = {
+                'command': 'search',
+                'timestamp': int(time.time()),
+                'query': query,
+                # Pastikan nilai boolean, bukan None atau nilai lain
+                'has_image': bool(has_image) if 'has_image' in locals() else False,
+                'is_detailed': bool(is_detailed) if 'is_detailed' in locals() else False,
+            }
             
-        # Save ke database
-        context_manager.save_context(
-            update.effective_user.id, 
-            update.effective_chat.id,
-            'search',
-            context_data
-        )
+            # Tambahkan result summary jika ada
+            if 'search_text' in locals() and search_text:
+                # Pastikan tipe data string dan truncation yang aman
+                summary = str(search_text)[:300]
+                context_data['result_summary'] = summary + ('...' if len(search_text) > 300 else '')
+                
+            # Tambahkan flag image results jika ada
+            if 'image_results' in locals() and image_results:
+                context_data['has_image_results'] = True
+                context_data['image_count'] = len(image_results)
+            
+            try:
+                # Save context dengan additional safety
+                context_manager.save_context(user_id, chat_id, 'search', context_data)
+                logger.debug(f"Search context saved for query: {query}")
+            except Exception as e:
+                logger.error(f"Error saving search context: {e}")
+        except (ValueError, TypeError) as e:
+            logger.error(f"Invalid user_id or chat_id for search context: {e}")
             
     except Exception as e:
         logger.error(f"Search error: {e}", exc_info=True)  # Log full traceback

@@ -28,6 +28,12 @@ from config.settings import TELEGRAM_BOT_TOKEN, DEFAULT_LANGUAGE, SUPPORTED_LANG
 # Import tambahan untuk context persistence
 from utils.context_manager import context_manager
 
+# Import database initialization
+from utils.database import init_database
+
+# Import admin handlers
+from handlers.admin_handlers import reset_db_command
+
 # =========================
 # Logging Configuration
 # =========================
@@ -100,6 +106,9 @@ def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
         logger.error("Telegram token not found. Please check your .env file")
         return
+    
+    # Initialize database with proper schema
+    init_database()
         
     # Create application instance
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
@@ -110,6 +119,9 @@ def main() -> None:
     
     # Setup all handlers
     setup_handlers(application)
+    
+    # Admin commands
+    application.add_handler(CommandHandler("reset_db", reset_db_command))
     
     # Add global error handler
     application.add_error_handler(error_handler)
@@ -125,7 +137,7 @@ def main() -> None:
         application.job_queue.run_repeating(cleanup_expired_contexts, interval=43200)
     else:
         logger.warning("JobQueue not available. Install python-telegram-bot[job-queue] for scheduled tasks")
-        # Jalan cleanup sekali saat startup
+        # Run cleanup once at startup
         import asyncio
         asyncio.create_task(cleanup_expired_contexts(None))
     

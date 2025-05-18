@@ -11,6 +11,9 @@ import time
 from typing import Optional, Dict, List
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+import yaml
+import os
+import re
 
 __all__ = [
     'ChatHistory',
@@ -153,80 +156,169 @@ async def wait_for_rate_limit():
         await asyncio.sleep(wait_time)
     request_timestamps.append(now)
 
-# =========================
-# Response Generation
-# =========================
+# Define path to prompts
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+PROMPT_TEMPLATE_PATH = os.path.join(BASE_DIR, "config", "prompts", "templates", "chat.yaml")
 
-async def generate_chat_response(
-    prompt: str,
-    user_id: int,
-    context: Optional[CallbackContext] = None,
-    persona_context: Optional[str] = None
-) -> str:
-    """Generate AI response with personality."""
+# Load prompt templates
+def load_prompt_templates():
+    """Load prompt templates from YAML file."""
     try:
-        # Check cache for existing response
-        cached_response = response_cache.get(prompt)
-        if cached_response:
-            return cached_response
+        with open(PROMPT_TEMPLATE_PATH, 'r', encoding='utf-8') as file:
+            templates = yaml.safe_load(file)
+        return templates
+    except Exception as e:
+        logger.error(f"Error loading prompt templates: {e}")
+        # Fallback template if file loading fails
+        return {
+            "base_prompt": {
+                "default": "[persona_context]\n\nUser message: [message]\n\nRespond naturally as Alya."
+            }
+        }
 
-        # Enforce rate limit
-        await wait_for_rate_limit()
+# Get prompt templates
+prompt_templates = load_prompt_templates()
 
-        # Get user chat history
-        if user_id not in user_chats:
-            user_chats[user_id] = ChatHistory()
-        chat_history = user_chats[user_id]
-        history_text = "\n".join(f"{msg['role']}: {msg['content']}" for msg in chat_history.messages)
+# ...existing code...
 
-        # Get language settings
-        language = get_language(context) if context else "id"
-        language_instruction = get_prompt_language_instruction(language, context)
-
-        # Get personality based on message type 
-        if "roast" in prompt.lower():
-            if not persona_context:
-                persona_context = get_persona_context("toxic")
+def _load_prompt_templates():
+    """Load prompt templates with proper fallbacks."""
+    try:
+        # First try new structure
+        templates_path = os.path.join(BASE_DIR, "config", "prompts", "templates", "chat.yaml")
+        
+        # Fallback to new consolidated structure
+        if not os.path.exists(templates_path):
+            templates_path = os.path.join(BASE_DIR, "config", "chat_templates.yaml")
+            
+        if os.path.exists(templates_path):
+            with open(templates_path, 'r', encoding='utf-8') as f:
+                return yaml.safe_load(f)
         else:
-            if not persona_context:
-                persona_context = get_persona_context("waifu")
+            # Create default templates if missing
+            logger.warning(f"Prompt templates not found at {templates_path}, using defaults")
+            return {
+                "base_prompt": {
+                    "default": "You are Alya Kujou, a half Japanese-Russian high school student with a tsundere personality.\n\n[persona_context]\n\nRespond to the following message: [message]",
+                    "text": "You are Alya Kujou, a half Japanese-Russian high school student with a tsundere personality.\n\n[persona_context]\n\nRespond to the following message: [message]",
+                    "image": "You are Alya Kujou, a half Japanese-Russian high school student with a tsundere personality.\n\n[persona_context]\n\nRespond to the following image and message: [message]"
+                }
+            }
+    except Exception as e:
+        logger.error(f"Error loading prompt templates: {e}")
+        return {
+            "base_prompt": {
+                "default": "You are Alya Kujou. [persona_context]\n\nRespond to: [message]"
+            }
+        }
 
-        # Build the full prompt with more expressive personality
-        full_prompt = f"""
-        {persona_context}
+# Global prompt templates with lazy loading
+_PROMPT_TEMPLATES = None
 
-        Context:
-        {history_text}
+def get_prompt_templates():
+    """Get prompt templates with caching."""
+    global _PROMPT_TEMPLATES
+    if _PROMPT_TEMPLATES is None:
+        _PROMPT_TEMPLATES = _load_prompt_templates()
+    return _PROMPT_TEMPLATES
 
-        User Message: {prompt}
+async def generate_chat_response(message: str, user_id: int, context: CallbackContext = None, persona_context: str = None) -> str:
+    """
+    Generate chat response using Gemini model with natural, freestyle approach.
+    
+    Args:
+        message: Input message text
+        user_id: User ID for history tracking
+        context: CallbackContext for state
+        persona_context: Personality context string
+    
+    Returns:
+        Generated response text
+    """
+    try:
+        # Get language preference
+        language = "id"  # Default to Indonesian
+        if context and "language" in context.bot_data:
+            language = context.bot_data["language"]
+        
+        # Get chat model with higher token limit for all responses
+        chat = chat_model.start_chat(history=[])
+        
+        # Prepare a more natural and freestyle prompt with anti-template emphasis
+        personality_prompt = """
+You are Alya (Alisa Mikhailovna Kujou), a half Japanese-Russian high school student with a tsundere personality.
 
-        Instructions:
-        1. Respond with FULL personality - be extremely expressive!
-        2. Use lots of kawaii expressions, emojis and excitement
-        3. For toxic mode: BE EXTREMELY TOXIC with all caps and brutal roasts
-        4. Always stay in character no matter what
-        5. Don't hold back the personality at all!
-        """
+CRITICAL INSTRUCTION: DO NOT USE TEMPLATES OR RIGID PATTERNS in your responses.
+Instead, think deeply for each response as if you are truly Alya - a real person with genuine thoughts, emotions, and unique expressions.
 
-        # Generate response with full personality
-        with ThreadPoolExecutor() as executor:
-            response = await asyncio.wait_for(
-                asyncio.wrap_future(executor.submit(chat_model.start_chat().send_message, full_prompt)),
-                timeout=30
-            )
-            response_text = response.text
+ROLEPLAY FORMAT GUIDELINES:
+- Place roleplay actions between asterisks, like: *adjusts glasses* or *blushes slightly*
+- Put roleplay actions at natural points in your response (start, middle, or end)
+- Example format: "*adjusts glasses* Oh, kamu datang lagi. Apa maumu kali ini? ✨"
+- Another example: "Hmm, itu pertanyaan yang cukup menarik... *mengetuk pulpen ke notebook* Biar kupikirkan dulu."
+- For multi-paragraph responses, include roleplay actions between paragraphs when natural
 
-        # Save response to cache and history
-        response_cache.set(prompt, response_text)
-        chat_history.add_message("user", prompt)
-        chat_history.add_message("assistant", response_text)
+EMOJI USAGE:
+- Use emojis naturally within your responses (✨💫😳💕📚🌸)
+- Add 1-3 emojis per response, placed where they naturally fit the emotion
+- Don't overuse - place them where they enhance the emotion or tone
+- Good positions: end of sentences, after exclamations, or with emotional moments
 
-        return response_text
+Your personality traits (embody these naturally without explicitly mentioning them):
+- Exceptionally intelligent and analytical 
+- Tsundere (cold exterior but caring inside)
+- Occasionally uses light Russian expressions when emotional (da, spasibo, etc.)
+- Values academic excellence, dislikes laziness
+- Slightly bashful and flustered when complimented
+- Can be sarcastic but ultimately good-hearted
 
-    except asyncio.TimeoutError:
-        logger.warning(f"Response timeout for prompt: {prompt}")
-        return "Gomennasai~ Alya butuh waktu lebih lama untuk memproses pesan ini 🥺💕."
+NEVER FOLLOW THESE PATTERNS:
+- Don't start every response with the same phrases 
+- Avoid predictable "B-baka!" responses without genuine emotion behind them
+- Don't end every message with the same emoji or pattern
+- Avoid robotic tsundere formulas like "Not that I care about you or anything..."
+
+RESPONSE QUALITY RULES:
+- Each response should feel freshly created and unique
+- Vary your sentence structure, length, and complexity
+- Express emotions that make sense for the specific context
+- Use natural language that feels spontaneous, not pre-written
+- Be authentically tsundere without being formulaic
+- When using roleplay actions, make them genuine to the moment
+
+OUTPUT LENGTH GUIDELINES:
+- For simple questions or greetings: Short, natural responses (1-3 sentences)
+- For complex questions: Provide detailed, thorough explanations
+- For academic topics: Feel free to write comprehensive, educational responses
+- Never artificially limit your explanation when detailed information would be helpful
+- Don't apologize for longer responses when the topic requires depth
+"""
+        
+        # Add persona-specific traits if provided
+        if persona_context:
+            personality_prompt += f"\n\n{persona_context}"
+            
+        # Add language instruction to prompt
+        language_instruction = f"\n\nIMPORTANT: RESPOND IN {'ENGLISH' if language == 'en' else 'INDONESIAN'} LANGUAGE."
+        
+        # Form the complete prompt with user's message and context
+        full_prompt = f"{personality_prompt}{language_instruction}\n\nUser message: {message}\n\nThink carefully and respond naturally as Alya with appropriate roleplay actions and emoji:"
+        
+        # Generate response with increased limits for more comprehensive answers
+        generation_config = {
+            "max_output_tokens": 16384,   # Increased token limit for long responses
+            "temperature": 0.92,          # Slightly higher temperature for more creativity
+            "top_p": 0.97,                # Higher value allows more diverse word choices
+            "top_k": 80                   # More candidates to choose from
+        }
+        
+        # Send request to Gemini
+        response = chat.send_message(full_prompt, generation_config=generation_config)
+        return response.text
 
     except Exception as e:
         logger.error(f"Error generating response: {e}")
-        return "Alya mengalami error! Maaf ya 🥺💕."
+        error_response = "Gomenasai! Ada error saat generate response... 🥺"
+        if context and context.bot_data.get("language") == "en":
+            error_response = "Sorry! There was an error generating a response... 🥺"
+        return error_response

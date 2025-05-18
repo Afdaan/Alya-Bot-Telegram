@@ -28,3 +28,9 @@ google-auth-httplib2>=0.1.0
 # Fix Google API cache warning
 oauth2client>=4.0.0
 google-auth-oauthlib>=0.4.0
+
+# Text processing
+emoji>=2.8.0  # Add emoji module for emoji handling
+
+#yaml
+pyyaml>=6.0

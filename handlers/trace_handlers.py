@@ -31,45 +31,57 @@ async def handle_trace_request(update: Update, context: CallbackContext) -> None
     
     # If message has photo, store context
     if message.photo:
-        # Get the largest photo
-        photo = message.photo[-1]
-        
-        # Store context data
-        context_data = {
-            'command': 'trace',
-            'timestamp': int(time.time()),
-            'media_type': 'image',
-            'file_id': photo.file_id,
-            'chat_type': message.chat.type,
-            'caption': message.caption or "",
-            'response_summary': "Image analysis completed"
-        }
-        
-        # Save trace context to database
-        context_manager.save_context(
-            user.id,
-            message.chat.id,
-            'trace', 
-            context_data
-        )
+        # PERBAIKAN: Validasi tipe data dan error handling
+        try:
+            # Get user ID dan chat ID yang valid
+            user_id = int(user.id)
+            chat_id = int(message.chat.id)
+            
+            # Get the largest photo
+            photo = message.photo[-1]
+            
+            # Store context data
+            context_data = {
+                'command': 'trace',
+                'timestamp': int(time.time()),
+                'media_type': 'image',
+                'file_id': photo.file_id,
+                'chat_type': message.chat.type,
+                'caption': message.caption or "",
+                'response_summary': "Image analysis completed"
+            }
+            
+            # Tambahkan error handling
+            try:
+                context_manager.save_context(user_id, chat_id, 'trace', context_data)
+                logger.debug(f"Trace context saved for image from user_id: {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to save trace context for image: {e}")
+        except (ValueError, TypeError) as e:
+            logger.error(f"Type error in trace handler for image: {e}")
         
     # If message has document, store context
     elif message.document:
-        context_data = {
-            'command': 'trace',
-            'timestamp': int(time.time()),
-            'media_type': 'document',
-            'file_id': message.document.file_id,
-            'file_name': message.document.file_name,
-            'mime_type': message.document.mime_type,
-            'caption': message.caption or "",
-            'response_summary': "Document analysis completed"
-        }
-        
-        # Save trace context to database
-        context_manager.save_context(
-            user.id,
-            message.chat.id,
-            'trace', 
-            context_data
-        )
+        # PERBAIKAN: Sama dengan yang di atas
+        try:
+            user_id = int(user.id)
+            chat_id = int(message.chat.id)
+            
+            context_data = {
+                'command': 'trace',
+                'timestamp': int(time.time()),
+                'media_type': 'document',
+                'file_id': message.document.file_id,
+                'file_name': message.document.file_name,
+                'mime_type': message.document.mime_type,
+                'caption': message.caption or "",
+                'response_summary': "Document analysis completed"
+            }
+            
+            try:
+                context_manager.save_context(user_id, chat_id, 'trace', context_data)
+                logger.debug(f"Trace context saved for document from user_id: {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to save trace context for document: {e}")
+        except (ValueError, TypeError) as e:
+            logger.error(f"Type error in trace handler for document: {e}")

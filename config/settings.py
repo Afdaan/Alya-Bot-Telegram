@@ -42,6 +42,20 @@ SUPPORTED_LANGUAGES = {
     "en": "English"
 }
 
+# Language-specific persona settings
+LANGUAGE_PERSONA_MAP = {
+    "id": {
+        "greeting": "Halo {username}-kun! Apa yang bisa Alya bantu?",
+        "farewell": "Sampai jumpa lagi, {username}-kun!",
+        "error": "Maaf, terjadi kesalahan."
+    },
+    "en": {
+        "greeting": "Hello {username}-kun! How can Alya assist you?",
+        "farewell": "See you later, {username}-kun!",
+        "error": "Sorry, an error occurred."
+    }
+}
+
 # =========================
 # Model Settings
 # =========================
@@ -54,7 +68,7 @@ GENERATION_CONFIG = {
     "temperature": 0.9,  # Increased for more personality
     "top_p": 0.95,
     "top_k": 64,
-    "max_output_tokens": 2048,
+    "max_output_tokens": 8192,  # Increased from 2048 to allow longer responses like lyrics
 }
 
 # Safety settings - adjusted for roleplay
@@ -86,11 +100,58 @@ PERSONAL_FACTS_TTL = 31536000  # 1 tahun
 # Path ke SQLite database untuk context storage
 CONTEXT_DB_PATH = "data/context/alya_context.db"
 
-# Maximum jumlah pesan sebelumnya untuk context
-CONTEXT_MAX_HISTORY = 15  # Increase from 5 to 10
+# Maximum max messages to keep in context
+CONTEXT_MAX_HISTORY = 5  # Reduced from 15 to 5 for better performance
 
 # Time window (dalam detik) untuk consider recent commands sebagai context yang relevan
-CONTEXT_RELEVANCE_WINDOW = 7200  # 2 jam
+CONTEXT_RELEVANCE_WINDOW = 3600  # Reduced to 1 hour
+
+# Maximum response length
+MAX_RESPONSE_LENGTH = 8192  # Increased from 2048 to allow more detailed responses for lyrics and content
+MAX_EMOJI_PER_RESPONSE = 10  # Limit emoji usage
+
+# =========================
+# New Memory Settings
+# =========================
+
+# Maximum token untuk disimpan dalam memory (untuk memory management)
+MEMORY_MAX_TOKENS = 10000  # ~40K characters of memory per user
+
+# Threshold importance untuk mengingat pesan lama
+MEMORY_IMPORTANCE_THRESHOLD = 0.7
+
+# Automatic importance boosting untuk topik tertentu
+MEMORY_IMPORTANT_TOPICS = [
+    "nama", "umur", "hobi", "suka", "benci", 
+    "kerja", "pekerjaan", "kuliah", "sekolah",
+    "keluarga", "pacar", "gebetan", "alamat", "rumah"
+]
+
+# Elephant memory settings
+MEMORY_USE_ELEPHANT = True  # Enable "elephant memory" feature
+MEMORY_REFERENCE_STYLE = "natural"  # Options: "natural", "exact", "minimal"
+MEMORY_MAX_REFERENCES = 3  # Max past messages to reference in a response
+
+# =========================
+# Response Style Configuration
+# =========================
+
+# Verbosity level affects how detailed Alya's responses will be
+# 1: Minimal (just core response)
+# 2: Normal (core response with some personality)
+# 3: Detailed (more explanation and personality)
+# 4: Verbose (full detailed explanations with strong personality)
+RESPONSE_VERBOSITY = 3  # Default to detailed responses
+
+# Personality strength (0.0-1.0) - affects how much tsundere/personality is added
+PERSONALITY_STRENGTH = 1.0
+
+# Response extension ratios (how much each component contributes to response)
+RESPONSE_CONFIG = {
+    "context_ratio": 0.3,     # How much context from previous messages to include
+    "detail_ratio": 0.4,      # How much additional detail to add to responses
+    "personality_ratio": 0.3  # How much personality/character traits to add
+}
 
 # =========================
 # Developer Settings

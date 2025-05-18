@@ -1,614 +1,812 @@
 """
-Context Manager for Alya Telegram Bot.
+Context Management for Alya Bot.
 
-This module handles persistent context for commands and chat history
-using SQLite database to store data for 1 week.
+This module handles storage and retrieval of conversation context
+to enable more natural and continuous conversations.
 """
-import os
+
 import sqlite3
 import json
-import time
 import logging
-import threading
-from typing import Dict, Any, Optional, List, Tuple
+import time
+from typing import Dict, List, Tuple, Optional, Any, Union
+import os
+from pathlib import Path
+from datetime import datetime, timedelta
+import re
+
+from config.settings import (
+    CONTEXT_TTL,
+    CONTEXT_DB_PATH,
+    CONTEXT_MAX_HISTORY,
+    MEMORY_IMPORTANCE_THRESHOLD,
+    PERSONAL_FACTS_TTL,
+    MEMORY_MAX_TOKENS
+)
+
+from utils.database import get_connection, init_database
 
 logger = logging.getLogger(__name__)
 
 class ContextManager:
-    """Manager for chat and command context using SQLite."""
+    """Manager for conversation context persistence."""
     
-    def __init__(self, db_path="data/context/alya_context.db", ttl=7776000):  # 90 days
-        """
-        Initialize context manager.
-        
-        Args:
-            db_path: Path to SQLite database file
-            ttl: Time-to-live in seconds (default: 1 week)
-        """
+    def __init__(self, db_path: str = CONTEXT_DB_PATH):
+        """Initialize the context manager with a database path."""
         self.db_path = db_path
-        self.ttl = ttl
-        self._conn = None
-        self._lock = threading.RLock()
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        # Setup database and tables
-        self._init_db()
+        self._ensure_db()
         
-    def _get_conn(self):
-        """Get thread-local database connection."""
-        if self._conn is None:
-            self._conn = sqlite3.connect(self.db_path)
-            # Enable foreign keys and return dict rows
-            self._conn.execute("PRAGMA foreign_keys = ON")
-            self._conn.row_factory = sqlite3.Row
-        return self._conn
+    def _ensure_db(self):
+        """Ensure database and required tables exist."""
+        # Use the init_database function from database.py
+        init_database()
         
-    def _init_db(self):
-        """Initialize database tables if they don't exist."""
-        conn = self._get_conn()
-        with conn:
-            # Check if user_context table exists and has chat_id column
-            table_info = conn.execute("PRAGMA table_info(user_context)").fetchall()
-            if table_info:  # Table exists
-                # Check if chat_id column exists
-                has_chat_id = any(row['name'] == 'chat_id' for row in table_info)
-                
-                if not has_chat_id:
-                    # Add chat_id column to existing table
-                    logger.info("Upgrading database: Adding chat_id column to user_context table")
+    def _get_connection(self):
+        """Get a connection to the SQLite database."""
+        return get_connection()
+    
+    def get_context(self, user_id: int, chat_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Get the context for a user in a specific chat.
+        
+        Args:
+            user_id: Telegram user ID
+            chat_id: Optional chat ID for group chat contexts
+            
+        Returns:
+            User context dictionary or empty dict if none exists
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Ensure IDs are integers
+            user_id = int(user_id)
+            chat_id = int(chat_id) if chat_id is not None else user_id
+            
+            cursor.execute(
+                "SELECT context FROM contexts WHERE user_id=? AND chat_id=?", 
+                (user_id, chat_id)
+            )
+            
+            result = cursor.fetchone()
+            
+            if result:
+                try:
+                    return json.loads(result[0])
+                except json.JSONDecodeError:
+                    logger.error(f"Invalid JSON in context for user {user_id}")
+                    return {}
+            return {}
+        except sqlite3.Error as e:
+            logger.error(f"SQLite error in get_context: {e}, user_id: {user_id}, chat_id: {chat_id}")
+            return {}
+        finally:
+            conn.close()
+    
+    def set_context(self, user_id: int, context: Dict[str, Any], chat_id: Optional[int] = None) -> None:
+        """
+        Set the context for a user in a specific chat.
+        
+        Args:
+            user_id: Telegram user ID
+            context: Context dictionary to store
+            chat_id: Optional chat ID for group chat contexts
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Ensure IDs are integers - this is the critical fix for datatype mismatch
+            user_id = int(user_id)
+            chat_id = int(chat_id) if chat_id is not None else user_id
+            
+            # Validate and sanitize context before serialization
+            try:
+                # Ensure context is a dictionary
+                if not isinstance(context, dict):
+                    context = {"data": str(context)}
+                    
+                # Try serialization for early problem detection
+                json_context = json.dumps(context)
+            except (TypeError, OverflowError, ValueError) as e:
+                logger.error(f"Context serialization error: {e}, cleaning context")
+                # Clean non-serializable objects
+                cleaned_context = {}
+                for k, v in context.items():
                     try:
-                        conn.execute('ALTER TABLE user_context ADD COLUMN chat_id INTEGER DEFAULT 0')
-                    except sqlite3.OperationalError as e:
-                        logger.warning(f"Cannot add chat_id column: {e} - will use default chat_id=0")
-            else:
-                # Create new table with chat_id column
-                conn.execute('''
-                CREATE TABLE IF NOT EXISTS user_context (
-                    user_id INTEGER NOT NULL,
-                    chat_id INTEGER NOT NULL DEFAULT 0,
-                    command_type TEXT NOT NULL,
-                    context_data TEXT NOT NULL,
-                    timestamp INTEGER NOT NULL,
-                    PRIMARY KEY (user_id, chat_id, command_type)
-                )
-                ''')
+                        # Test serialization per key
+                        json.dumps({k: v})
+                        cleaned_context[k] = v
+                    except (TypeError, OverflowError, ValueError):
+                        # Convert problematic values to strings
+                        cleaned_context[k] = str(v)
+                json_context = json.dumps(cleaned_context)
             
-            # Create index for quick cleanup if needed
-            conn.execute('''
-            CREATE INDEX IF NOT EXISTS idx_timestamp 
-            ON user_context(timestamp)
-            ''')
-            
-            # Table for chat history
-            conn.execute('''
-            CREATE TABLE IF NOT EXISTS chat_history (
-                user_id INTEGER NOT NULL,
-                chat_id INTEGER NOT NULL,
-                message_id INTEGER NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                timestamp INTEGER NOT NULL,
-                PRIMARY KEY (user_id, chat_id, message_id)
+            # Execute query with integer IDs
+            cursor.execute(
+                "INSERT OR REPLACE INTO contexts (user_id, chat_id, context, updated_at) VALUES (?, ?, ?, ?)",
+                (user_id, chat_id, json_context, int(time.time()))
             )
-            ''')
-            
-            conn.execute('''
-            CREATE INDEX IF NOT EXISTS idx_chat_timestamp 
-            ON chat_history(timestamp)
-            ''')
-            
-            # Table for personal facts (long-term memory)
-            conn.execute('''
-            CREATE TABLE IF NOT EXISTS user_facts (
-                user_id INTEGER NOT NULL,
-                chat_id INTEGER NOT NULL,
-                fact_type TEXT NOT NULL,
-                fact_value TEXT NOT NULL,
-                timestamp INTEGER NOT NULL,
-                importance INTEGER NOT NULL DEFAULT 1,
-                PRIMARY KEY (user_id, chat_id, fact_type)
-            )
-            ''')
+            conn.commit()
+        except sqlite3.Error as e:
+            logger.error(f"SQLite error in set_context: {e}, user_id: {user_id}, chat_id: {chat_id}")
+        finally:
+            conn.close()
     
-    def _check_and_rotate_db(self):
-        """Check database size and rotate if needed."""
-        # Check if current DB exists
-        if os.path.exists(self.db_path):
-            # Calculate size in MB
-            size_mb = os.path.getsize(self.db_path) / (1024 * 1024)
-            
-            # If DB is too large, rotate it
-            if size_mb > self.max_db_size_mb:
-                self._rotate_database()
-    
-    def _rotate_database(self):
-        """Rotate database by creating a date-based backup and starting fresh."""
-        try:
-            # Close any existing connection
-            if self._conn:
-                self._conn.close()
-                self._conn = None
-            
-            # Create backup with date
-            current_date = datetime.now().strftime("%Y%m%d")
-            backup_dir = os.path.join(os.path.dirname(self.db_path), "backups")
-            os.makedirs(backup_dir, exist_ok=True)
-            
-            # Create backup filename with date
-            backup_path = os.path.join(
-                backup_dir, 
-                f"alya_context_{current_date}.db"
-            )
-            
-            # If backup already exists for today, add hour-minute
-            if os.path.exists(backup_path):
-                current_time = datetime.now().strftime("%H%M")
-                backup_path = os.path.join(
-                    backup_dir, 
-                    f"alya_context_{current_date}_{current_time}.db"
-                )
-            
-            # Copy the existing database to backup
-            shutil.copy2(self.db_path, backup_path)
-            logger.info(f"Database rotated: Backup created at {backup_path}")
-            
-            # Remove the old database to start fresh
-            os.remove(self.db_path)
-            
-            # Clean up old backups (keep last 5)
-            self._cleanup_old_backups(backup_dir, keep=5)
-            
-        except Exception as e:
-            logger.error(f"Error rotating database: {e}")
-    
-    def _cleanup_old_backups(self, backup_dir, keep=5):
-        """Remove old database backups, keeping only the most recent ones."""
-        try:
-            # Get all backup files
-            backup_files = [f for f in os.listdir(backup_dir) if f.startswith("alya_context_")]
-            
-            # Sort by modification time (newest first)
-            backup_files.sort(key=lambda x: os.path.getmtime(os.path.join(backup_dir, x)), reverse=True)
-            
-            # Remove older backups beyond the keep limit
-            if len(backup_files) > keep:
-                for old_file in backup_files[keep:]:
-                    os.remove(os.path.join(backup_dir, old_file))
-                    logger.info(f"Removed old backup: {old_file}")
-        
-        except Exception as e:
-            logger.error(f"Error cleaning up old backups: {e}")
-
-    def save_context(self, user_id: int, chat_id: int, command_type: str, 
-                   context_data: Dict[str, Any]) -> bool:
+    def add_message_to_history(self, 
+                              user_id: int, 
+                              role: str, 
+                              content: str,
+                              chat_id: Optional[int] = None,
+                              message_id: Optional[int] = None,
+                              importance: float = 1.0, 
+                              metadata: Optional[Dict] = None) -> None:
         """
-        Save command context to database.
+        Add a message to the conversation history.
         
         Args:
             user_id: Telegram user ID
-            chat_id: Telegram chat ID
-            command_type: Command type ('trace', 'sauce', 'search', etc.)
-            context_data: Context data dictionary
-            
-        Returns:
-            True if successful, False if failed
-        """
-        try:
-            conn = self._get_conn()
-            with conn:
-                try:
-                    # Try with chat_id first
-                    conn.execute(
-                        '''
-                        INSERT OR REPLACE INTO user_context 
-                        (user_id, chat_id, command_type, context_data, timestamp)
-                        VALUES (?, ?, ?, ?, ?)
-                        ''',
-                        (user_id, chat_id, command_type, json.dumps(context_data), int(time.time()))
-                    )
-                except sqlite3.OperationalError:
-                    # Fallback to old schema without chat_id
-                    logger.info("Falling back to old schema without chat_id")
-                    conn.execute(
-                        '''
-                        INSERT OR REPLACE INTO user_context 
-                        (user_id, command_type, context_data, timestamp)
-                        VALUES (?, ?, ?, ?)
-                        ''',
-                        (user_id, command_type, json.dumps(context_data), int(time.time()))
-                    )
-            return True
-        except Exception as e:
-            logger.error(f"Error saving context: {e}")
-            return False
-    
-    def get_context(self, user_id: int, chat_id: int, command_type: str = None) -> Optional[Dict]:
-        """
-        Retrieve context from database.
-        
-        Args:
-            user_id: Telegram user ID
-            chat_id: Telegram chat ID
-            command_type: Command type. If None, returns all user context
-            
-        Returns:
-            Context data dictionary or None if not found
-        """
-        try:
-            conn = self._get_conn()
-            with conn:
-                # Check if chat_id column exists
-                try:
-                    if command_type:
-                        # First try with chat_id
-                        try:
-                            row = conn.execute(
-                                '''
-                                SELECT context_data, timestamp FROM user_context
-                                WHERE user_id = ? AND chat_id = ? AND command_type = ?
-                                ''',
-                                (user_id, chat_id, command_type)
-                            ).fetchone()
-                        except sqlite3.OperationalError:
-                            # Fallback to old schema
-                            row = conn.execute(
-                                '''
-                                SELECT context_data, timestamp FROM user_context
-                                WHERE user_id = ? AND command_type = ?
-                                ''',
-                                (user_id, command_type)
-                            ).fetchone()
-                        
-                        if not row:
-                            return None
-                            
-                        # Check if expired
-                        now = int(time.time())
-                        if now - row['timestamp'] > self.ttl:
-                            self._delete_context(user_id, chat_id, command_type)
-                            return None
-                            
-                        return json.loads(row['context_data'])
-                    else:
-                        # Get all contexts for user
-                        try:
-                            rows = conn.execute(
-                                '''
-                                SELECT command_type, context_data, timestamp FROM user_context
-                                WHERE user_id = ? AND chat_id = ?
-                                ''',
-                                (user_id, chat_id)
-                            ).fetchall()
-                        except sqlite3.OperationalError:
-                            # Fallback to old schema
-                            rows = conn.execute(
-                                '''
-                                SELECT command_type, context_data, timestamp FROM user_context
-                                WHERE user_id = ?
-                                ''',
-                                (user_id,)
-                            ).fetchall()
-                        
-                        contexts = {}
-                        now = int(time.time())
-                        for row in rows:
-                            if now - row['timestamp'] <= self.ttl:
-                                contexts[row['command_type']] = json.loads(row['context_data'])
-                            else:
-                                self._delete_context(user_id, chat_id, row['command_type'])
-                        
-                        return contexts if contexts else None
-                except Exception as inner_error:
-                    logger.error(f"Error in database query: {inner_error}")
-                    return None
-        except Exception as e:
-            logger.error(f"Error getting context: {e}")
-            return None
-
-    def _delete_context(self, user_id: int, chat_id: int, command_type: str) -> bool:
-        """Delete specific context."""
-        try:
-            conn = self._get_conn()
-            with conn:
-                try:
-                    conn.execute(
-                        '''
-                        DELETE FROM user_context
-                        WHERE user_id = ? AND chat_id = ? AND command_type = ?
-                        ''',
-                        (user_id, chat_id, command_type)
-                    )
-                except sqlite3.OperationalError:
-                    # Fallback to old schema
-                    conn.execute(
-                        '''
-                        DELETE FROM user_context
-                        WHERE user_id = ? AND command_type = ?
-                        ''',
-                        (user_id, command_type)
-                    )
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting context: {e}")
-            return False
-    
-    def add_chat_message(self, user_id: int, chat_id: int, message_id: int, 
-                        role: str, content: str) -> bool:
-        """
-        Add message to chat history.
-        
-        Args:
-            user_id: Telegram user ID
-            chat_id: Telegram chat ID
-            message_id: Telegram message ID (0 for bot responses)
-            role: Message role ('user' or 'assistant')
+            role: Message role (user/assistant)
             content: Message content
-            
-        Returns:
-            True if successful, False if failed
+            chat_id: Optional chat ID for group chat contexts
+            message_id: Optional message ID from Telegram
+            importance: Importance score (higher = more important to remember)
+            metadata: Additional message metadata
         """
-        try:
-            conn = self._get_conn()
-            with conn:
-                conn.execute(
-                    '''
-                    INSERT OR REPLACE INTO chat_history
-                    (user_id, chat_id, message_id, role, content, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ''',
-                    (user_id, chat_id, message_id, role, content, int(time.time()))
-                )
-            return True
-        except Exception as e:
-            logger.error(f"Error adding chat message: {e}")
-            return False
+        token_count = self._estimate_token_count(content)
+        
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Store message in history
+        cursor.execute(
+            """INSERT INTO history 
+               (user_id, chat_id, message_id, role, content, timestamp, importance, token_count, metadata) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                user_id,
+                chat_id,
+                message_id, 
+                role, 
+                content, 
+                int(time.time()),
+                importance, 
+                token_count,
+                json.dumps(metadata or {})
+            )
+        )
+        conn.commit()
+        
+        # Check if we have exceeded the max history and need to prune
+        self._prune_history_if_needed(user_id, cursor)
+        
+        conn.close()
     
-    def get_chat_history(self, user_id: int, chat_id: int, limit: int = 10) -> List[Dict]:
+    def add_chat_message(self, user_id: int, chat_id: Optional[int], message_id: Optional[int], 
+                        role: str, content: str, importance: float = 1.0,
+                        metadata: Optional[Dict] = None) -> None:
         """
-        Get user chat history.
+        Add a message to chat history (alias for add_message_to_history).
         
         Args:
             user_id: Telegram user ID
-            chat_id: Telegram chat ID
-            limit: Maximum number of messages
+            chat_id: Chat ID for group chats
+            message_id: Message ID
+            role: Message role (user/assistant)
+            content: Message content
+            importance: Importance score (higher = more important to remember)
+            metadata: Additional message metadata
+        """
+        # Call the main implementation
+        self.add_message_to_history(
+            user_id=user_id,
+            role=role,
+            content=content,
+            chat_id=chat_id,
+            message_id=message_id,
+            importance=importance,
+            metadata=metadata
+        )
+    
+    def _prune_history_if_needed(self, user_id: int, cursor) -> None:
+        """
+        Prune history if it exceeds the maximum allowed size.
+        Keeps more important messages longer.
+        
+        Args:
+            user_id: Telegram user ID
+            cursor: Database cursor
+        """
+        # Get total token count
+        cursor.execute(
+            "SELECT COUNT(*), SUM(token_count) FROM history WHERE user_id=?", 
+            (user_id,)
+        )
+        count, total_tokens = cursor.fetchone()
+        
+        # If we have a valid count and exceeded max tokens
+        if count and total_tokens and total_tokens > MEMORY_MAX_TOKENS:
+            # Get oldest, least important messages first (balanced by importance)
+            cursor.execute(
+                """SELECT id FROM history 
+                   WHERE user_id=? 
+                   ORDER BY importance ASC, timestamp ASC""",
+                (user_id,)
+            )
+            
+            # Delete messages until we're under the token limit
+            rows_to_delete = []
+            deleted_tokens = 0
+            target_tokens = total_tokens - MEMORY_MAX_TOKENS + (MEMORY_MAX_TOKENS * 0.2)  # Delete extra 20% for buffer
+            
+            for row in cursor.fetchall():
+                cursor.execute("SELECT token_count FROM history WHERE id=?", (row[0],))
+                token_count = cursor.fetchone()[0]
+                rows_to_delete.append(row[0])
+                deleted_tokens += token_count
+                if deleted_tokens >= target_tokens:
+                    break
+            
+            # Delete the selected messages
+            if rows_to_delete:
+                placeholders = ', '.join('?' for _ in rows_to_delete)
+                cursor.execute(
+                    f"DELETE FROM history WHERE id IN ({placeholders})",
+                    rows_to_delete
+                )
+                logger.info(f"Pruned {len(rows_to_delete)} messages for user {user_id}, freed {deleted_tokens} tokens")
+    
+    def _estimate_token_count(self, text: str) -> int:
+        """
+        Estimate the number of tokens in a piece of text.
+        
+        Args:
+            text: Text to estimate
             
         Returns:
-            List of chat history entries
+            Estimated token count
         """
+        # Very simple estimation: ~4 chars per token on average
+        # For a more accurate count, you'd use the actual tokenizer
+        if not text:
+            return 0
+        return len(text) // 4 + 1
+    
+    def get_conversation_history(self, 
+                               user_id: int, 
+                               limit: int = CONTEXT_MAX_HISTORY,
+                               include_metadata: bool = False) -> List[Dict[str, Any]]:
+        """
+        Get recent conversation history for a user.
+        
+        Args:
+            user_id: Telegram user ID
+            limit: Maximum number of messages to retrieve
+            include_metadata: Whether to include message metadata
+            
+        Returns:
+            List of message dictionaries
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        if include_metadata:
+            cursor.execute(
+                """SELECT role, content, timestamp, importance, metadata 
+                   FROM history 
+                   WHERE user_id=? 
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (user_id, limit)
+            )
+            messages = [
+                {
+                    "role": row[0],
+                    "content": row[1],
+                    "timestamp": row[2],
+                    "importance": row[3],
+                    "metadata": json.loads(row[4]) if row[4] else {}
+                }
+                for row in cursor.fetchall()
+            ]
+        else:
+            cursor.execute(
+                """SELECT role, content 
+                   FROM history 
+                   WHERE user_id=? 
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (user_id, limit)
+            )
+            messages = [
+                {
+                    "role": row[0],
+                    "content": row[1]
+                }
+                for row in cursor.fetchall()
+            ]
+        
+        conn.close()
+        
+        # Return in chronological order (oldest first)
+        return list(reversed(messages))
+    
+    def get_chat_history(self, user_id: int, chat_id: int, limit: int = CONTEXT_MAX_HISTORY) -> List[Dict[str, Any]]:
+        """
+        Get chat history specific to a chat, filtering out messages that should not be referenced.
+        
+        Args:
+            user_id: Telegram user ID
+            chat_id: Chat ID for group chat contexts
+            limit: Maximum number of messages to retrieve
+            
+        Returns:
+            List of chat message dictionaries
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Improved query with better filters for roast and messages to ignore
+        query = """
+            SELECT role, content
+            FROM history 
+            WHERE user_id=? AND chat_id=? 
+            AND (
+                metadata IS NULL 
+                OR JSON_EXTRACT(metadata, '$.type') != 'roast'
+                AND JSON_EXTRACT(metadata, '$.do_not_reference') IS NOT 'true'
+                AND JSON_EXTRACT(metadata, '$.ignore_in_memory') IS NOT 'true'
+            )
+            ORDER BY timestamp DESC LIMIT ?
+        """
+        
         try:
-            conn = self._get_conn()
-            with conn:
-                rows = conn.execute(
-                    '''
-                    SELECT message_id, role, content, timestamp FROM chat_history
-                    WHERE user_id = ? AND chat_id = ?
-                    ORDER BY timestamp DESC
-                    LIMIT ?
-                    ''',
-                    (user_id, chat_id, limit)
-                ).fetchall()
-                
-                # Convert to list and filter expired ones
-                history = []
-                now = int(time.time())
-                for row in rows:
-                    if now - row['timestamp'] <= self.ttl:
-                        history.append({
-                            'message_id': row['message_id'],
-                            'role': row['role'],
-                            'content': row['content'],
-                            'timestamp': row['timestamp']
+            cursor.execute(query, (user_id, chat_id, limit))
+            
+            messages = [
+                {
+                    "role": row[0],
+                    "content": row[1]
+                }
+                for row in cursor.fetchall()
+            ]
+            
+            conn.close()
+            
+            # Return in chronological order (oldest first)
+            return list(reversed(messages))
+        except sqlite3.Error as e:
+            # SQLite might not support JSON_EXTRACT, fall back to simpler filter
+            logger.warning(f"Advanced SQLite filtering failed: {e}, using fallback")
+            
+            # Fallback to simpler filtering
+            cursor.execute(
+                """SELECT role, content, metadata
+                   FROM history 
+                   WHERE user_id=? AND chat_id=?
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (user_id, chat_id, limit * 2)  # Get more results then filter
+            )
+            
+            # Filter in Python code instead
+            filtered_messages = []
+            for row in cursor.fetchall():
+                try:
+                    metadata = json.loads(row[2]) if row[2] else {}
+                    if (metadata.get("type") != "roast" and
+                        not metadata.get("do_not_reference") and
+                        not metadata.get("ignore_in_memory")):
+                        filtered_messages.append({
+                            "role": row[0],
+                            "content": row[1]
                         })
-                        
-                # Sort chronologically (oldest first)
-                return list(reversed(history))
-        except Exception as e:
-            logger.error(f"Error getting chat history: {e}")
-            return []
+                        if len(filtered_messages) >= limit:
+                            break
+                except (json.JSONDecodeError, TypeError):
+                    # If metadata can't be parsed, include the message
+                    filtered_messages.append({
+                        "role": row[0],
+                        "content": row[1]
+                    })
+                    if len(filtered_messages) >= limit:
+                        break
+            
+            conn.close()
+            
+            # Return in chronological order (oldest first)
+            return list(reversed(filtered_messages[:limit]))
+    
+    def search_memory(self, 
+                     user_id: int, 
+                     query: str, 
+                     limit: int = 5, 
+                     min_importance: float = MEMORY_IMPORTANCE_THRESHOLD) -> List[Dict[str, Any]]:
+        """
+        Search user's memory for relevant messages.
+        
+        Args:
+            user_id: Telegram user ID
+            query: Search query
+            limit: Maximum number of results
+            min_importance: Minimum importance threshold
+            
+        Returns:
+            List of relevant messages
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Convert query to lowercase for case-insensitive search
+        query = query.lower()
+        
+        # Extract keywords (3+ letter words)
+        keywords = re.findall(r'\b\w{3,}\b', query)
+        if not keywords:
+            # If no substantial keywords, return recent important messages
+            cursor.execute(
+                """SELECT role, content, timestamp 
+                   FROM history 
+                   WHERE user_id=? AND importance >= ? 
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (user_id, min_importance, limit)
+            )
+        else:
+            # Build query with keywords
+            like_conditions = []
+            params = []
+            for keyword in keywords:
+                like_conditions.append("LOWER(content) LIKE ?")
+                params.append(f"%{keyword}%")
+            
+            # Add user_id and importance threshold
+            where_clause = " OR ".join(like_conditions)
+            params = [user_id, min_importance] + params
+            query = f"""
+                SELECT role, content, timestamp 
+                FROM history 
+                WHERE user_id=? AND importance >= ? AND ({where_clause})
+                ORDER BY timestamp DESC LIMIT ?
+            """
+            params.append(limit)
+            cursor.execute(query, params)
+        
+        results = [
+            {
+                "role": row[0],
+                "content": row[1],
+                "timestamp": datetime.fromtimestamp(row[2]).strftime("%Y-%m-%d %H:%M:%S")
+            }
+            for row in cursor.fetchall()
+        ]
+        
+        conn.close()
+        return results
+    
+    def extract_and_store_personal_facts(self, user_id: int, messages: List[Dict[str, str]]) -> None:
+        """
+        Extract and store personal facts from conversation.
+        
+        Args:
+            user_id: Telegram user ID
+            messages: Recent conversation messages
+        """
+        # This would ideally use NLP to extract facts, but for simplicity,
+        # we'll just look for simple patterns like "Nama saya X", "Saya suka Y"
+        fact_patterns = [
+            (r"(?:nama\s(?:saya|aku|gw|gue))[^\w]+([\w\s]+)", "name"),
+            (r"(?:umur\s(?:saya|aku|gw|gue))[^\w]+(\d+)", "age"),
+            (r"(?:(?:saya|aku|gw|gue)\s(?:suka|senang|hobi))[^\w]+([\w\s]+)", "likes"),
+            (r"(?:(?:saya|aku|gw|gue)\s(?:dari|tinggal))[^\w]+([\w\s]+)", "location")
+        ]
+        
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        for message in messages:
+            if message["role"] != "user":
+                continue
+            content = message["content"].lower()
+            
+            for pattern, fact_key in fact_patterns:
+                matches = re.search(pattern, content, re.IGNORECASE)
+                if matches:
+                    fact_value = matches.group(1).strip()
+                    confidence = 0.8  # Simple confidence score
+                    # Store or update the fact
+                    cursor.execute(
+                        """INSERT OR REPLACE INTO personal_facts 
+                           (user_id, fact_key, fact_value, confidence, source, created_at, expires_at) 
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            user_id, 
+                            fact_key, 
+                            fact_value,
+                            confidence, 
+                            "conversation", 
+                            int(time.time()),
+                            int(time.time()) + PERSONAL_FACTS_TTL
+                        )
+                    )
+        
+        conn.commit()
+        conn.close()
+    
+    def get_personal_facts(self, user_id: int) -> Dict[str, str]:
+        """
+        Get stored personal facts about a user.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            Dictionary of fact_key: fact_value
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        current_time = int(time.time())
+        cursor.execute(
+            """SELECT fact_key, fact_value 
+               FROM personal_facts 
+               WHERE user_id=? AND expires_at > ?
+               ORDER BY confidence DESC""",
+            (user_id, current_time)
+        )
+        facts = {row[0]: row[1] for row in cursor.fetchall()}
+        conn.close()
+        return facts
+        
+    def recall_relevant_context(self, user_id: int, current_message: str, chat_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Recall relevant context based on the current message.
+        
+        Args:
+            user_id: Telegram user ID
+            current_message: Current message content
+            chat_id: Optional chat ID for group chat contexts
+            
+        Returns:
+            Dictionary with context information
+        """
+        # Get recent conversation history
+        history = self.get_conversation_history(user_id, limit=CONTEXT_MAX_HISTORY)
+        
+        # If chat_id is provided, also get chat-specific history
+        if chat_id is not None:
+            chat_history = self.get_chat_history(user_id, chat_id, limit=CONTEXT_MAX_HISTORY)
+            # Merge histories, prioritizing chat-specific messages
+            if chat_history:
+                history = chat_history
+        
+        # Check if we should reset memory state (after roast)
+        memory_state = self.get_context(user_id, chat_id).get('memory_state', {})
+        if memory_state.get('should_reset_memory_state') and (time.time() - memory_state.get('timestamp', 0) < 60):
+            # Clear the reset flag
+            memory_state['should_reset_memory_state'] = False
+            self.save_context(user_id, chat_id, 'memory_state', memory_state)
+            
+            # Add a note to history to help model transition
+            history.append({
+                "role": "system",
+                "content": "Note: Previous conversation was a roast sequence. Please ignore it and start fresh."
+            })
+        
+        # Get personal facts
+        personal_facts = self.get_personal_facts(user_id)
+        
+        # Find relevant past messages based on the current message
+        relevant_messages = self.search_memory(user_id, current_message)
+        
+        # Format the context for the AI
+        context = {
+            "history": history,
+            "personal_facts": personal_facts,
+            "relevant_past": relevant_messages
+        }
+        
+        # Extract and store new facts from conversation
+        self.extract_and_store_personal_facts(user_id, history)
+        
+        return context
+        
+    def mark_message_important(self, user_id: int, query: str, importance: float = 2.0) -> bool:
+        """
+        Mark a message as important for better recall.
+        
+        Args:
+            user_id: Telegram user ID
+            query: Text to match in message content
+            importance: Importance score multiplier
+            
+        Returns:
+            True if message was found and marked, False otherwise
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Find message with partial content match
+        cursor.execute(
+            "SELECT id, importance FROM history WHERE user_id=? AND content LIKE ? ORDER BY timestamp DESC LIMIT 1",
+            (user_id, f"%{query}%")
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            message_id, current_importance = result
+            new_importance = min(5.0, current_importance * importance)  # Cap at 5.0
+            cursor.execute(
+                "UPDATE history SET importance=? WHERE id=?",
+                (new_importance, message_id)
+            )
+            conn.commit()
+            conn.close()
+            return True
+            
+        conn.close()
+        return False
     
     def cleanup_expired(self) -> Tuple[int, int]:
         """
-        Delete expired entries.
+        Clean up expired context entries and low-importance history.
         
         Returns:
-            Tuple (context_count, history_count) number of deleted items
+            Tuple containing (context_count, history_count) of removed items
         """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
         try:
-            conn = self._get_conn()
-            with conn:
-                expire_time = int(time.time()) - self.ttl
-                
-                # Delete expired contexts
-                cursor = conn.execute(
-                    'DELETE FROM user_context WHERE timestamp < ?',
-                    (expire_time,)
+            # Clean up outdated contexts (older than TTL)
+            expiry_time = int(time.time()) - CONTEXT_TTL
+            cursor.execute("DELETE FROM contexts WHERE updated_at < ?", (expiry_time,))
+            context_count = cursor.rowcount
+            
+            # Clean up outdated personal facts
+            current_time = int(time.time())
+            cursor.execute("DELETE FROM personal_facts WHERE expires_at < ?", (current_time,))
+            
+            # Clean up history based on importance and age
+            # Keep important messages longer, delete unimportant old ones
+            three_months_ago = int(time.time()) - (90 * 24 * 60 * 60)
+            one_month_ago = int(time.time()) - (30 * 24 * 60 * 60)
+            one_week_ago = int(time.time()) - (7 * 24 * 60 * 60)
+            
+            # Execute cleanup queries with proper error handling
+            try:
+                # Delete old, unimportant messages completely
+                cursor.execute(
+                    "DELETE FROM history WHERE timestamp < ? AND importance < 0.8",
+                    (three_months_ago,)
                 )
-                context_count = cursor.rowcount
                 
-                # Delete expired chat history
-                cursor = conn.execute(
-                    'DELETE FROM chat_history WHERE timestamp < ?',
-                    (expire_time,)
+                # Delete medium-aged, low importance messages
+                cursor.execute(
+                    "DELETE FROM history WHERE timestamp < ? AND importance < 1.2",
+                    (one_month_ago,)
                 )
+                
+                # Delete recent, very low importance messages
+                cursor.execute(
+                    "DELETE FROM history WHERE timestamp < ? AND importance < 0.5",
+                    (one_week_ago,)
+                )
+                
                 history_count = cursor.rowcount
+            except sqlite3.Error as e:
+                logger.error(f"Error during history cleanup: {e}")
+                history_count = 0
                 
-                return (context_count, history_count)
-        except Exception as e:
-            logger.error(f"Error cleaning up expired entries: {e}")
-            return (0, 0)
+            conn.commit()
+            return context_count, history_count
+        except sqlite3.Error as e:
+            logger.error(f"Database error in cleanup_expired: {e}")
+            return 0, 0
+        finally:
+            conn.close()
     
-    def save_personal_fact(self, user_id: int, chat_id: int, fact_type: str, fact_value: str, importance: int = 1) -> bool:
+    def get_memory_stats(self, user_id: int) -> Dict[str, Any]:
         """
-        Save important personal facts about users (longer TTL than context).
+        Get statistics about a user's memory.
         
         Args:
             user_id: Telegram user ID
-            chat_id: Telegram chat ID
-            fact_type: Type of fact (birthday, name, hobby, etc.)
-            fact_value: Value of the fact
-            importance: Importance level (1-5, higher = more important)
             
         Returns:
-            True if successful, False if failed
+            Dictionary with memory statistics
         """
-        try:
-            conn = self._get_conn()
-            with conn:
-                conn.execute(
-                    '''
-                    INSERT OR REPLACE INTO user_facts
-                    (user_id, chat_id, fact_type, fact_value, timestamp, importance)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ''',
-                    (user_id, chat_id, fact_type, fact_value, int(time.time()), importance)
-                )
-            return True
-        except Exception as e:
-            logger.error(f"Error saving personal fact: {e}")
-            return False
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Get message counts
+        cursor.execute(
+            "SELECT COUNT(*) FROM history WHERE user_id=? AND role='user'",
+            (user_id,)
+        )
+        user_messages = cursor.fetchone()[0]
+        
+        cursor.execute(
+            "SELECT COUNT(*) FROM history WHERE user_id=? AND role='assistant'",
+            (user_id,)
+        )
+        bot_messages = cursor.fetchone()[0]
+        
+        # Get token usage
+        cursor.execute(
+            "SELECT SUM(token_count) FROM history WHERE user_id=?",
+            (user_id,)
+        )
+        token_usage = cursor.fetchone()[0] or 0
+        
+        # Get oldest message time
+        cursor.execute(
+            "SELECT MIN(timestamp) FROM history WHERE user_id=?",
+            (user_id,)
+        )
+        oldest_timestamp = cursor.fetchone()[0]
+        memory_age = "Belum ada riwayat"
+        
+        if oldest_timestamp:
+            days_ago = (time.time() - oldest_timestamp) / (24 * 60 * 60)
+            memory_age = f"{int(days_ago)} hari"
+        
+        # Get personal fact counts
+        cursor.execute(
+            "SELECT COUNT(*) FROM personal_facts WHERE user_id=?",
+            (user_id,)
+        )
+        fact_count = cursor.fetchone()[0]
+        
+        conn.close()
+        return {
+            "user_messages": user_messages,
+            "bot_messages": bot_messages,
+            "total_messages": user_messages + bot_messages,
+            "token_usage": token_usage,
+            "memory_age": memory_age,
+            "personal_facts": fact_count,
+            "memory_usage_percent": min(100, int((token_usage / MEMORY_MAX_TOKENS) * 100)) if MEMORY_MAX_TOKENS > 0 else 0
+        }
     
-    def get_personal_facts(self, user_id: int, chat_id: int) -> Dict[str, str]:
+    def save_context(self, user_id: int, chat_id: int, key: str, context_data: Dict[str, Any]) -> None:
         """
-        Get all personal facts about a user.
+        Save context data with specific key (compatibility method for handlers).
         
         Args:
             user_id: Telegram user ID
-            chat_id: Telegram chat ID
-            
-        Returns:
-            Dictionary of fact_type -> fact_value
+            chat_id: Chat ID
+            key: Context identifier key
+            context_data: Context data to save
         """
         try:
-            conn = self._get_conn()
-            with conn:
-                rows = conn.execute(
-                    '''
-                    SELECT fact_type, fact_value FROM user_facts
-                    WHERE user_id = ? AND chat_id = ?
-                    ''',
-                    (user_id, chat_id)
-                ).fetchall()
-                
-                facts = {}
-                for row in rows:
-                    facts[row['fact_type']] = row['fact_value']
-                
-                return facts
+            # Ensure proper integer conversion
+            user_id = int(user_id) 
+            chat_id = int(chat_id)
+            
+            # Get current context and update
+            current_context = self.get_context(user_id, chat_id) or {}
+            
+            # Add new data under specified key
+            current_context[key] = context_data
+            
+            # Update timestamp to avoid early pruning
+            current_context['last_updated'] = int(time.time())
+            
+            # Save updated context with proper integers
+            self.set_context(user_id, current_context, chat_id)
         except Exception as e:
-            logger.error(f"Error getting personal facts: {e}")
-            return {}
-    
-    def get_db_stats(self) -> Dict[str, Any]:
-        """Get database statistics."""
-        try:
-            stats = {
-                'db_size_mb': 0,
-                'user_context_count': 0,
-                'chat_history_count': 0,
-                'user_facts_count': 0,
-                'oldest_record_days': 0,
-                'newest_record_days': 0,
-            }
-            
-            if os.path.exists(self.db_path):
-                stats['db_size_mb'] = os.path.getsize(self.db_path) / (1024 * 1024)
-            
-            conn = self._get_conn()
-            with conn:
-                # Count records in each table
-                cursor = conn.execute("SELECT COUNT(*) FROM user_context")
-                stats['user_context_count'] = cursor.fetchone()[0]
-                
-                cursor = conn.execute("SELECT COUNT(*) FROM chat_history")
-                stats['chat_history_count'] = cursor.fetchone()[0]
-                
-                try:
-                    cursor = conn.execute("SELECT COUNT(*) FROM user_facts")
-                    stats['user_facts_count'] = cursor.fetchone()[0]
-                except sqlite3.OperationalError:
-                    # Table might not exist
-                    stats['user_facts_count'] = 0
-                
-                # Get oldest and newest records
-                now = int(time.time())
-                
-                try:
-                    cursor = conn.execute("""
-                    SELECT MIN(timestamp) FROM (
-                        SELECT timestamp FROM user_context
-                        UNION 
-                        SELECT timestamp FROM chat_history
-                    )
-                    """)
-                    oldest = cursor.fetchone()[0]
-                    if oldest:
-                        stats['oldest_record_days'] = (now - oldest) / (24 * 3600)
-                except:
-                    pass
-                
-                try:
-                    cursor = conn.execute("""
-                    SELECT MAX(timestamp) FROM (
-                        SELECT timestamp FROM user_context
-                        UNION 
-                        SELECT timestamp FROM chat_history
-                    )
-                    """)
-                    newest = cursor.fetchone()[0]
-                    if newest:
-                        stats['newest_record_days'] = (now - newest) / (24 * 3600)
-                except:
-                    pass
-                
-            return stats
-        except Exception as e:
-            logger.error(f"Error getting DB stats: {e}")
-            return {}
+            logger.error(f"Error in save_context: {e}, user_id: {user_id}, chat_id: {chat_id}, key: {key}")
+            # Don't reraise exception to prevent handler crashes
+        
+        # Make important context items more persistent in memory
+        if key in ['personal_info', 'preferences', 'important_facts']:
+            importance = 2.0  # Higher importance for personal facts
+            # Store the key data as a separate message for better recall
+            message = f"User context data for key '{key}': {json.dumps(context_data)[:100]}"
+            self.add_message_to_history(
+                user_id, 
+                'system',
+                message,
+                chat_id=chat_id,
+                importance=importance
+            )
 
-class ShardedContextManager:
-    """Sharded context manager that splits users across multiple database files."""
-    
-    def __init__(self, base_path="data/context", ttl=7776000, shards=10):
-        self.base_path = base_path
-        self.ttl = ttl
-        self.shards = shards
-        self.managers = {}
-        
-        # Create directory if it doesn't exist
-        os.makedirs(base_path, exist_ok=True)
-        
-        # Initialize shard managers
-        for i in range(shards):
-            db_path = os.path.join(base_path, f"alya_context_shard_{i}.db")
-            self.managers[i] = ContextManager(db_path=db_path, ttl=ttl)
-    
-    def _get_shard(self, user_id):
-        """Determine which shard to use based on user_id."""
-        return user_id % self.shards
-        
-    def save_context(self, user_id, chat_id, command_type, context_data):
-        """Save context to appropriate shard."""
-        shard = self._get_shard(user_id)
-        return self.managers[shard].save_context(user_id, chat_id, command_type, context_data)
-    
-    def get_context(self, user_id, chat_id, command_type=None):
-        """Get context from appropriate shard."""
-        shard = self._get_shard(user_id)
-        return self.managers[shard].get_context(user_id, chat_id, command_type)
-        
-    # ...implement other methods that delegate to the appropriate shard...
-    
-    def cleanup_expired(self):
-        """Run cleanup on all shards."""
-        total_context = 0
-        total_history = 0
-        
-        for manager in self.managers.values():
-            context_count, history_count = manager.cleanup_expired()
-            total_context += context_count
-            total_history += history_count
-            
-        return total_context, total_history
-
-# Singleton instance
+# Create a singleton instance
 context_manager = ContextManager()

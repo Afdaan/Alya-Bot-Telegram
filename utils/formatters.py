@@ -1,215 +1,123 @@
 """
-Text Formatting Utilities for Alya Telegram Bot.
+Text Formatting Utilities for Alya Bot.
 
 This module provides utilities for formatting text responses with proper
-Markdown escaping, username handling, and message splitting.
+username handling and message splitting to create natural human-like conversations.
 """
 
-import re
 import logging
+import re
+from typing import List, Dict, Any, Optional
+from telegram.helpers import escape_markdown  # Import built-in helper
+
+from core.personas import persona_manager
 
 logger = logging.getLogger(__name__)
 
-def sanitize_markdown(text: str) -> str:
+def format_markdown_response(text: str, username: Optional[str] = None, telegram_username: Optional[str] = None,
+                           mentioned_username: Optional[str] = None, mentioned_text: Optional[str] = None) -> str:
     """
-    Sanitize text for MarkdownV2 formatting by removing problematic patterns.
+    Format bot response with proper Markdown V2 escaping and variable substitution.
     
     Args:
-        text: Text to sanitize
+        text: Raw response text from the AI
+        username: User's first name for {username} substitution
+        telegram_username: User's Telegram username for {telegram_username} substitution
+        mentioned_username: Mentioned username for {mentioned_username} substitution
+        mentioned_text: Full mention text for {mentioned_text} substitution
         
     Returns:
-        Sanitized text safe for MarkdownV2 formatting
+        Formatted text with Markdown V2 escaping and replaced variables
     """
     if not text:
         return ""
+    
+    # Step 1: Replace variables before any formatting
+    if username:
+        text = text.replace('{username}', username)
+    if telegram_username:
+        text = text.replace('{telegram_username}', telegram_username)
+    if mentioned_username:
+        text = text.replace('{mentioned_username}', mentioned_username)
+    if mentioned_text:
+        text = text.replace('{mentioned_text}', mentioned_text)
+    
+    # Step 2: Split text into regular parts and roleplay actions
+    parts = []
+    last_end = 0
+    
+    # Extract roleplay actions (text between asterisks)
+    for match in re.finditer(r'\*(.*?)\*', text):
+        # Add text before the match
+        if match.start() > last_end:
+            parts.append(('text', text[last_end:match.start()]))
         
-    # Remove code blocks completely as they're often problematic
-    text = re.sub(r'```[\s\S]*?```', '', text)
-    text = re.sub(r'`[^`]*`', '', text)
+        # Add the roleplay action
+        parts.append(('roleplay', match.group(1)))
+        last_end = match.end()
     
-    # Fix unmatched formatting characters
-    for char in ['*', '_', '~', '`']:
-        count = text.count(char) - text.count(f'\\{char}')
-        if count % 2 != 0:
-            # Find last unescaped occurrence and remove it
-            pos = len(text) - 1
-            while pos >= 0:
-                if text[pos] == char and (pos == 0 or text[pos-1] != '\\'):
-                    text = text[:pos] + text[pos+1:]
-                    break
-                pos -= 1
+    # Add remaining text
+    if last_end < len(text):
+        parts.append(('text', text[last_end:]))
     
-    # Replace problematic sequences
-    text = text.replace('***', '*')
-    text = text.replace('___', '_')
+    # Step 3: Process each part with appropriate formatting
+    result = []
     
-    return text
+    for part_type, content in parts:
+        if part_type == 'text':
+            # Regular text - escape markdown
+            escaped = escape_markdown_v2(content)
+            result.append(escaped)
+        else:
+            # Roleplay action - format with brackets and italics
+            formatted_action = format_roleplay_action(content)
+            result.append(formatted_action)
+    
+    return ''.join(result)
 
-def escape_markdown_v2(text):
+def format_roleplay_action(text: str) -> str:
     """
-    Escape all special characters for MarkdownV2 format.
+    Format text as roleplay action with Telegram MarkdownV2 safety.
+    
+    Args:
+        text: Action text like "melirik ke arah jendela"
+    
+    Returns:
+        Safe MarkdownV2 formatted italic text with brackets
+    """
+    if not text:
+        return ""
+    
+    # Escape all MarkdownV2 special characters
+    escaped_text = escape_markdown_v2(text)
+    
+    # Format as distinct block with italic formatting
+    return f"\n\n_\\[ {escaped_text} \\]_\n\n"
+
+def escape_markdown_v2(text: str) -> str:
+    """
+    Escape MarkdownV2 special characters.
     
     Args:
         text: Text to escape
         
     Returns:
-        Properly escaped text for MarkdownV2
+        Text with escaped special characters
     """
-    if not isinstance(text, str):
-        text = str(text)
-        
-    # All characters that need escaping for MarkdownV2
-    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    if not text:
+        return ""
     
-    # Escape all special characters
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', 
+                    '-', '=', '|', '{', '}', '.', '!']
+    
     for char in special_chars:
         text = text.replace(char, f'\\{char}')
         
     return text
 
-def format_markdown_response(text: str, username: str = None, 
-                           telegram_username: str = None, 
-                           mentioned_username: str = None,
-                           mentioned_text: str = None) -> str:
-    """
-    Format response for MarkdownV2 with better escape and Telegram mention support.
-    
-    Args:
-        text: The text to format
-        username: User's first name
-        telegram_username: Full @username mention
-        mentioned_username: Username without @ symbol
-        mentioned_text: Original mention text with @
-        
-    Returns:
-        Markdown-formatted text with proper escaping
-    """
-    try:
-        if not isinstance(text, str):
-            text = str(text)
-        
-        # First sanitize to remove problematic patterns
-        text = sanitize_markdown(text)
-        
-        # First, handle the mentioned user properly (keeping it as is)
-        if mentioned_text and mentioned_text.startswith('@'):
-            # Preserve mentions but escape special characters
-            safe_mention = mentioned_text
-            for char in ['_', '*', '[', ']', '(', ')', '~', '>', '#', '+', '-', '=', '{', '}', '.', '!']:
-                safe_mention = safe_mention.replace(char, f'\\{char}')
-            
-            # Replace all raw occurrences of the mention
-            text = text.replace(mentioned_text, safe_mention)
-        
-        # Now replace username placeholders with the actual user's name
-        if username:
-            # Escape username for markdown safety
-            safe_username = username.replace('-', '\\-').replace('.', '\\.')
-            
-            # Replace all username placeholders with the actual name
-            # Start with bracket patterns
-            bracket_patterns = [
-                r'\[username\]', r'\[user\]', r'\[nama\]',
-                r'\[username\]-kun', r'\[user\]-kun', r'\[nama\]-kun', 
-                r'\[([A-Za-z0-9_-]+)\]-kun',  # Catch any name in brackets with -kun
-                r'\[username\]-chan', r'\[user\]-chan', r'\[nama\]-chan',
-                r'\[([A-Za-z0-9_-]+)\]-chan'  # Catch any name in brackets with -chan
-            ]
-            
-            # Replace all bracket patterns with user's name
-            for pattern in bracket_patterns:
-                text = re.sub(pattern, safe_username, text, flags=re.IGNORECASE)
-            
-            # Handle suffix patterns without brackets for backward compatibility
-            suffix_patterns = [
-                r'username-kun', r'user-kun', r'nama-kun',
-                r'username-chan', r'user-chan', r'nama-chan',
-            ]
-            
-            for pattern in suffix_patterns:
-                text = re.sub(pattern, f"{safe_username}", text, flags=re.IGNORECASE)
-            
-            # Special case: If there's a mentioned username in brackets (likely from AI confusion)
-            # This handles [Mentioned_Username]-kun patterns replacing them with actual user's name
-            # But only if it's clearly a placeholder, not a genuine reference to that user
-            if mentioned_username:
-                placeholder_patterns = [
-                    f"\\[{re.escape(mentioned_username)}\\]-kun",
-                    f"\\[{re.escape(mentioned_username)}\\]-chan"
-                ]
-                for pattern in placeholder_patterns:
-                    text = re.sub(pattern, safe_username, text, flags=re.IGNORECASE)
-
-        # Escape special characters with explicit order
-        escapes = [
-            ('\\', '\\\\'),  # Must be first
-            ('_', '\\_'),
-            ('*', '\\*'),
-            ('|', '\\|'),  # Added pipe character escape
-            ('<', '\\<'),  # Added less than
-            ('>', '\\>'),  # Added greater than
-            ('=', '\\='),  # Added equals
-            ('$', '\\$'),  # Added dollar sign
-            ('+', '\\+'),
-            ('[', '\\['),
-            (']', '\\]'),
-            ('(', '\\('),
-            (')', '\\)'),
-            ('~', '\\~'),
-            ('#', '\\#'),
-            ('-', '\\-'),
-            ('{', '\\{'),
-            ('}', '\\}'),
-            ('!', '\\!'),
-            ('.', '\\.')
-        ]
-        
-        # Apply escapes except for already escaped characters and mentions
-        for char, escape in escapes:    
-            # Skip if it's already escaped
-            if char != '\\':  # Skip the backslash itself since it's already handled
-                # Replace the character but don't replace if it's preceded by a backslash
-                text = re.sub(f'(?<!\\\\){re.escape(char)}', escape, text)
-        
-        # Re-preserve mentions
-        if mentioned_text and mentioned_text.startswith('@'):
-            # Re-escape the mention to ensure it's properly formatted
-            safe_mention = mentioned_text
-            for char in ['_', '*', '[', ']', '(', ')', '~', '>', '#', '+', '-', '=', '{', '}', '.', '!']:
-                safe_mention = safe_mention.replace(char, f'\\{char}')
-                
-            # Make sure mentions stay as they are (don't get double escaped)
-            text = text.replace(f"\\{safe_mention}", safe_mention)
-            
-        # Fix common patterns that should remain unescaped
-        fixes = [
-            (r'\\\*(.+?)\\\*', r'*\1*'),           # Bold
-            (r'\\_(.+?)\\_', r'_\1_'),             # Italic
-            (r'\\`(.+?)\\`', r'`\1`'),             # Code
-            (r'([😀-🙏💕✨🌸])', r'\1'),            # Emojis
-            (r'\s\\~\s', r' ~ ')                   # Decorative tildes
-        ]
-
-        for pattern, replacement in fixes:
-            text = re.sub(pattern, replacement, text)
-            
-        # Final cleanup for any remaining bracket patterns that might have been missed
-        if username:
-            # More aggressive cleanup for [name]-kun/chan patterns
-            text = re.sub(r'\\\[([A-Za-z0-9_-]+)\\\]-kun', f"{safe_username}", text)
-            text = re.sub(r'\\\[([A-Za-z0-9_-]+)\\\]-chan', f"{safe_username}", text)
-
-        return text
-    except Exception as e:
-        logger.error(f"Error formatting markdown: {e}")
-        # Return a safe version of text with all special characters escaped
-        return escape_markdown_v2(f"Error: {str(e)}")
-
-def split_long_message(text: str, max_length: int = 4000) -> list:
+def split_long_message(text: str, max_length: int = 4000) -> List[str]:
     """
     Split a long message into multiple parts that fit within Telegram limits.
-    
-    Attempts to break on paragraph boundaries when possible for more natural splits.
     
     Args:
         text: The message text to split
@@ -219,38 +127,167 @@ def split_long_message(text: str, max_length: int = 4000) -> list:
         List of message parts
     """
     # If the message is short enough, return it as is
-    if len(text) <= max_length:
-        return [text]
-        
+    if not text or len(text) <= max_length:
+        return [text] if text else [""]
+    
+    # Enhanced splitting for content like lyrics
     parts = []
     
-    # Try to split on double newlines (paragraphs) when possible
+    # Try splitting by paragraphs first
     paragraphs = text.split('\n\n')
     current_part = ""
     
     for paragraph in paragraphs:
-        # If adding this paragraph would exceed max_length
-        if len(current_part) + len(paragraph) + 2 > max_length:
-            # If current_part is not empty, add it to parts
+        if len(current_part) + len(paragraph) + 4 > max_length:
             if current_part:
-                parts.append(current_part)
+                parts.append(current_part.strip())
                 current_part = paragraph
             else:
-                # If the paragraph itself is too long
-                if len(paragraph) > max_length:
-                    # Split the paragraph at max_length
-                    for i in range(0, len(paragraph), max_length):
-                        parts.append(paragraph[i:i+max_length])
-                else:
-                    current_part = paragraph
+                # Handle large paragraphs by splitting them at line breaks
+                lines = paragraph.split('\n')
+                temp_part = ""
+                for line in lines:
+                    if len(temp_part) + len(line) + 1 > max_length:
+                        parts.append(temp_part.strip())
+                        temp_part = line
+                    else:
+                        temp_part += "\n" + line if temp_part else line
+                
+                if temp_part:
+                    current_part = temp_part
         else:
-            if current_part:
-                current_part += "\n\n" + paragraph
-            else:
-                current_part = paragraph
+            current_part += "\n\n" + paragraph if current_part else paragraph
     
-    # Don't forget the last part
+    # Add the last part if any
     if current_part:
-        parts.append(current_part)
-        
+        parts.append(current_part.strip())
+    
+    # If no parts were created (which shouldn't happen), fall back to rough splitting
+    if not parts:
+        for i in range(0, len(text), max_length):
+            parts.append(text[i:i + max_length])
+    
     return parts
+
+def format_response_with_persona(
+    response_key: str, 
+    persona_type: str = "waifu", 
+    username: str = None,
+    context_data: Dict[str, Any] = None, 
+    **kwargs
+) -> str:
+    """
+    Format a response using the appropriate persona and response template from YAML.
+    
+    Args:
+        response_key: Key to identify response template in YAML
+        persona_type: Type of persona to use (waifu, toxic, smart)
+        username: User's name
+        context_data: Context data including conversation history and personal facts
+        **kwargs: Additional variables for template substitution
+        
+    Returns:
+        Fully formatted response with persona traits applied
+    """
+    # Get personal facts if available
+    personal_facts = {}
+    if context_data and "personal_facts" in context_data:
+        personal_facts = context_data.get("personal_facts", {})
+    
+    # Add username to template variables
+    template_vars = {"username": username}
+    
+    # Add personal facts to template variables
+    if "name" in personal_facts and personal_facts["name"] != username:
+        template_vars["actual_name"] = personal_facts["name"]
+    
+    # Add other kwargs to template variables
+    template_vars.update(kwargs)
+    
+    # Get response from persona manager
+    response = persona_manager.get_response_template(response_key, persona_type, **template_vars)
+    
+    # Format with markdown
+    return format_markdown_response(response, username)
+
+def format_memory_stats(stats: Dict[str, Any], username: str) -> str:
+    """
+    Format memory statistics for user display.
+    
+    Args:
+        stats: Memory statistics
+        username: User's name
+        
+    Returns:
+        Formatted stats message
+    """
+    # Instead of hardcoding the response, use persona template
+    return format_response_with_persona(
+        "memory_stats", 
+        "informative",
+        username=username,
+        stats=stats
+    )
+
+def detect_persona_type_from_text(text: str) -> str:
+    """
+    Detect appropriate persona type from text content.
+    
+    Args:
+        text: Input text to analyze
+        
+    Returns:
+        Appropriate persona type (waifu, tsundere, toxic, smart)
+    """
+    # Check for toxic indicators
+    toxic_words = ["najis", "goblok", "bego", "tolol", "anjing", "bodoh"]
+    if any(word in text.lower() for word in toxic_words):
+        return "toxic"
+        
+    # Check for smart/informative indicators
+    smart_words = ["analisis", "menurut data", "berdasarkan", "statistik", "secara teknis"]
+    if any(word in text.lower() for word in smart_words):
+        return "smart"
+        
+    # Check for embarrassed indicators
+    embarrassed_words = ["malu", "maaf", "gomennasai", "sumimasen", "gomen"]
+    if any(word in text.lower() for word in embarrassed_words):
+        return "embarrassed"
+        
+    # Check for happiness indicators
+    happy_words = ["senang", "suka", "bahagia", "yeay", "yay"]
+    if any(word in text.lower() for word in happy_words):
+        return "happy"
+        
+    # Check for tsundere indicators
+    tsundere_words = ["bukan berarti", "hmph", "b-baka", "bukannya", "bukan karena"]
+    if any(word in text.lower() for word in tsundere_words):
+        return "tsundere"
+    
+    # Default to waifu
+    return "waifu"
+
+def get_character_action(persona_type: str = "waifu") -> str:
+    """
+    Get a random character action text from the YAML config.
+    
+    Args:
+        persona_type: The persona type to use for the action
+        
+    Returns:
+        A random action with asterisks
+    """
+    try:
+        # Try getting action from persona_manager
+        action = persona_manager.get_response_template("action", persona_type)
+        
+        # If failed to get from YAML, log and use generic fallback
+        if not action or len(action) < 3 or "__" in action:
+            logger.warning(f"Failed to load action template for {persona_type}, falling back to generic")
+            return persona_manager.get_response_template("fallback.action", persona_type)
+        
+        return action
+    except Exception as e:
+        logger.error(f"Error getting character action text: {e}")
+        # Even this fallback should be in YAML, but keep as ultimate fallback
+        return "*melakukan sesuatu*"

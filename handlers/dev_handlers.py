@@ -259,3 +259,47 @@ async def set_language_command(update: Update, context: CallbackContext) -> None
         
     context.bot_data['language'] = context.args[0]
     await update.message.reply_text(f"Language set to: {context.args[0]}")
+
+@log_command(logger)
+async def change_language_command(update: Update, context: CallbackContext) -> None:
+    """Change bot language. Usage: /lang [id|en]"""
+    # Bagian awal cek validasi argumen dan kontrol akses
+    
+    # User menginput misalnya /lang en atau /lang id
+    language_code = context.args[0] if context.args else DEFAULT_LANGUAGE
+    if language_code not in SUPPORTED_LANGUAGES:
+        await update.message.reply_text(
+            f"Bahasa tidak didukung. Pilih dari: {', '.join(SUPPORTED_LANGUAGES.keys())}"
+        )
+        return
+    
+    # Set bahasa di bot_data (untuk session ini)
+    context.bot_data["language"] = language_code
+    
+    # Save preference to user context dengan validasi tipe data
+    try:
+        # PERBAIKAN: Validasi tipe data
+        user_id = int(update.effective_user.id)
+        chat_id = int(update.effective_chat.id)
+        
+        context_data = {
+            'timestamp': int(time.time()),
+            'language': language_code,
+            'set_by_user_id': update.effective_user.id,
+            'set_by_username': update.effective_user.username or update.effective_user.first_name
+        }
+        
+        # PERBAIKAN: Error handling
+        try:
+            context_manager.save_context(user_id, chat_id, 'language_preference', context_data)
+            logger.info(f"Language preference saved for user {user_id}: {language_code}")
+        except Exception as e:
+            logger.error(f"Error saving language preference: {e}")
+    except (ValueError, TypeError) as e:
+        logger.error(f"Invalid user_id or chat_id for language preference: {e}")
+    
+    # Konfirmasi ke user dengan bahasa yang baru dipilih
+    language_name = SUPPORTED_LANGUAGES[language_code]
+    await update.message.reply_text(
+        f"Bahasa berhasil diubah ke {language_name}!"
+    )

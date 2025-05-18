@@ -151,8 +151,7 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
     except Exception as e:
         logger.error(f"Error processing document/image: {e}")
         await message.reply_text(
-            "Gomen ne\\~ Alya kesulitan memproses file ini\\. \\. \\. 🥺",
-            parse_mode='MarkdownV2'
+            "Gomen ne\\~ Alya kesulitan memproses file ini\\. \\. \\. 🥺"
         )
 
 # =============================
@@ -184,9 +183,9 @@ async def handle_sauce_command(update, context: CallbackContext = None) -> None:
 
     # Confirm search with processing message
     processing_message = await msg.reply_text(
-        "*Alya-chan* akan mencari sumber gambar menggunakan SauceNAO...\n"
-        "Tunggu sebentar ya~ 🔍",
-        parse_mode='Markdown'
+        "*Alya\\-chan* akan mencari sumber gambar menggunakan SauceNAO\\.\\.\\.\n"
+        "Tunggu sebentar ya\\~ 🔍",
+        parse_mode='MarkdownV2'
     )
     
     # Start image search
@@ -207,25 +206,45 @@ async def handle_sauce_command(update, context: CallbackContext = None) -> None:
         
         # Save context after successful search
         if image_path and os.path.exists(image_path):
-            # Get user ID and chat ID
-            if hasattr(update, 'message'):
-                user_id = update.effective_user.id
-                chat_id = update.effective_chat.id
-            else:
-                user_id = update.from_user.id
-                chat_id = update.chat.id
+            try:
+                # PERBAIKAN: Extract dan sanitasi user_id & chat_id dengan lebih robust
+                if hasattr(update, 'effective_user') and update.effective_user:
+                    user_id = update.effective_user.id
+                    chat_id = update.effective_chat.id if hasattr(update, 'effective_chat') else user_id
+                elif hasattr(update, 'from_user') and update.from_user:
+                    user_id = update.from_user.id
+                    chat_id = update.chat.id if hasattr(update, 'chat') else user_id
+                else:
+                    logger.error("Cannot extract user_id from update object")
+                    return
+                    
+                # PERBAIKAN: Validasi tipe data yang lebih kuat
+                try:
+                    user_id = int(user_id)
+                    chat_id = int(chat_id)
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Invalid user_id or chat_id format: {e}")
+                    # Fallback to string representation if needed
+                    user_id = str(user_id).split('.')[0] if user_id else 0
+                    chat_id = str(chat_id).split('.')[0] if chat_id else 0
+                    
+                # Context data untuk disimpan
+                context_data = {
+                    'command': 'sauce',
+                    'timestamp': int(time.time()),
+                    'image_hash': get_image_hash(image_path),
+                    'type': 'image_search',
+                    'query_type': 'anime_source',
+                }
                 
-            # Context data to be saved
-            context_data = {
-                'command': 'sauce',
-                'timestamp': int(time.time()),
-                'image_hash': get_image_hash(image_path),
-                'type': 'image_search',
-                'query_type': 'anime_source',
-            }
-            
-            # Save to database
-            context_manager.save_context(user_id, chat_id, 'sauce', context_data)
+                # PERBAIKAN: Error handling yang lebih baik
+                try:
+                    context_manager.save_context(user_id, chat_id, 'sauce', context_data)
+                    logger.debug(f"Sauce context saved for user_id: {user_id}, chat_id: {chat_id}")
+                except Exception as e:
+                    logger.error(f"Failed to save sauce context: {e}")
+            except Exception as e:
+                logger.error(f"Error in sauce context handling: {e}")
         
     except Exception as e:
         logger.error(f"Error in sauce search: {e}\n{traceback.format_exc()}")
@@ -257,10 +276,10 @@ async def handle_trace_command(message, user):
     type_text = "gambar" if message.photo else "dokumen"
     
     # Make sure we escape any potential dots in the username
-    escaped_username = user.first_name.replace('.', '\\.').replace('-', '\\-')
+    escaped_username = escape_markdown(user.first_name)
     
     await message.reply_text(
-        f"*Alya\\-chan* akan menganalisis {type_text} dari {escaped_username}\\-kun\\~ ✨\n",
+        f"*Alya\\-chan* akan menganalisis {type_text} dari {escaped_username}\\-kun\\~ ✨",
         parse_mode='MarkdownV2'
     )
     
@@ -440,37 +459,30 @@ async def send_analysis_response(message, user, response_text):
     Format and send analysis response, handling lengthy responses.
     """
     try:
-        formatted_response = format_markdown_response(response_text)
-        escaped_username = user.first_name.replace('.', '\\.').replace('-', '\\-')
-        
+        formatted_response = format_markdown_response(response_text, username=user.first_name)
         if len(formatted_response) > 4000:
-            parts = [formatted_response[i:i+4000] for i in range(0, len(formatted_response), 4000)]
-            header = (
-                f"*Rangkuman dari Alya\\-chan untuk {escaped_username}\\-kun* 💕\n\n"
-                f"_{len(parts)} bagian rangkuman akan dikirim\\~_ 📝\n\n"
-            )
-            
+            parts = split_long_message(formatted_response, 4000)
             for i, part in enumerate(parts):
-                section_header = f"*Bagian {i+1} dari {len(parts)}* 📚\n\n" if i > 0 else header
                 await message.reply_text(
-                    section_header + part,
+                    part,
                     reply_to_message_id=message.message_id if i == 0 else None,
                     parse_mode='MarkdownV2'
                 )
                 await asyncio.sleep(1)
         else:
-            header = f"*Rangkuman dari Alya\\-chan untuk {escaped_username}\\-kun* 💕\n\n"
             await message.reply_text(
-                header + formatted_response,
+                formatted_response,
                 reply_to_message_id=message.message_id,
                 parse_mode='MarkdownV2'
             )
     except Exception as e:
-        # Log error dan kirim pesan friendly
         logger.error(f"Error formatting response: {e}")
-        err_msg = (
-            "Alya-chan error waktu format/mengirim pesan rangkuman 😵‍💫\n"
+        err_msg = escape_markdown(
+            f"Alya-chan error waktu format/mengirim pesan rangkuman 😵‍💫\n"
             f"Detail: {str(e)[:300]}\n"
             "Coba ulangi lagi nanti ya~"
         )
-        await message.reply_text(err_msg)
+        await message.reply_text(
+            err_msg,
+            parse_mode='MarkdownV2'
+        )
