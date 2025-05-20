@@ -83,14 +83,14 @@ def setup_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("github_roast", handle_github_roast))
     
     # Message handler (should be last to catch all other messages)
-    # PERBAIKI: Tambahkan filter untuk private chat atau di grup harus dengan prefix
+    # FIX: Filter handler untuk !ai, !alya gak berfungsi dengan benar
     if GROUP_CHAT_REQUIRES_PREFIX:
-        # Jika kita mewajibkan prefix di grup, gunakan filter yang lebih ketat
+        # Jika kita mewajibkan prefix di grup, gunakan filter yang benar
+        # PERBAIKAN UTAMA: filter Regex untuk !ai dan !alya perlu diperbaiki 
         app.add_handler(MessageHandler(
-            (filters.TEXT & ~filters.COMMAND & ~filters.Regex(r'^!')) & 
+            filters.TEXT & ~filters.COMMAND & 
             (filters.ChatType.PRIVATE | 
-             filters.Regex(r'^!ai\b') | 
-             filters.Regex(r'^!alya\b')),
+             filters.Regex(r'^!ai\b') | filters.Regex(r'^!alya\b')), # Ini tetap ada
             handle_message
         ))
     else:
@@ -133,22 +133,12 @@ async def handle_text_commands(update: Update, context: CallbackContext) -> None
     if message_text.startswith("!search"):
         # Remove prefix and pass to search handler
         query = message_text[7:].strip()  # Remove "!search"
-        
-        # FIX: Jangan assign ke context.args, gunakan modified update dengan text yang diedit  # FIX: context.args is a list, not a callback function
-        # Atau pass query as is ke handler
-        
-        # Buat temporary context untuk handle_search
-        temp_context = context
-        # Bikin dict dummy kalau context.args gak ada
-        if not hasattr(context, 'args'):
-            temp_context.args = query.split()
-        else:
-            # Cuma override context utk fungsi ini
-            context_args = query.split()
-            await handle_search_with_args(update, context, context_args)
-            return
-            
-        await handle_search(update, temp_context)
+
+        # FIX: Masalah ini terjadi karena context.args tidak bisa di-assign
+        # Gunakan approach yang lebih direct dengan membuat message text dan split args
+        modified_message = update.message
+        context.args = query.split()  # Ini akan bekerja di python-telegram-bot versi baru
+        await handle_search(update, context)
         
     elif message_text.startswith("!trace"):
         # Jangan pakai update.message karena handle_trace_command harapkan Message bukan Update
@@ -156,29 +146,16 @@ async def handle_text_commands(update: Update, context: CallbackContext) -> None
         
     elif message_text.startswith("!sauce"):
         await handle_sauce_command(update.message, update.effective_user, context)
-
-# Wrapper function for handling search with explicit args
-async def handle_search_with_args(update: Update, context: CallbackContext, query_args: list) -> None:
-    """
-    Handle search command with explicitly provided arguments.
-    
-    Args:
-        update: Telegram update object 
-        context: Callback context
-        query_args: Search query arguments as list
-    """
-    # Create modified update with /search command text for handler
-    message = update.message
-    
-    # Get original text and reconstruct it with /search command
-    query_text = " ".join(query_args)
-    search_text = f"/search {query_text}"
-    
-    # Create modified message with the search text
-    message._text = search_text  # This uses a protected attribute, but works for our purpose
-    
-    # Call regular search handler
-    await handle_search(update, context)
+        
+    # FIX: Tambahan handler untuk !ai - ini yang gak ada sebelumnya
+    elif message_text.startswith("!ai") or message_text.startswith("!alya"):
+        # Kita extract text setelah prefix
+        prefix_len = 3 if message_text.startswith("!ai") else 5
+        processed_text = message_text[prefix_len:].strip()
+        
+        # Pass ke message handler yang sama dengan chat biasa
+        from handlers.message_handlers import process_chat_message
+        await process_chat_message(update, context, processed_text) 
 
 async def post_init(app: Application) -> None:
     """

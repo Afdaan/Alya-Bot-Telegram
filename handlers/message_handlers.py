@@ -56,7 +56,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     chat_id = message.chat_id
     
     # Log incoming message untuk debugging - gunakan only di development
-    # PERBAIKAN: Akses debug_mode dengan cara yang benar
     debug_mode = context.bot_data.get('debug_mode', False)
     if debug_mode:
         logger.debug(f"Received message from {user.id} in {chat_type}: '{message_text[:30]}...'")
@@ -71,11 +70,16 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         # Cek apakah menggunakan salah satu prefix yang valid
         lower_text = message_text.lower()
         
+        # IMPORTANT FIX: Detect prefix properly - !ai and !alya should be handled here
         for prefix in ALL_VALID_PREFIXES:
             if lower_text.startswith(prefix):
                 has_bot_prefix = True
                 # Hapus prefix dari message text
                 message_text = message_text[len(prefix):].strip()
+                
+                # Debug log saat prefix ditemukan
+                if debug_mode:
+                    logger.debug(f"Found valid prefix: '{prefix}' in message")
                 break
                 
         # Tambahkan cek mention ke bot - ini juga valid untuk trigger respon
@@ -88,7 +92,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         
         # PERBAIKAN UTAMA: Jika di grup dan tidak ada prefix yang valid, JANGAN RESPON
         if GROUP_CHAT_REQUIRES_PREFIX and not has_bot_prefix:
-            # Log detail untuk debug saja
+            # Debug log saja - jangan spam production logs
             if debug_mode:
                 logger.debug(f"Ignoring message in group without valid prefix: '{original_message[:30]}...'")
             return
