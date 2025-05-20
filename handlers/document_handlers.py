@@ -95,10 +95,31 @@ async def process_document_media(message: Message, user: User, context: Callback
         context: Callback context
     """
     try:
-        # Check for photo
+        # Check for photo - MASALAHNYA DI SINI!
         if message.photo:
+            # PERBAIKAN: Jangan proses gambar tanpa command/prefix
+            # Hanya proses jika ada caption dengan prefix khusus
             if not message.caption:
                 # Just a photo with no caption, don't process
+                return
+                
+            # Cek apakah caption mengandung command prefix
+            caption_text = message.caption.lower()
+            valid_prefixes = [
+                ANALYZE_PREFIX.lower(), 
+                SAUCE_PREFIX.lower(),
+                "!trace", 
+                "!sauce", 
+                "!ocr", 
+                "/trace", 
+                "/sauce", 
+                "/ocr"
+            ]
+            
+            # Hanya proses jika ada prefix valid di caption
+            if not any(caption_text.startswith(prefix) for prefix in valid_prefixes):
+                # Gambar tanpa prefix command, jangan proses
+                logger.debug(f"Ignoring photo without command prefix from user {user.id}")
                 return
                 
             # Download photo for processing
@@ -145,7 +166,31 @@ async def process_document_media(message: Message, user: User, context: Callback
                 temp_path = await download_image_from_message(message, context)
                 
                 if temp_path:
-                    # Process image
+                    if message.caption:
+                        caption_text = message.caption.lower()
+                        valid_prefixes = [
+                            ANALYZE_PREFIX.lower(), 
+                            SAUCE_PREFIX.lower(),
+                            "!trace", 
+                            "!sauce", 
+                            "!ocr", 
+                            "/trace", 
+                            "/sauce", 
+                            "/ocr"
+                        ]
+                        if not any(caption_text.startswith(prefix) for prefix in valid_prefixes):
+                            try:
+                                os.unlink(temp_path)
+                            except Exception:
+                                pass
+                            return
+                    else:
+                        # No caption, don't process
+                        try:
+                            os.unlink(temp_path)
+                        except Exception:
+                            pass
+                        return
                     try:
                         analysis_result = await analyze_image(temp_path)
                         if analysis_result:
@@ -643,3 +688,81 @@ async def download_image_from_message(message: Message, context: CallbackContext
     except Exception as e:
         logger.error(f"Failed to download image: {e}")
         return None
+
+def validate_command_prefix(message: Message) -> bool:
+    """
+    Validate that a message contains a valid command prefix.
+    
+    Args:
+        message: Telegram message to check
+        
+    Returns:
+        True if message has valid command prefix, False otherwise
+    """
+    if not message:
+        return False
+        
+    # Cek jika ini adalah hasil dari command handler (/trace, /sauce, dll)
+    # Dalam kasus ini, message.caption mungkin None tapi tetap valid
+    if hasattr(message, 'via_bot') and message.via_bot:
+        return True
+        
+    # Periksa caption untuk command prefix
+    caption = message.caption
+    if not caption:
+        return False
+        
+    caption_lower = caption.lower().strip()
+    valid_prefixes = [
+        ANALYZE_PREFIX.lower(), 
+        SAUCE_PREFIX.lower(),
+        "!trace", 
+        "!sauce", 
+        "!ocr", 
+        "/trace", 
+        "/sauce", 
+        "/ocr"
+    ]
+    
+    # Cek apakah caption dimulai dengan prefix valid
+    return any(caption_lower.startswith(prefix) for prefix in valid_prefixes)
+
+async def store_media_context(
+    message: Message, 
+    user_id: int, 
+    context_type: str, 
+    additional_data: Optional[dict] = None
+) -> None:
+    """
+    Store media related context for persistence.
+    
+    Args:
+        message: Message containing media
+        user_id: User ID
+        context_type: Type of context (trace, sauce, etc.)
+        additional_data: Optional additional context data
+    """
+    try:
+        chat_id = message.chat.id
+        
+        # Basic context data
+        context_data = {
+            'command': context_type,
+            'timestamp': int(time.time()),
+            'chat_id': chat_id,
+            'message_id': message.message_id,
+            'has_photo': bool(message.photo),
+            'has_document': bool(message.document),
+            'caption': message.caption,
+        }
+        
+        # Add any additional data provided
+        if additional_data:
+            context_data.update(additional_data)
+        
+        # Save to context manager
+        context_manager.save_context(user_id, chat_id, f'media_{context_type}', context_data)
+        logger.debug(f"Stored {context_type} context for user {user_id}")
+        
+    except Exception as e:
+        logger.error(f"Error saving media context: {e}")
