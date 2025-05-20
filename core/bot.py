@@ -63,7 +63,7 @@ def setup_handlers(app: Application) -> None:
     
     # Callback query handler for buttons
     app.add_handler(CallbackQueryHandler(handle_callback_query))
-    
+        
     # Roast command handlers
     app.add_handler(CommandHandler("roast", handle_roast_command))
     app.add_handler(CommandHandler("github_roast", handle_github_roast))

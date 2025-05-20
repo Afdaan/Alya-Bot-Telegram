@@ -174,6 +174,12 @@ See [COMMANDS.md](COMMANDS.md) for a complete list of available commands and usa
 
 ---
 
+## Usage in Group Chats
+
+When adding Alya-chan to a group, use the `!ai` prefix for all commands and messages:
+
+---
+
 ## Developer Contact
 
 - Creator: Afdaan

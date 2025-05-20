@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List, Union
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
-from telegram.constants import ParseMode
+from telegram.constants import ParseMode, ChatAction
 
 from config.settings import (
     CHAT_PREFIX, 
@@ -53,9 +53,12 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     message_text = message.text.strip()
     user = update.effective_user
     chat_type = message.chat.type
+    chat_id = message.chat_id
     
     # Log incoming message untuk debugging - gunakan only di development
-    if context.bot_data.get('debug_mode', False):
+    # PERBAIKAN: Akses debug_mode dengan cara yang benar
+    debug_mode = context.bot_data.get('debug_mode', False)
+    if debug_mode:
         logger.debug(f"Received message from {user.id} in {chat_type}: '{message_text[:30]}...'")
     
     # Deteksi prefix dan extract dari grup vs private chat
@@ -76,7 +79,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                 break
                 
         # Tambahkan cek mention ke bot - ini juga valid untuk trigger respon
-        if not has_bot_prefix and context.bot.username:
+        if not has_bot_prefix and context.bot and context.bot.username:
             bot_mention = f"@{context.bot.username}"
             if bot_mention in message_text:
                 has_bot_prefix = True
@@ -86,7 +89,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         # PERBAIKAN UTAMA: Jika di grup dan tidak ada prefix yang valid, JANGAN RESPON
         if GROUP_CHAT_REQUIRES_PREFIX and not has_bot_prefix:
             # Log detail untuk debug saja
-            if context.bot_data.get('debug_mode', False):
+            if debug_mode:
                 logger.debug(f"Ignoring message in group without valid prefix: '{original_message[:30]}...'")
             return
     
@@ -124,28 +127,34 @@ async def process_chat_message(update: Update, context: CallbackContext, process
     """
     message = update.message
     user = update.effective_user
+    chat_id = message.chat.id
 
     # Send typing indicator
-    await message.chat.send_action('typing')
+    await message.chat.send_action(ChatAction.TYPING)
     
     # Setup async task untuk typing indicator yang terus diperbarui
     typing_task = asyncio.create_task(
-        send_continued_typing(context.bot, message.chat_id)
+        send_continued_typing(context.bot, chat_id)
     )
     
     try:
-        # Get language setting
-        language = get_language(context) or DEFAULT_LANGUAGE
+        # Get language setting - FIX: menggunakan bot_data, bukan context.get
+        # DEFAULT_LANGUAGE sebagai fallback jika tidak ada language di bot_data
+        language = DEFAULT_LANGUAGE
+        if hasattr(context, 'bot_data') and isinstance(context.bot_data, dict):
+            language = context.bot_data.get('language', DEFAULT_LANGUAGE)
         
-        # Get persona based on user settings
-        persona_type = context.user_data.get("persona", "tsundere")
+        # Get persona based on user settings - FIX: ambil persona dari context.user_data
+        persona_type = "tsundere"  # Default fallback
+        if hasattr(context, 'user_data') and isinstance(context.user_data, dict):
+            persona_type = context.user_data.get("persona", "tsundere")
         persona_context = get_persona_context(persona_type)
         
         # Get relevant context for this conversation
         user_context = context_manager.recall_relevant_context(
             user.id, 
             processed_text,
-            chat_id=message.chat_id
+            chat_id=chat_id
         )
         
         # Generate response with appropriate context
@@ -191,7 +200,7 @@ async def process_chat_message(update: Update, context: CallbackContext, process
                     )
                 else:  # Following messages just sent to same chat
                     await context.bot.send_message(
-                        chat_id=message.chat_id,
+                        chat_id=chat_id,
                         text=segment,
                         parse_mode=ParseMode.MARKDOWN_V2
                     )
@@ -206,8 +215,13 @@ async def process_chat_message(update: Update, context: CallbackContext, process
         # Cancel typing indicator
         typing_task.cancel()
         
-        # API timeout response
-        timeout_message = get_response("timeout", context)
+        # FIX: Pastikan language sudah terdefinisi sebelum digunakan di get_response
+        lang = DEFAULT_LANGUAGE
+        if hasattr(context, 'bot_data') and isinstance(context.bot_data, dict):
+            lang = context.bot_data.get('language', DEFAULT_LANGUAGE)
+            
+        # API timeout response - Dengan language yang sudah terdefinisi
+        timeout_message = get_response("timeout", lang)
         if not timeout_message:
             timeout_message = "Hmm, Alya membutuhkan waktu terlalu lama... Bisa coba lagi nanti? 🥺"
         
@@ -217,9 +231,15 @@ async def process_chat_message(update: Update, context: CallbackContext, process
         # Cancel typing indicator
         typing_task.cancel()
         
+        # FIX: Pastikan variable language sudah didefinisikan dengan fallback yang aman
+        lang = DEFAULT_LANGUAGE
+        if hasattr(context, 'bot_data') and isinstance(context.bot_data, dict):
+            lang = context.bot_data.get('language', DEFAULT_LANGUAGE)
+        
         # General error message with safe formatting
         logger.error(f"Error generating response: {e}")
-        error_message = get_response("error", context)
+        # Perbaikan akses get_response dengan language yang sudah terdefinisi
+        error_message = get_response("error", lang)
         if not error_message:
             error_message = "Gomen, terjadi kesalahan saat memproses pesan... 🙏"
         
@@ -238,7 +258,7 @@ async def send_continued_typing(bot, chat_id: int, max_duration: int = 30) -> No
     end_time = time.time() + max_duration
     try:
         while time.time() < end_time:
-            await bot.send_chat_action(chat_id=chat_id, action="typing")
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
             await asyncio.sleep(4)  # Refresh before expiration
     except asyncio.CancelledError:
         # Task was cancelled, no problem

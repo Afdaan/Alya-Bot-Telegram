@@ -100,6 +100,10 @@ Alya now uses Russian expressions in certain situations:
 !search profile instagram arianagrande
 ```
 
+## Important Note for Group Chats
+
+In group chats, always use the `!ai` prefix for all commands and conversations:
+
 ---
 
 > **Note:**  
