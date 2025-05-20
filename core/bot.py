@@ -20,6 +20,7 @@ from config.settings import (
     TELEGRAM_BOT_TOKEN, 
     DEVELOPER_IDS, 
     DEFAULT_LANGUAGE,
+    GROUP_CHAT_REQUIRES_PREFIX,
 )
 from config.logging_config import setup_logging
 from utils.rate_limiter import limiter
@@ -50,9 +51,19 @@ def setup_handlers(app: Application) -> None:
     # Search command handler
     app.add_handler(CommandHandler("search", handle_search))
     
-    # Document/media handlers
+    # PERBAIKAN: Gunakan cara yang benar untuk filter berdasarkan caption
+    # Document/media handlers untuk foto dan dokumen
     app.add_handler(MessageHandler(
-        filters.PHOTO | filters.Document.ALL, 
+        (filters.PHOTO | filters.Document.ALL) & 
+        (filters.ChatType.PRIVATE | 
+         filters.Caption(lambda text: text and (
+             text.startswith("!trace") or
+             text.startswith("!sauce") or
+             text.startswith("!ocr") or
+             text.startswith("/trace") or
+             text.startswith("/sauce") or
+             text.startswith("/ocr")
+         ))),
         handle_document_image
     ))
     
@@ -69,10 +80,22 @@ def setup_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("github_roast", handle_github_roast))
     
     # Message handler (should be last to catch all other messages)
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND, 
-        handle_message
-    ))
+    # PERBAIKI: Tambahkan filter untuk private chat atau di grup harus dengan prefix
+    if GROUP_CHAT_REQUIRES_PREFIX:
+        # Jika kita mewajibkan prefix di grup, gunakan filter yang lebih ketat
+        app.add_handler(MessageHandler(
+            (filters.TEXT & ~filters.COMMAND & 
+             (filters.ChatType.PRIVATE | 
+              filters.Regex(r'^!ai\b') | 
+              filters.Regex(r'^!alya\b'))),
+            handle_message
+        ))
+    else:
+        # Kalau tidak wajib prefix, gunakan filter sederhana
+        app.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_message
+        ))
     
     logger.info("All handlers have been registered")
 

@@ -28,7 +28,10 @@ from config.settings import (
     ALLOWED_DOCUMENT_TYPES,
     IMAGE_COMPRESS_QUALITY,
     SAUCENAO_API_KEY,
-    IMAGE_FORMATS
+    IMAGE_FORMATS,
+    GROUP_CHAT_REQUIRES_PREFIX,  # Import ini penting
+    CHAT_PREFIX,                 # Import ini penting
+    ADDITIONAL_PREFIXES          # Import ini penting
 )
 from utils.media_utils import extract_text_from_document, compress_image, get_extension, is_image_file
 from utils.image_utils import analyze_image, get_image_data, get_dominant_colors
@@ -40,6 +43,11 @@ logger = logging.getLogger(__name__)
 
 # List of supported image extensions
 SUPPORTED_IMAGE_FORMATS = IMAGE_FORMATS if IMAGE_FORMATS else ['jpeg', 'jpg', 'png', 'webp', 'gif', 'tiff']
+
+# Semua kemungkinan prefiks untuk chat dari dokumen - akan digunakan untuk deteksi
+ALL_VALID_PREFIXES = [CHAT_PREFIX.lower(), ANALYZE_PREFIX.lower(), SAUCE_PREFIX.lower()] + \
+                     [prefix.lower() for prefix in ADDITIONAL_PREFIXES] + \
+                     ["!trace", "!sauce", "!ocr", "/trace", "/sauce", "/ocr"]
 
 async def handle_document_image(update: Update, context: CallbackContext) -> None:
     """
@@ -56,7 +64,25 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
     command = None
     command_type = None
     message_text = update.message.caption or ""
+    
+    # Check if we're in a group chat
+    is_private_chat = update.message.chat.type == "private"
+    has_valid_prefix = False
+    
+    # PERBAIKAN: Untuk grup, periksa prefix yang valid
+    if not is_private_chat:
+        caption_lower = message_text.lower().strip()
+        
+        # Cek apakah ada prefix yang valid
+        has_valid_prefix = any(caption_lower.startswith(prefix) for prefix in ALL_VALID_PREFIXES)
+        
+        # Kalo di grup dan butuh prefix tapi gak ada prefix yang valid, JANGAN PROSES
+        if GROUP_CHAT_REQUIRES_PREFIX and not has_valid_prefix:
+            # Hanya log untuk debug
+            logger.debug(f"Ignoring document/image in group without valid prefix. Caption: '{message_text[:30]}...'")
+            return
 
+    # Continued checking for specific commands
     if message_text.startswith(ANALYZE_PREFIX):
         command = message_text[len(ANALYZE_PREFIX):].strip()
         command_type = "trace"
@@ -73,7 +99,11 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
         elif command_type == "sauce":
             await handle_sauce_command(update.message, user, context)
         else:
-            # Just process normally
+            # PERBAIKAN: Untuk grup, jangan proses jika tidak ada command yang valid
+            if not is_private_chat and GROUP_CHAT_REQUIRES_PREFIX and not has_valid_prefix:
+                return
+                
+            # Just process normally for private chat or valid prefix in group
             await process_document_media(update.message, user, context)
     except Exception as e:
         logger.error(f"Error in document/media handling: {e}")
@@ -95,51 +125,42 @@ async def process_document_media(message: Message, user: User, context: Callback
         context: Callback context
     """
     try:
-        # Check for photo - MASALAHNYA DI SINI!
-        if message.photo:
-            # PERBAIKAN: Jangan proses gambar tanpa command/prefix
-            # Hanya proses jika ada caption dengan prefix khusus
-            if not message.caption:
-                # Just a photo with no caption, don't process
-                return
-                
-            # Cek apakah caption mengandung command prefix
-            caption_text = message.caption.lower()
-            valid_prefixes = [
-                ANALYZE_PREFIX.lower(), 
-                SAUCE_PREFIX.lower(),
-                "!trace", 
-                "!sauce", 
-                "!ocr", 
-                "/trace", 
-                "/sauce", 
-                "/ocr"
-            ]
-            
-            # Hanya proses jika ada prefix valid di caption
-            if not any(caption_text.startswith(prefix) for prefix in valid_prefixes):
-                # Gambar tanpa prefix command, jangan proses
-                logger.debug(f"Ignoring photo without command prefix from user {user.id}")
-                return
-                
-            # Download photo for processing
-            temp_path = await download_image_from_message(message, context)
-            
-            if temp_path:
-                # Process image
-                try:
-                    analysis_result = await analyze_image(temp_path)
-                    if analysis_result:
-                        # Format response with HTML
-                        response = f"<b>Analisis Gambar:</b>\n\n{analysis_result}"
-                        await message.reply_text(response, parse_mode=ParseMode.HTML)
-                finally:
-                    # Clean up temp file
-                    try:
-                        os.unlink(temp_path)
-                    except Exception as e:
-                        logger.error(f"Error cleaning up temp file: {e}")
+        # PERBAIKAN: Cek dulu apakah ini grup atau private chat
+        is_private_chat = message.chat.type == "private"
+        caption_text = (message.caption or "").lower().strip()
+        has_valid_prefix = any(caption_text.startswith(prefix) for prefix in ALL_VALID_PREFIXES)
         
+        # Untuk grup, jangan proses jika tidak ada prefix yang valid
+        if not is_private_chat and GROUP_CHAT_REQUIRES_PREFIX and not has_valid_prefix:
+            logger.debug(f"Ignoring document/image in group without valid prefix. Caption: '{caption_text[:30]}...'")
+            return
+            
+        # Check for photo
+        if message.photo:
+            # Hanya proses jika ada caption dengan prefix khusus
+            # Atau ini adalah private chat
+            if is_private_chat or has_valid_prefix:
+                # Download photo for processing
+                temp_path = await download_image_from_message(message, context)
+                
+                if temp_path:
+                    # Process image
+                    try:
+                        analysis_result = await analyze_image(temp_path)
+                        if analysis_result:
+                            # Format response with HTML
+                            response = f"<b>Analisis Gambar:</b>\n\n{analysis_result}"
+                            await message.reply_text(response, parse_mode=ParseMode.HTML)
+                    finally:
+                        # Clean up temp file
+                        try:
+                            os.unlink(temp_path)
+                        except Exception as e:
+                            logger.error(f"Error cleaning up temp file: {e}")
+            else:
+                # Grup tanpa prefix yang valid, jangan proses
+                return
+                
         # Check for document
         elif message.document:
             # Extract document details
@@ -162,96 +183,81 @@ async def process_document_media(message: Message, user: User, context: Callback
                 return
                 
             if is_image:
-                # Download and process image
-                temp_path = await download_image_from_message(message, context)
-                
-                if temp_path:
-                    if message.caption:
-                        caption_text = message.caption.lower()
-                        valid_prefixes = [
-                            ANALYZE_PREFIX.lower(), 
-                            SAUCE_PREFIX.lower(),
-                            "!trace", 
-                            "!sauce", 
-                            "!ocr", 
-                            "/trace", 
-                            "/sauce", 
-                            "/ocr"
-                        ]
-                        if not any(caption_text.startswith(prefix) for prefix in valid_prefixes):
+                # Hanya proses jika ini private chat atau ada prefix valid di grup
+                if is_private_chat or has_valid_prefix:
+                    # Download and process image
+                    temp_path = await download_image_from_message(message, context)
+                    
+                    if temp_path:
+                        try:
+                            analysis_result = await analyze_image(temp_path)
+                            if analysis_result:
+                                # Format response with HTML
+                                response = f"<b>Analisis Gambar:</b>\n\n{analysis_result}"
+                                await message.reply_text(response, parse_mode=ParseMode.HTML)
+                        finally:
+                            # Clean up temp file
                             try:
                                 os.unlink(temp_path)
-                            except Exception:
-                                pass
-                            return
+                            except Exception as e:
+                                logger.error(f"Error cleaning up temp file: {e}")
+                else:
+                    # Grup tanpa prefix valid, jangan proses
+                    return
+                                
+            elif mime_type in ALLOWED_DOCUMENT_TYPES:
+                # Hanya proses jika ini private chat atau ada prefix valid di grup
+                if is_private_chat or has_valid_prefix:
+                    # Process as text document
+                    await message.reply_text(
+                        "Memproses dokumen...",
+                        parse_mode=None
+                    )
+                    
+                    # Download and process document
+                    file = await context.bot.get_file(message.document.file_id)
+                    
+                    # Use appropriate extension
+                    if mime_type == 'application/pdf':
+                        extension = '.pdf'
+                    elif 'word' in mime_type:
+                        extension = '.docx' 
                     else:
-                        # No caption, don't process
-                        try:
-                            os.unlink(temp_path)
-                        except Exception:
-                            pass
-                        return
+                        extension = '.txt'
+                        
+                    fd, temp_path = tempfile.mkstemp(suffix=extension)
+                    os.close(fd)
+                    
+                    await file.download_to_drive(temp_path)
+                    
+                    # Extract text
                     try:
-                        analysis_result = await analyze_image(temp_path)
-                        if analysis_result:
-                            # Format response with HTML
-                            response = f"<b>Analisis Gambar:</b>\n\n{analysis_result}"
-                            await message.reply_text(response, parse_mode=ParseMode.HTML)
+                        text_content = await extract_text_from_document(temp_path, mime_type)
+                        
+                        if text_content and len(text_content.strip()) > 0:
+                            # Truncate if too long
+                            if len(text_content) > 4000:
+                                text_content = text_content[:4000] + "... [teks terpotong]"
+                                
+                            # Send text content using HTML parse mode
+                            await message.reply_text(
+                                f"<b>Teks dari dokumen:</b>\n\n{text_content}",
+                                parse_mode=ParseMode.HTML
+                            )
+                        else:
+                            await message.reply_text(
+                                "Tidak dapat mengekstrak teks dari dokumen ini.",
+                                parse_mode=None
+                            )
                     finally:
                         # Clean up temp file
                         try:
                             os.unlink(temp_path)
                         except Exception as e:
                             logger.error(f"Error cleaning up temp file: {e}")
-            
-            elif mime_type in ALLOWED_DOCUMENT_TYPES:
-                # Process as text document
-                await message.reply_text(
-                    "Memproses dokumen...",
-                    parse_mode=None
-                )
-                
-                # Download and process document
-                file = await context.bot.get_file(message.document.file_id)
-                
-                # Use appropriate extension
-                if mime_type == 'application/pdf':
-                    extension = '.pdf'
-                elif 'word' in mime_type:
-                    extension = '.docx' 
                 else:
-                    extension = '.txt'
-                    
-                fd, temp_path = tempfile.mkstemp(suffix=extension)
-                os.close(fd)
-                
-                await file.download_to_drive(temp_path)
-                
-                # Extract text
-                try:
-                    text_content = await extract_text_from_document(temp_path, mime_type)
-                    
-                    if text_content and len(text_content.strip()) > 0:
-                        # Truncate if too long
-                        if len(text_content) > 4000:
-                            text_content = text_content[:4000] + "... [teks terpotong]"
-                            
-                        # Send text content using HTML parse mode
-                        await message.reply_text(
-                            f"<b>Teks dari dokumen:</b>\n\n{text_content}",
-                            parse_mode=ParseMode.HTML
-                        )
-                    else:
-                        await message.reply_text(
-                            "Tidak dapat mengekstrak teks dari dokumen ini.",
-                            parse_mode=None
-                        )
-                finally:
-                    # Clean up temp file
-                    try:
-                        os.unlink(temp_path)
-                    except Exception as e:
-                        logger.error(f"Error cleaning up temp file: {e}")
+                    # Grup tanpa prefix valid, jangan proses
+                    return
     except Exception as e:
         logger.error(f"Error processing document/media: {e}")
         try:

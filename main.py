@@ -28,7 +28,9 @@ from config.settings import (
     TELEGRAM_BOT_TOKEN,
     DEFAULT_LANGUAGE,
     SUPPORTED_LANGUAGES,
-    DB_VACUUM_INTERVAL_DAYS
+    DB_VACUUM_INTERVAL_DAYS,
+    GROUP_CHAT_REQUIRES_PREFIX,  # Tambahkan import ini
+    CHAT_PREFIX                  # Tambahkan import ini
 )
 
 # Import tambahan untuk context persistence
@@ -152,6 +154,9 @@ def main() -> None:
     # Initialize default language
     application.bot_data["language"] = DEFAULT_LANGUAGE
     logger.info(f"Setting default language to {DEFAULT_LANGUAGE} ({SUPPORTED_LANGUAGES.get(DEFAULT_LANGUAGE, 'Unknown')})")
+    
+    # Log important settings
+    logger.info(f"Group chat prefix: {CHAT_PREFIX}, required: {GROUP_CHAT_REQUIRES_PREFIX}")
     
     # Setup all handlers
     setup_handlers(application)
