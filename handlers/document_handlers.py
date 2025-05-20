@@ -766,3 +766,60 @@ async def store_media_context(
         
     except Exception as e:
         logger.error(f"Error saving media context: {e}")
+
+async def handle_document_callback(update: Update, context: CallbackContext) -> None:
+    """
+    Handle document-related callback queries.
+    
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
+    if not update.callback_query:
+        return
+        
+    callback_query = update.callback_query
+    callback_data = callback_query.data
+    
+    try:
+        # Extract command and potential parameters
+        parts = callback_data.split('_')
+        if len(parts) < 1:
+            return
+            
+        command = parts[0]
+        
+        # Handle different commands
+        if command == 'sauce' or command == 'sauce_nao':
+            # Get the message with image (the one being replied to)
+            message = callback_query.message.reply_to_message
+            if message:
+                await handle_sauce_command(message, update.effective_user, context)
+            else:
+                await callback_query.answer("Error: Image not found", show_alert=True)
+                
+        elif command == 'img_describe':
+            # Get the original message with image
+            message = callback_query.message.reply_to_message
+            if message:
+                await handle_trace_command(message, update.effective_user, context)
+            else:
+                await callback_query.answer("Error: Image not found", show_alert=True)
+                
+        elif command == 'img_source':
+            # Similar to sauce command
+            message = callback_query.message.reply_to_message
+            if message:
+                await handle_sauce_command(message, update.effective_user, context)
+            else:
+                await callback_query.answer("Error: Image not found", show_alert=True)
+                
+        # Acknowledge the callback
+        await callback_query.answer()
+        
+    except Exception as e:
+        logger.error(f"Error handling document callback: {e}")
+        try:
+            await callback_query.answer("Error processing request", show_alert=True)
+        except Exception:
+            pass

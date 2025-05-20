@@ -1,8 +1,10 @@
 # Core dependencies
-python-telegram-bot>=20.0
+python-telegram-bot[job-queue]>=20.0
 google-generativeai>=0.3.0
 python-dotenv>=1.0.0
 pyyaml>=6.0
+python-dotenv>=1.0.0
+psutil>=1.0.0
 
 # Image and media processing
 pillow>=9.0.0

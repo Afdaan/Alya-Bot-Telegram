@@ -4,15 +4,10 @@ Media Utilities for Alya Bot.
 This module provides functions for processing media files (non-image types),
 while delegating image processing to image_utils.py to avoid code duplication.
 """
-
-import logging
 import os
-import tempfile
-import asyncio
-import hashlib
-import time
-import subprocess
 import re
+import logging
+import tempfile
 from typing import Dict, Any, Optional, Tuple, List, Union
 
 # Try to import optional dependencies

@@ -1,7 +1,16 @@
+"""
+Logging configuration for Alya Telegram Bot.
+
+This module sets up logging configuration with appropriate handlers and filters.
+"""
 import logging
+import os
 import sys
-from typing import Dict
+from typing import Dict, Optional
 from functools import wraps
+
+# Default log level if not specified in settings
+DEFAULT_LOG_LEVEL = "INFO"
 
 class ColorFormatter(logging.Formatter):
     """Custom color formatter for prettier logging"""
@@ -78,3 +87,50 @@ def setup_logger(name: str = None, level: int = logging.INFO) -> logging.Logger:
     logger.addHandler(handler)
 
     return logger
+
+def setup_logging(log_level: Optional[str] = None) -> None:
+    """
+    Configure logging with custom filters.
+    
+    Args:
+        log_level: Optional override for log level (default: from settings or INFO)
+    """
+    # If log_level not provided, try to get from environment or use default
+    if not log_level:
+        log_level = os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL)
+    
+    # Convert string level to logging constant
+    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=numeric_level
+    )
+    
+    # Add custom filter to hide successful HTTP request logs
+    class HTTPFilter(logging.Filter):
+        """Filter to remove successful HTTP request logs."""
+        def filter(self, record):
+            return not (
+                'HTTP Request:' in record.getMessage() and 
+                'HTTP/1.1 200' in record.getMessage()
+            )
+    
+    # Add filter to root logger
+    logging.getLogger().addFilter(HTTPFilter())
+    
+    # Reduce verbosity for HTTP-related logs
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    
+    # Reduce verbosity for other libraries
+    logging.getLogger("core.models").setLevel(logging.WARNING)
+    logging.getLogger("utils.database").setLevel(logging.ERROR)
+    logging.getLogger("utils.context_manager").setLevel(logging.ERROR)
+    
+    # Remove spammy logs from telegram and asyncio
+    logging.getLogger("telegram").setLevel(logging.ERROR)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    
+    # Log setup completion
+    logging.info(f"Logging initialized with level: {log_level}")

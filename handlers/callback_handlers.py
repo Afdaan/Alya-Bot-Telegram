@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Button Callback Handler
 # =========================
 
-async def handle_button_callback(update: Update, context: CallbackContext) -> None:
+async def handle_callback_query(update: Update, context: CallbackContext) -> None:
     """
     Process button callback queries from inline keyboards.
     
@@ -394,7 +394,6 @@ async def handle_search_callback(query, user, search_type: str) -> None:
     """
     message = query.message
     
-    # Process based on search type
     if search_type == "web":
         # Show web search interface
         keyboard = [
@@ -403,26 +402,22 @@ async def handle_search_callback(query, user, search_type: str) -> None:
                 InlineKeyboardButton("🔎 Detail Search", callback_data="search_detail")
             ]
         ]
-        
         markup = InlineKeyboardMarkup(keyboard)
         await edit_or_reply(query, message,
             f"*{escape_markdown_v2(user.first_name)}\\-kun*\\~ Pilih jenis pencarian yang kamu inginkan\\:",
             reply_markup=markup,
             parse_mode='MarkdownV2'
         )
-        
     elif search_type in ["regular", "detail"]:
         # Provide search instructions
         is_detailed = search_type == "detail"
         detail_flag = "-d " if is_detailed else ""
-        
         await edit_or_reply(query, message,
             f"*{escape_markdown_v2(user.first_name)}\\-kun*\\~ Gunakan format berikut untuk pencarian\\:\n\n"
             f"`!search {detail_flag}<kata kunci>`\n\n"
             f"Contoh: `!search {detail_flag}jadwal kereta api bandung jakarta`",
             parse_mode='MarkdownV2'
         )
-        
     else:
         # Unknown search type
         logger.warning(f"Unknown search type: {search_type}")

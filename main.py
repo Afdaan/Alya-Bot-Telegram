@@ -6,6 +6,7 @@ This module sets up logging configuration and launches the bot.
 import os
 import logging
 import asyncio
+
 from dotenv import load_dotenv
 
 # Load .env first before any other imports
@@ -37,8 +38,8 @@ from utils.context_manager import context_manager
 from database.database import init_database
 
 # DO NOT directly import document_handlers or trace_handlers here
-# Only import the clean interface to avoid circular imports
-from handlers.media_interface import process_document_image
+# Only import the core.bot module that has clean interfaces
+from core.bot import setup_handlers
 
 # Import db maintenance
 from utils.database import run_database_maintenance
@@ -85,8 +86,6 @@ logger = logging.getLogger(__name__)
 # =========================
 # Bot Initialization
 # =========================
-
-from core.bot import setup_handlers
 
 async def error_handler(update: object, context: CallbackContext) -> None:
     """Handle errors in the dispatcher."""
@@ -160,10 +159,12 @@ def main() -> None:
     # Add global error handler
     application.add_error_handler(error_handler)
     
-    # Register callback handler for sauce search via interface
+    # Register callback handler for document processing
     application.add_handler(CallbackQueryHandler(
-        lambda update, context: asyncio.create_task(process_document_image(update, context)),
-        pattern='^(sauce_nao)_'
+        lambda update, context: asyncio.create_task(
+            _handle_document_callback(update, context)
+        ),
+        pattern='^(sauce_nao|img_describe|img_source)_'
     ))
     
     # Add scheduled job to clean up expired context entries (runs every 12 hours)
@@ -183,6 +184,13 @@ def main() -> None:
     # Start bot
     logger.info("Starting Alya Bot...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+# Helper function to avoid circular imports
+async def _handle_document_callback(update: Update, context: CallbackContext) -> None:
+    """Handle document-related callbacks without circular imports."""
+    # Only import where needed to avoid circular dependencies
+    from handlers.document_handlers import handle_document_callback
+    await handle_document_callback(update, context)
 
 # =========================
 # Entry Point

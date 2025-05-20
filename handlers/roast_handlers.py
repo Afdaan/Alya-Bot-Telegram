@@ -15,7 +15,8 @@ from telegram import Update
 from telegram.ext import CallbackContext
 from telegram.error import BadRequest
 
-from config.settings import CHAT_PREFIX, GITHUB_API_TOKEN
+# PERBAIKAN: Hapus GITHUB_API_TOKEN yang tidak ada
+from config.settings import CHAT_PREFIX
 from core.models import generate_response
 from utils.formatters import format_markdown_response, escape_markdown_v2
 from utils.context_manager import context_manager
@@ -335,10 +336,7 @@ async def get_github_user_data(username: str) -> Optional[Dict[str, Any]]:
     Returns:
         Dictionary with user data or None if not found
     """
-    # Prepare headers with token if available
-    headers = {}
-    if GITHUB_API_TOKEN:
-        headers['Authorization'] = f'token {GITHUB_API_TOKEN}'
+    headers = {'Accept': 'application/vnd.github.v3+json'}
     
     try:
         # Get user profile
