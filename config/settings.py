@@ -32,6 +32,10 @@ ANALYZE_PREFIX = "!trace"  # For document/image analysis
 SAUCE_PREFIX = "!sauce"  # For reverse image search
 ROAST_PREFIX = "!roast"  # For roasting mode
 
+# This for group chats
+GROUP_CHAT_REQUIRES_PREFIX = True  # Wajib pakai prefix (!ai) di grup
+ADDITIONAL_PREFIXES = ["!alya", "@alya"]  # Prefix alternatif yang bisa dipake juga
+
 # =========================
 # Language Settings
 # =========================
