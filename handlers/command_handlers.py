@@ -209,7 +209,8 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
             prefix = "!search" if message_text.startswith("!search") else "/search"
             query = message_text[len(prefix):].strip()
         else:
-            query = " ".join(context.args) if context.args else ""
+            # FIX: Perbaiki cara akses context.args yang benar 
+            query = " ".join(context.args) if hasattr(context, 'args') and context.args else ""
         
         # If no query provided, show usage info
         if not query:
