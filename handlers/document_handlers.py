@@ -65,46 +65,31 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
     command_type = None
     message_text = update.message.caption or ""
     
-    # Check if we're in a group chat
-    is_private_chat = update.message.chat.type == "private"
-    has_valid_prefix = False
+    # FIX: Lebih fleksibel handlean prefix-nya, gunakan lowercase untuk case-insensitive
+    message_text_lower = message_text.lower().strip()
     
-    # PERBAIKAN: Untuk grup, periksa prefix yang valid
-    if not is_private_chat:
-        caption_lower = message_text.lower().strip()
-        
-        # Cek apakah ada prefix yang valid
-        has_valid_prefix = any(caption_lower.startswith(prefix) for prefix in ALL_VALID_PREFIXES)
-        
-        # Kalo di grup dan butuh prefix tapi gak ada prefix yang valid, JANGAN PROSES
-        if GROUP_CHAT_REQUIRES_PREFIX and not has_valid_prefix:
-            # Hanya log untuk debug
-            logger.debug(f"Ignoring document/image in group without valid prefix. Caption: '{message_text[:30]}...'")
-            return
-
-    # Continued checking for specific commands
-    if message_text.startswith(ANALYZE_PREFIX):
-        command = message_text[len(ANALYZE_PREFIX):].strip()
+    if message_text_lower.startswith("!trace") or message_text_lower.startswith("/trace"):
         command_type = "trace"
-    elif message_text.startswith(SAUCE_PREFIX):
-        command = message_text[len(SAUCE_PREFIX):].strip()
+    elif message_text_lower.startswith("!sauce") or message_text_lower.startswith("/sauce"):
         command_type = "sauce"
+    elif message_text_lower.startswith("!ocr") or message_text_lower.startswith("/ocr"):
+        command_type = "ocr"
         
     user = update.effective_user
     
     try:
         # Process based on command type
-        if command_type == "trace":
+        if command_type == "trace" or command_type == "ocr":
             await handle_trace_command(update.message, user, context)
         elif command_type == "sauce":
             await handle_sauce_command(update.message, user, context)
         else:
-            # PERBAIKAN: Untuk grup, jangan proses jika tidak ada command yang valid
-            if not is_private_chat and GROUP_CHAT_REQUIRES_PREFIX and not has_valid_prefix:
+            # Only process as normal if this is private chat
+            if update.message.chat.type == "private":
+                await process_document_media(update.message, user, context)
+            else:
+                # In group, do nothing - we only respond to explicit commands
                 return
-                
-            # Just process normally for private chat or valid prefix in group
-            await process_document_media(update.message, user, context)
     except Exception as e:
         logger.error(f"Error in document/media handling: {e}")
         try:

@@ -204,9 +204,10 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
         # Extract query using more robust method
         message_text = update.message.text.strip()
         
-        # Handle search commands without using regex
-        if message_text.startswith("!search"):
-            query = message_text[7:].strip()  # Remove "!search"
+        # PERBAIKAN: Deteksi lebih baik untuk berbagai format perintah search
+        if message_text.startswith("!search") or message_text.startswith("/search"):
+            prefix = "!search" if message_text.startswith("!search") else "/search"
+            query = message_text[len(prefix):].strip()
         else:
             query = " ".join(context.args) if context.args else ""
         

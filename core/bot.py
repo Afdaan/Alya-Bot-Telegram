@@ -51,19 +51,22 @@ def setup_handlers(app: Application) -> None:
     # Search command handler
     app.add_handler(CommandHandler("search", handle_search))
     
-    # PERBAIKAN: Gunakan cara yang benar untuk filter berdasarkan caption
-    # Document/media handlers untuk foto dan dokumen
+    # PERBAIKAN: Handler untuk menangkap commands di grup yang diawali dengan `!`
+    # Filter ini akan menangkap pesan teks yang diawali dengan !sauce, !trace, !search
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & 
+        (filters.Regex(r'^!sauce\b') | filters.Regex(r'^!trace\b') | filters.Regex(r'^!search\b')),
+        handle_text_commands
+    ))
+    
+    # PERBAIKAN: Media handler dengan improved detection untuk caption commands
     app.add_handler(MessageHandler(
         (filters.PHOTO | filters.Document.ALL) & 
-        (filters.ChatType.PRIVATE | 
-         filters.Caption(lambda text: text and (
-             text.startswith("!trace") or
-             text.startswith("!sauce") or
-             text.startswith("!ocr") or
-             text.startswith("/trace") or
-             text.startswith("/sauce") or
-             text.startswith("/ocr")
-         ))),
+        filters.Caption(lambda text: text is not None and any(
+            text.startswith(prefix) for prefix in [
+                "!trace", "!sauce", "!ocr", "/trace", "/sauce", "/ocr"
+            ]
+        )),
         handle_document_image
     ))
     
@@ -84,10 +87,10 @@ def setup_handlers(app: Application) -> None:
     if GROUP_CHAT_REQUIRES_PREFIX:
         # Jika kita mewajibkan prefix di grup, gunakan filter yang lebih ketat
         app.add_handler(MessageHandler(
-            (filters.TEXT & ~filters.COMMAND & 
-             (filters.ChatType.PRIVATE | 
-              filters.Regex(r'^!ai\b') | 
-              filters.Regex(r'^!alya\b'))),
+            (filters.TEXT & ~filters.COMMAND & ~filters.Regex(r'^!')) & 
+            (filters.ChatType.PRIVATE | 
+             filters.Regex(r'^!ai\b') | 
+             filters.Regex(r'^!alya\b')),
             handle_message
         ))
     else:
@@ -111,6 +114,35 @@ async def _sauce_command_handler(update: Update, context: CallbackContext) -> No
     if not update.message:
         return
     await handle_sauce_command(update.message, update.effective_user, context)
+
+# New handler for text-based commands with ! prefix
+async def handle_text_commands(update: Update, context: CallbackContext) -> None:
+    """
+    Process text-based commands that start with ! (e.g., !trace, !sauce, !search).
+    
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
+    if not update.message or not update.message.text:
+        return
+        
+    message_text = update.message.text.strip()
+    
+    # Dispatch based on command
+    if message_text.startswith("!search"):
+        # Remove prefix and pass to search handler
+        query = message_text[7:].strip()  # Remove "!search"
+        # Add to context.args so handle_search can use it
+        context.args = query.split()
+        await handle_search(update, context)
+        
+    elif message_text.startswith("!trace"):
+        # Jangan pakai update.message karena handle_trace_command harapkan Message bukan Update
+        await handle_trace_command(update.message, update.effective_user, context)
+        
+    elif message_text.startswith("!sauce"):
+        await handle_sauce_command(update.message, update.effective_user, context)
 
 async def post_init(app: Application) -> None:
     """
