@@ -16,6 +16,8 @@ eggs/
 .eggs/
 
 # Virtual Environments
+.myenv/
+myenv/
 venv/
 env/
 ENV/
@@ -76,3 +78,10 @@ Thumbs.db
 
 # Copilot instructions
 .github/copilot-instructions.md
+.github/prompts/copilot-*.md
+.github/prompts/
+.github/copilot-*.md
+
+#Test
+*.test
+./tests/

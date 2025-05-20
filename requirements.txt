@@ -1,36 +1,43 @@
 # Core dependencies
-python-telegram-bot[job-queue]==20.7  # Added job-queue extension
-python-dotenv==1.0.1
-google-generativeai>=0.3.1
-requests==2.31.0
-# Explicitly removed urllib3 requirement - will be installed by run.py
-# Explicitly removed six requirement - will be installed by run.py
-numpy==1.26.1
-Pillow==10.0.1
+python-telegram-bot>=20.0
+google-generativeai>=0.3.0
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# Image and media processing
+pillow>=9.0.0
+numpy>=1.20.0
+pytesseract>=0.3.10
+imagehash>=4.3.1
 textract>=1.6.5
-psutil>=5.9.0
+PyPDF2>=3.0.0
 
-# Caching and optimization
-diskcache>=5.4.0
-lru-dict>=1.2.0
-
-# Additional dependencies
-pandas==2.1.1
-beautifulsoup4~=4.8.0
-lxml==4.9.3
-
-# Google API dependencies
+# Web and API interactions
+aiohttp>=3.8.5
+requests>=2.28.0
 google-api-python-client>=2.0.0
-cachetools>=4.0.0
 google-auth>=2.0.0
 google-auth-httplib2>=0.1.0
 
-# Fix Google API cache warning
-oauth2client>=4.0.0
-google-auth-oauthlib>=0.4.0
+# Database
+sqlite3worker>=1.0.0
 
-# Text processing
-emoji>=2.8.0  # Add emoji module for emoji handling
+# Data science & ML utilities
+scikit-learn>=1.0.0
 
-#yaml
-pyyaml>=6.0
+# Natural language processing
+nltk>=3.7.0
+sentence-transformers>=2.2.0
+langdetect>=1.0.9
+
+# Utilities
+pytz>=2023.3
+emoji>=2.5.0
+cachetools>=5.0.0
+asyncio>=3.4.3
+tqdm>=4.64.0  
+
+# Development tools (optional)
+pytest>=7.0.0
+flake8>=6.0.0
+black>=23.0.0

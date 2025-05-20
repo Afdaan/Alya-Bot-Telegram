@@ -1,94 +1,318 @@
 """
-Fact Extractor for Alya Telegram Bot.
+Fact Extraction Utilities for Alya Bot.
 
-This module extracts personal facts from user messages for persistent memory.
+This module provides functionality to extract, store, and retrieve facts
+about users from conversations for better context awareness.
 """
 
 import re
 import logging
-from typing import Dict, Optional, List, Tuple
+import time
+from typing import Dict, Any, List, Optional, Tuple, Set
+import sqlite3
+
+# Fix incorrect import path
+from database.database import get_connection
 
 logger = logging.getLogger(__name__)
 
 class FactExtractor:
-    """Extract personal facts from message content."""
+    """
+    Extract and manage facts about users from conversation data.
+    
+    This class processes messages to identify key facts about users
+    and stores them for context-aware conversations.
+    """
     
     def __init__(self):
         """Initialize fact extractor with patterns."""
-        self.patterns = {
-            'birthday': [
-                r'ulang\s*tahun[ku|saya|gw]\s*(?:adalah|itu|pada)?\s*tanggal\s*(\d{1,2}\s*[a-zA-Z]+)',
-                r'tanggal\s*ulang\s*tahun[ku|saya|gw]\s*(?:adalah)?\s*(\d{1,2}\s*[a-zA-Z]+)',
-                r'[I|i|saya|gw|aku] born on (\d{1,2}\s*[a-zA-Z]+)',
-                r'[my|My|saya|gw] birthday is (\d{1,2}\s*[a-zA-Z]+)',
-            ],
+        # Fact extraction patterns
+        self.fact_patterns = {
             'name': [
-                r'[N|n]ama\s*[saya|gw|ku|aku]\s*(?:adalah)?\s*([A-Za-z]+)',
-                r'[P|p]anggil\s*[aku|saya|gw]\s*([A-Za-z]+)',
-                r'[M|m]y\s*name\s*is\s*([A-Za-z]+)',
-                r'[C|c]all\s*me\s*([A-Za-z]+)',
+                r"(?:nama\s+(?:saya|aku|gw|gue|ku))[^\w]+([\w\s]+)",
+                r"(?:my\s+name\s+is|i\s+am|i'm)[^\w]+([\w\s]+)"
             ],
-            'hobby': [
-                r'[H|h]obi\s*[saya|gw|ku|aku]\s*(?:adalah)?\s*([A-Za-z\s]+)',
-                r'[S|s]uka\s*([A-Za-z\s]+)',
-                r'[M|m]y\s*hobby\s*is\s*([A-Za-z\s]+)',
+            'age': [
+                r"(?:umur\s+(?:saya|aku|gw|gue))[^\w]+(\d+)",
+                r"(?:i\s+am|i'm)\s+(\d+)\s+(?:years|yo|year)"
             ],
             'location': [
-                r'[T|t]inggal\s*di\s*([A-Za-z\s]+)',
-                r'[A|a]lamat\s*[saya|gw|ku|aku]\s*(?:adalah)?\s*([A-Za-z\s]+)',
-                r'[I|i]\s*live\s*in\s*([A-Za-z\s]+)',
+                r"(?:(?:saya|aku|gw|gue)\s+(?:dari|tinggal))[^\w]+([\w\s]+)",
+                r"(?:i\s+(?:live\s+in|am\s+from))[^\w]+([\w\s]+)"
+            ],
+            'job': [
+                r"(?:(?:kerja|pekerjaan)\s+(?:saya|aku|gw|gue))[^\w]+([\w\s]+)",
+                r"(?:i\s+work\s+as|my\s+job\s+is)[^\w]+([\w\s]+)"
+            ],
+            'hobby': [
+                r"(?:(?:saya|aku|gw|gue)\s+(?:suka|senang|hobi))[^\w]+([\w\s]+)",
+                r"(?:i\s+(?:like|love|enjoy))[^\w]+([\w\s]+)"
+            ],
+            'education': [
+                r"(?:(?:saya|aku|gw|gue)\s+(?:kuliah|sekolah|belajar))[^\w]+([\w\s]+)",
+                r"(?:i\s+study|i'm\s+studying)[^\w]+([\w\s]+)"
             ]
         }
-    
-    def extract_facts(self, text: str) -> Dict[str, str]:
+        
+        # Common words to filter out from extracted facts
+        self.common_words = {
+            'saya', 'aku', 'gw', 'gue', 'kamu', 'dia', 'mereka', 
+            'you', 'me', 'he', 'she', 'they', 'we',
+            'here', 'there', 'sini', 'situ', 'anywhere', 'nowhere'
+        }
+        
+    def extract_facts_from_text(self, text: str) -> Dict[str, str]:
         """
-        Extract personal facts from text.
+        Extract facts from a text message.
         
         Args:
-            text: Message text to analyze
+            text: Message text
             
         Returns:
-            Dictionary of extracted facts (fact_type -> value)
+            Dictionary of extracted facts (fact_type: fact_value)
         """
-        facts = {}
-        
-        for fact_type, patterns in self.patterns.items():
-            for pattern in patterns:
-                matches = re.findall(pattern, text, re.IGNORECASE)
-                if matches and matches[0]:
-                    # Clean up and normalize the match
-                    value = self._normalize_value(fact_type, matches[0])
-                    facts[fact_type] = value.strip()
-                    break
-        
-        return facts
-    
-    def _normalize_value(self, fact_type: str, value: str) -> str:
-        """Normalize extracted values based on fact type."""
-        if fact_type == 'birthday':
-            # Try to standardize birthday format
-            value = value.lower()
-            # Convert Indonesian month names if needed
-            id_months = {
-                'januari': 'january', 
-                'februari': 'february',
-                'maret': 'march',
-                'april': 'april',
-                'mei': 'may',
-                'juni': 'june',
-                'juli': 'july',
-                'agustus': 'august',
-                'september': 'september',
-                'oktober': 'october',
-                'november': 'november',
-                'desember': 'december'
-            }
+        if not text or len(text.strip()) < 5:
+            return {}
             
-            for id_month, en_month in id_months.items():
-                if id_month in value:
-                    value = value.replace(id_month, en_month)
+        text_lower = text.lower()
+        extracted_facts = {}
         
-        return value
+        # Check all patterns for each fact type
+        for fact_type, patterns in self.fact_patterns.items():
+            for pattern in patterns:
+                match = re.search(pattern, text_lower, re.IGNORECASE)
+                if match:
+                    # Extract and clean the fact value
+                    fact_value = match.group(1).strip()
+                    
+                    # Validate extracted fact
+                    if self._validate_fact(fact_type, fact_value):
+                        extracted_facts[fact_type] = fact_value
+                        break  # Take first valid match for this fact type
+                        
+        return extracted_facts
+    
+    def _validate_fact(self, fact_type: str, value: str) -> bool:
+        """
+        Validate extracted fact for quality and relevance.
+        
+        Args:
+            fact_type: Type of fact
+            value: Extracted fact value
+            
+        Returns:
+            True if fact is valid, False otherwise
+        """
+        # Discard very short values or likely irrelevant content
+        if not value or len(value) < 2:
+            return False
+            
+        if fact_type == 'name':
+            # Discard very long names or likely non-name content
+            if len(value.split()) > 5 or len(value) > 40:
+                return False
+                
+            # Discard names that are just pronouns or common words
+            if value.lower() in self.common_words:
+                return False
+                
+        elif fact_type == 'age':
+            # Validate age is a reasonable number
+            try:
+                age = int(value)
+                if age < 5 or age > 120:
+                    return False
+            except ValueError:
+                return False
+                
+        elif fact_type == 'location':
+            # Discard very short or generic location names
+            if value.lower() in self.common_words:
+                return False
+                
+        return True
+    
+    def store_facts(self, user_id: int, facts: Dict[str, Any], confidence: float = 0.8, ttl_days: int = 365) -> bool:
+        """
+        Store extracted facts in persistent storage.
+        
+        Args:
+            user_id: User ID
+            facts: Dictionary of facts to store
+            confidence: Confidence score for the facts (0.0-1.0)
+            ttl_days: Time-to-live in days
+            
+        Returns:
+            True if successfully stored, False otherwise
+        """
+        if not facts:
+            return False
+            
+        try:
+            # Calculate expiration timestamp
+            expires_at = int(time.time()) + (ttl_days * 86400)
+            
+            # Get database connection from database utility
+            conn = get_connection()
+            cursor = conn.cursor()
+            
+            stored_count = 0
+            
+            # Begin transaction
+            conn.execute("BEGIN TRANSACTION")
+            
+            try:
+                # Store each fact
+                for fact_key, fact_value in facts.items():
+                    cursor.execute(
+                        """INSERT OR REPLACE INTO personal_facts 
+                           (user_id, fact_key, fact_value, confidence, source, created_at, expires_at) 
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            user_id, 
+                            fact_key, 
+                            fact_value,
+                            confidence, 
+                            "conversation", 
+                            int(time.time()),
+                            expires_at
+                        )
+                    )
+                    stored_count += 1
+                
+                # Commit transaction
+                conn.commit()
+            except sqlite3.Error as e:
+                logger.error(f"Database error in transaction: {e}")
+                conn.rollback()
+                return False
+            finally:
+                conn.close()
+            
+            logger.debug(f"Stored {stored_count} facts for user {user_id}")
+            return stored_count > 0
+            
+        except sqlite3.Error as e:
+            logger.error(f"Database error storing facts: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Error storing user facts: {e}")
+            return False
+    
+    def get_user_facts(self, user_id: int, fact_types: Optional[List[str]] = None) -> Dict[str, str]:
+        """
+        Get stored facts about a user.
+        
+        Args:
+            user_id: User ID
+            fact_types: Optional list of specific fact types to retrieve
+            
+        Returns:
+            Dictionary of facts
+        """
+        try:
+            # Get database connection
+            conn = get_connection()
+            cursor = conn.cursor()
+            
+            current_time = int(time.time())
+            
+            # Build query based on inputs
+            if fact_types:
+                placeholders = ','.join(['?' for _ in fact_types])
+                query = f"""SELECT fact_key, fact_value 
+                            FROM personal_facts 
+                            WHERE user_id = ? 
+                            AND fact_key IN ({placeholders})
+                            AND expires_at > ?
+                            ORDER BY confidence DESC, created_at DESC"""
+                params = [user_id] + fact_types + [current_time]
+            else:
+                query = """SELECT fact_key, fact_value 
+                           FROM personal_facts 
+                           WHERE user_id = ?
+                           AND expires_at > ?
+                           ORDER BY confidence DESC, created_at DESC"""
+                params = (user_id, current_time)
+            
+            # Execute query
+            cursor.execute(query, params)
+            facts = {}
+            
+            # Process results (take highest confidence entry for each fact type)
+            seen_facts = set()
+            for row in cursor.fetchall():
+                fact_key, fact_value = row
+                if fact_key not in seen_facts:
+                    facts[fact_key] = fact_value
+                    seen_facts.add(fact_key)
+            
+            conn.close()
+            return facts
+            
+        except sqlite3.Error as e:
+            logger.error(f"Database error getting facts: {e}")
+            return {}
+        except Exception as e:
+            logger.error(f"Error getting user facts: {e}")
+            return {}
+    
+    def merge_facts(self, user_id: int, new_facts: Dict[str, str], overwrite: bool = False) -> bool:
+        """
+        Merge new facts with existing facts for a user.
+        
+        Args:
+            user_id: User ID
+            new_facts: New facts to merge
+            overwrite: Whether to overwrite existing facts
+            
+        Returns:
+            True if successfully merged, False otherwise
+        """
+        if not new_facts:
+            return False
+            
+        try:
+            # Get existing facts
+            existing_facts = self.get_user_facts(user_id)
+            
+            # Merge facts - either overwrite all or only add missing
+            merged_facts = {}
+            merged_facts.update(existing_facts)
+            
+            if overwrite:
+                # Overwrite existing facts with new ones
+                merged_facts.update(new_facts)
+            else:
+                # Only add facts that don't exist yet
+                for key, value in new_facts.items():
+                    if key not in existing_facts:
+                        merged_facts[key] = value
+            
+            # Store merged facts if different from existing
+            if merged_facts != existing_facts:
+                # Only store facts that changed
+                changed_facts = {k: v for k, v in merged_facts.items() 
+                               if k not in existing_facts or existing_facts[k] != v}
+                return self.store_facts(user_id, changed_facts)
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error merging facts: {e}")
+            return False
 
-# Singleton instance
+# Create singleton instance
 fact_extractor = FactExtractor()
+
+def extract_facts(text: str) -> Dict[str, str]:
+    """
+    Extract facts from text (convenience function).
+    
+    Args:
+        text: Text to extract facts from
+        
+    Returns:
+        Dictionary of extracted facts
+    """
+    return fact_extractor.extract_facts_from_text(text)

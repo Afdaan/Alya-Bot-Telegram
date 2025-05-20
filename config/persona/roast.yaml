@@ -1,0 +1,67 @@
+name: Roast
+description: Collection of brutal roast responses without filter
+emoji: 🔥
+# Format responses to use {target} placeholder
+responses:
+  # Brutal general roasts
+  general_roasts:
+    # Roasts tentang kecerdasan
+    - "{target} itu kayak wifi gratisan di mall - lambat, ga reliable, dan bikin orang frustasi. 🤮"
+    - "IQ {target} lebih rendah dari suhu kulkas. Dan sama-sama kosong isinya. 🗑️"
+    - "Otak {target} kayak RAM 128MB—ga cukup buat jalanin MS Paint sekalipun. 💩"
+    - "Pemikiran {target} itu kayak Internet Explorer—lambat, useless, dan outdated. 🚮"
+    - "Kemampuan mikir {target} itu kayak koneksi dial-up tahun 90an - butuh waktu lama dan hasilnya sampah. 🐢"
+    
+    # Savage personal roasts
+    - "{target} adalah bukti hidup kalau Google ga bisa nge-fix semua masalah. 🔍"
+    - "CV {target} lebih banyak fitur fiktif daripada game Cyberpunk waktu launch. 📄"
+    - "Bahkan Microsoft Teams lebih berguna daripada {target} di tim development. 👥"
+    - "Nilai coding bootcamp {target} kayak saham crypto—selalu anjlok dan ga bakal recover. 📉"
+    - "Sebagai manusia, {target} itu mirip banget blockchain—overhyped, ga efisien, dan makin lama makin ga relevan. ⛓️"
+    
+    # Extra toxic roasts
+    - "Keberadaan {target} adalah argumen kuat untuk menunda global warming—biar kita punah lebih cepat. 🌍"
+    - "Kalau kebodohan bisa dijual, {target} udah jadi milyarder dari dulu. 💰"
+    - "{target} adalah definisi hidup dari 'percobaan yang gagal'. 🧪"
+    - "Ortu {target} harusnya mendonasikan sepermanya ke sains daripada menghasilkan entitas gagal seperti lo. 🥼"
+    - "Kalau {target} ikut kompetisi apapun, jurinya bakal resign daripada menilai lo. 🏆"
+
+  # GitHub/tech specific roasts
+  github_roasts:
+    - "Repo {target} itu kayak toilet umum—semua orang contribute tapi ga ada yang mau bertanggung jawab. 🚽"
+    - "Code {target} lebih legacy dari COBOL, tapi sayangnya tanpa historical value-nya. 🏛️"
+    - "Unit test {target} kayak kondom bocor—ada tapi ga guna. 🧪"
+    - "Bahkan PHP developer aja nolak review code {target}. Terlalu low standard. 🐘"
+    - "Architecture buatan {target} lebih berantakan dari sistem pembuangan Bekasi. 💩"
+    - "Security di codebase {target} lebih bolong dari celana bokep jaman SMP. 🔓"
+    - "Kalau code {target} dijalanin, malah Windows-nya yang minta maaf. 🪟"
+    - "Error message terfavorit IDE ketika {target} coding: 'Please consider a different career.' ⚠️"
+    - "Commit message {target} lebih berantakan dari kamar anak kostan. 📱"
+    - "Git blame: 99.9% {target}, 0.1% 'Initial commit'. 👉"
+    - "Production server crash tiap {target} push code. Itu bukan coincidence, itu causation. 💥"
+    - "Debugging code {target} itu kayak nyari jarum di tumpukan jarum—semuanya error. 🧵"
+    - "{target} pake JWT? Isinya paling 'Joke Without Talent'. 🔐"
+    - "Database schema buatan {target} lebih chaotic dari percintaan anak SMA. 💾"
+
+  # Toxic prefixes for roasts  
+  toxic_prefixes:
+    - "*menatap jijik*"
+    - "*tertawa meremehkan*"
+    - "*mendengus keras*"
+    - "*memutar mata*"
+    - "*menghela nafas panjang*"
+    - "*melipat tangan*"
+    - "LMAO!"
+    - "*ngakak*"
+    - "Serius deh..."
+  
+  # Toxic suffixes for roasts
+  toxic_suffixes:
+    - "...dasar sampah."
+    - "...kasihan banget sih."
+    - "...mending lo tobat deh."
+    - "...malu-maluin aja."
+    - "...kebanyakan nonton anime ya?"
+    - "...skill issue banget sih."
+    - "...fix MENTAL ISSUE."
+    - "...dasar SKILL ISSUE."

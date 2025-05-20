@@ -2,20 +2,27 @@
 Text Formatting Utilities for Alya Bot.
 
 This module provides utilities for formatting text responses with proper
-username handling and message splitting to create natural human-like conversations.
+username handling, MarkdownV2 escaping, and message splitting for Telegram.
 """
 
 import logging
 import re
-from typing import List, Dict, Any, Optional
-from telegram.helpers import escape_markdown  # Import built-in helper
+from typing import List, Dict, Any, Optional, Tuple, Union
+from pathlib import Path
 
-from core.personas import persona_manager
+# Import core persona functionality
+from core.personas import get_persona_context
 
 logger = logging.getLogger(__name__)
 
-def format_markdown_response(text: str, username: Optional[str] = None, telegram_username: Optional[str] = None,
-                           mentioned_username: Optional[str] = None, mentioned_text: Optional[str] = None) -> str:
+# =====================
+# Markdown Formatting
+# =====================
+
+def format_markdown_response(text: str, username: Optional[str] = None,
+                           telegram_username: Optional[str] = None,
+                           mentioned_username: Optional[str] = None,
+                           mentioned_text: Optional[str] = None) -> str:
     """
     Format bot response with proper Markdown V2 escaping and variable substitution.
     
@@ -107,13 +114,19 @@ def escape_markdown_v2(text: str) -> str:
     if not text:
         return ""
     
+    # Characters that need escaping in MarkdownV2
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', 
                     '-', '=', '|', '{', '}', '.', '!']
     
+    # Escape each special character
     for char in special_chars:
         text = text.replace(char, f'\\{char}')
         
     return text
+
+# =====================
+# Message Splitting
+# =====================
 
 def split_long_message(text: str, max_length: int = 4000) -> List[str]:
     """
@@ -133,17 +146,19 @@ def split_long_message(text: str, max_length: int = 4000) -> List[str]:
     # Enhanced splitting for content like lyrics
     parts = []
     
-    # Try splitting by paragraphs first
+    # First try to split by paragraphs (preferred)
     paragraphs = text.split('\n\n')
     current_part = ""
     
     for paragraph in paragraphs:
+        # Check if adding this paragraph would exceed the max length
         if len(current_part) + len(paragraph) + 4 > max_length:
             if current_part:
+                # Add the current part to our results
                 parts.append(current_part.strip())
                 current_part = paragraph
             else:
-                # Handle large paragraphs by splitting them at line breaks
+                # The paragraph itself is too long, split it by lines
                 lines = paragraph.split('\n')
                 temp_part = ""
                 for line in lines:
@@ -156,59 +171,145 @@ def split_long_message(text: str, max_length: int = 4000) -> List[str]:
                 if temp_part:
                     current_part = temp_part
         else:
+            # Add the paragraph with a separator
             current_part += "\n\n" + paragraph if current_part else paragraph
     
     # Add the last part if any
     if current_part:
         parts.append(current_part.strip())
     
-    # If no parts were created (which shouldn't happen), fall back to rough splitting
-    if not parts:
-        for i in range(0, len(text), max_length):
-            parts.append(text[i:i + max_length])
+    # If we still have parts that are too long, split them
+    result = []
+    for part in parts:
+        if len(part) <= max_length:
+            result.append(part)
+        else:
+            # Last resort: split by character chunks
+            for i in range(0, len(part), max_length):
+                result.append(part[i:i + max_length])
     
-    return parts
+    return result
+
+# =====================
+# Persona-based Formatting
+# =====================
 
 def format_response_with_persona(
-    response_key: str, 
-    persona_type: str = "waifu", 
-    username: str = None,
-    context_data: Dict[str, Any] = None, 
-    **kwargs
+    message_text: str,
+    persona_type: str = "waifu",
+    username: Optional[str] = None,
+    additional_context: Optional[Dict[str, Any]] = None
 ) -> str:
     """
-    Format a response using the appropriate persona and response template from YAML.
+    Format a response using a specific persona.
     
     Args:
-        response_key: Key to identify response template in YAML
-        persona_type: Type of persona to use (waifu, toxic, smart)
-        username: User's name
-        context_data: Context data including conversation history and personal facts
-        **kwargs: Additional variables for template substitution
+        message_text: Raw message text
+        persona_type: Type of persona to use
+        username: Username for substitution
+        additional_context: Additional context for formatting
         
     Returns:
-        Fully formatted response with persona traits applied
+        Formatted response
     """
-    # Get personal facts if available
-    personal_facts = {}
-    if context_data and "personal_facts" in context_data:
-        personal_facts = context_data.get("personal_facts", {})
+    if not message_text:
+        return ""
+        
+    # Get persona context
+    persona_context = get_persona_context(persona_type)
     
-    # Add username to template variables
-    template_vars = {"username": username}
+    # Apply persona traits to the message
+    try:
+        # Apply personality traits to message
+        if '{persona}' in message_text and persona_context:
+            message_text = message_text.replace('{persona}', persona_context)
+            
+        # Handle special formatting for different personas
+        if persona_type == "tsundere":
+            # Add tsundere hesitation markers
+            message_text = message_text.replace("...", "... b-baka!")
+            
+        elif persona_type == "toxic":
+            # Add intensity to toxic mode
+            message_text = message_text.replace("!", "!!!")
+            
+        # Add character closing based on persona
+        if additional_context and additional_context.get("add_closing", True):
+            closings = {
+                "waifu": "\n\n*dengan senyum manis* ✨",
+                "tsundere": "\n\n*melipat tangan* Hmph!",
+                "toxic": "\n\n*memutar mata* 🙄",
+                "smart": "\n\n*merapikan kacamata* 📊"
+            }
+            
+            if persona_type in closings and not message_text.endswith(closings[persona_type]):
+                message_text += closings[persona_type]
+    except Exception as e:
+        logger.error(f"Error applying persona to message: {e}")
     
-    # Add personal facts to template variables
-    if "name" in personal_facts and personal_facts["name"] != username:
-        template_vars["actual_name"] = personal_facts["name"]
+    # Format with markdown and username
+    return format_markdown_response(message_text, username=username)
+
+def format_simple_message(template_key: str, username: Optional[str] = None, **kwargs) -> str:
+    """
+    Format a simple message from a template key.
     
-    # Add other kwargs to template variables
-    template_vars.update(kwargs)
+    Args:
+        template_key: Template key in the responses YAML
+        username: Username for substitution
+        **kwargs: Additional substitution variables
+        
+    Returns:
+        Formatted message
+    """
+    from utils.language_handler import get_response  # Import here to avoid circular imports
     
-    # Get response from persona manager
-    response = persona_manager.get_response_template(response_key, persona_type, **template_vars)
+    try:
+        # Get the template
+        template = get_response(template_key)
+        
+        # Substitute variables
+        for key, value in kwargs.items():
+            if isinstance(value, str):
+                placeholder = f"{{{key}}}"
+                template = template.replace(placeholder, value)
+        
+        # Format with markdown
+        return format_markdown_response(template, username=username)
+    except Exception as e:
+        logger.error(f"Error formatting simple message: {e}")
+        return f"Error: {str(e)}"
+
+def format_error_message(error_text: str, username: Optional[str] = None) -> str:
+    """
+    Format an error message with consistent styling.
     
-    # Format with markdown
-    return format_markdown_response(response, username)
+    Args:
+        error_text: Error text
+        username: Username for personalization
+        
+    Returns:
+        Formatted error message
+    """
+    error_template = (
+        "{username}-kun~ Gomenasai! Alya mengalami error:\n\n"
+        "```\n{error}\n```\n\n"
+        "*menatap dengan mata berkaca-kaca* Maaf ya... 🥺"
+    )
+    
+    # Truncate very long errors
+    if len(error_text) > 300:
+        error_text = error_text[:300] + "..."
+    
+    # Replace error text with escaped version
+    message = error_template.replace("{error}", error_text)
+    
+    # Format with markdown and username
+    return format_markdown_response(message, username=username)
+
+# =====================
+# Specialized Formatters
+# =====================
 
 def format_memory_stats(stats: Dict[str, Any], username: str) -> str:
     """
@@ -221,13 +322,32 @@ def format_memory_stats(stats: Dict[str, Any], username: str) -> str:
     Returns:
         Formatted stats message
     """
-    # Instead of hardcoding the response, use persona template
-    return format_response_with_persona(
-        "memory_stats", 
-        "informative",
-        username=username,
-        stats=stats
+    template = (
+        "*Memory Stats for {username}*\n\n"
+        "🗣️ User messages: {user_messages}\n"
+        "🤖 Bot messages: {bot_messages}\n"
+        "📚 Total messages: {total_messages}\n"
+        "🧩 Token usage: {token_usage}\n"
+        "🕰️ Memory age: {memory_age}\n"
+        "📝 Personal facts: {personal_facts}\n"
+        "📊 Memory usage: {memory_usage_percent}%\n\n"
+        "*mencatat data ke buku catatan* Memory contextku untuk {username}-kun!"
     )
+    
+    # Format template with stats
+    message = template.format(
+        username=username,
+        user_messages=stats.get('user_messages', 0),
+        bot_messages=stats.get('bot_messages', 0),
+        total_messages=stats.get('total_messages', 0),
+        token_usage=stats.get('token_usage', 0),
+        memory_age=stats.get('memory_age', 'N/A'),
+        personal_facts=stats.get('personal_facts', 0),
+        memory_usage_percent=stats.get('memory_usage_percent', 0)
+    )
+    
+    # Format with markdown
+    return format_markdown_response(message, username=username)
 
 def detect_persona_type_from_text(text: str) -> str:
     """
@@ -239,55 +359,72 @@ def detect_persona_type_from_text(text: str) -> str:
     Returns:
         Appropriate persona type (waifu, tsundere, toxic, smart)
     """
+    text_lower = text.lower()
+    
     # Check for toxic indicators
     toxic_words = ["najis", "goblok", "bego", "tolol", "anjing", "bodoh"]
-    if any(word in text.lower() for word in toxic_words):
+    if any(word in text_lower for word in toxic_words):
         return "toxic"
         
     # Check for smart/informative indicators
     smart_words = ["analisis", "menurut data", "berdasarkan", "statistik", "secara teknis"]
-    if any(word in text.lower() for word in smart_words):
+    if any(word in text_lower for word in smart_words):
         return "smart"
         
     # Check for embarrassed indicators
     embarrassed_words = ["malu", "maaf", "gomennasai", "sumimasen", "gomen"]
-    if any(word in text.lower() for word in embarrassed_words):
+    if any(word in text_lower for word in embarrassed_words):
         return "embarrassed"
         
     # Check for happiness indicators
     happy_words = ["senang", "suka", "bahagia", "yeay", "yay"]
-    if any(word in text.lower() for word in happy_words):
+    if any(word in text_lower for word in happy_words):
         return "happy"
         
     # Check for tsundere indicators
     tsundere_words = ["bukan berarti", "hmph", "b-baka", "bukannya", "bukan karena"]
-    if any(word in text.lower() for word in tsundere_words):
+    if any(word in text_lower for word in tsundere_words):
         return "tsundere"
     
     # Default to waifu
     return "waifu"
 
-def get_character_action(persona_type: str = "waifu") -> str:
+def format_command_help(commands: Dict[str, str], username: Optional[str] = None) -> str:
     """
-    Get a random character action text from the YAML config.
+    Format command help information.
     
     Args:
-        persona_type: The persona type to use for the action
+        commands: Dictionary of command names and descriptions
+        username: User's name for personalization
         
     Returns:
-        A random action with asterisks
+        Formatted help text
     """
-    try:
-        # Try getting action from persona_manager
-        action = persona_manager.get_response_template("action", persona_type)
-        
-        # If failed to get from YAML, log and use generic fallback
-        if not action or len(action) < 3 or "__" in action:
-            logger.warning(f"Failed to load action template for {persona_type}, falling back to generic")
-            return persona_manager.get_response_template("fallback.action", persona_type)
-        
-        return action
-    except Exception as e:
-        logger.error(f"Error getting character action text: {e}")
-        # Even this fallback should be in YAML, but keep as ultimate fallback
-        return "*melakukan sesuatu*"
+    # Start with header
+    help_text = f"*Alya\\-chan's Command List* 📋\n\n"
+    
+    # Group commands by category
+    categories = {
+        "Basic": ["start", "help", "ping", "mode"],
+        "Search": ["search", "img", "sauce"],
+        "Fun": ["roast", "gif", "sticker"],
+        "Utility": ["translate", "ocr", "analyze"],
+        "Settings": ["lang", "stats", "privacy"]
+    }
+    
+    # Format each category
+    for category, cmd_list in categories.items():
+        category_commands = {cmd: desc for cmd, desc in commands.items() if cmd in cmd_list}
+        if category_commands:
+            help_text += f"*{category} Commands:*\n"
+            for cmd, desc in category_commands.items():
+                help_text += f"• `/{cmd}` \\- {desc}\n"
+            help_text += "\n"
+    
+    # Add footer
+    if username:
+        help_text += f"\n*menatap {username} dengan antusias* Ada yang bisa Alya bantu lagi\\~?"
+    else:
+        help_text += "\n*tersenyum manis* Ada yang bisa Alya bantu\\~?"
+    
+    return escape_markdown_v2(help_text)

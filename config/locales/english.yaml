@@ -1,0 +1,53 @@
+# English language responses
+# Format: key: "response text"
+# Note: All responses should use MarkdownV2 escaping for special characters
+
+# Basic responses
+start: "Hello\\! Alya\\-chan is here to accompany you\\~ 🌸\n\nType /help to see available commands\\!"
+help: "Here's a list of commands you can use with Alya\\-chan\\:"
+unknown_command: "Hmm\\? Alya doesn't recognize that command\\. Try /help to see available commands\\."
+ping: "Pong\\! Alya responded in *{time}ms*\\. Your connection is good\\, {username}\\-kun\\! ✨"
+language_changed: "Language has been changed to *{language}*\\. Alya will speak in this language from now on\\."
+
+# Maintenance responses
+error: "Sorry, an error occurred\\: *{error}*\\. Alya is investigating the issue\\! 🔍"
+rate_limit: "Please slow down\\~ Wait {seconds} seconds before trying again\\. *rolls eyes impatiently*"
+maintenance: "Alya is under maintenance\\. Please try again later\\, {username}\\-kun\\! 🔧"
+unsupported: "Sorry, this feature is not yet supported\\. *bows shyly*"
+update_started: "Please wait\\! Alya is updating the system\\... ⚙️"
+update_complete: "Yay\\! Alya has been updated to the latest version\\! 🎉"
+update_failed: "Nyet\\! Update failed\\: *{error}*\\. Try again later\\."
+
+# Mode responses
+mode_changed: "Mode changed to *{mode}*\\! Alya will behave according to this mode now\\. 💫"
+mode_list: "Available modes\\: {modes}\\. Current mode\\: *{current_mode}*\\."
+mode_error: "Mode *{mode}* is not valid\\. Try one of\\: {valid_modes}\\."
+
+# Memory responses
+memory_stats: "Memory statistics for {username}\\-kun\\:\n\n• User messages\\: {user_messages}\n• Alya messages\\: {bot_messages}\n• Total messages\\: {total_messages}\n• Tokens used\\: {token_usage}\n• Memory age\\: {memory_age}\n• Personal facts\\: {personal_facts}\n• Memory usage\\: {memory_usage_percent}%"
+memory_cleared: "Memory for {username}\\-kun has been cleared\\! Alya won't remember previous conversations\\."
+memory_no_data: "Alya doesn't have any memories about you yet\\. Let's start a new conversation\\!"
+
+# Search responses
+search_no_query: "Hmm\\? What do you want to search for\\? Use /search followed by your search keywords\\."
+search_results: "Search results for *{query}*\\:"
+search_no_results: "Sorry\\, Alya couldn't find results for *{query}*\\. Try different keywords\\."
+search_error: "Error while searching\\: {error}\\. Try again later\\."
+search_too_many: "Too many results\\! Alya is limiting to {limit} results to avoid spam\\."
+
+# Image analysis responses
+image_analyzing: "Alya is analyzing the image\\... 🔍"
+image_analysis_complete: "Image analysis complete\\! 📊"
+image_analysis_error: "Sorry\\, Alya couldn't analyze this image\\: {error}"
+sauce_searching: "Searching for image source\\... 🔎"
+sauce_not_found: "Hmph\\! Alya couldn't find the source of this image\\. 🤔"
+sauce_error: "Ошибка системы\\! Error searching for source\\: {error}"
+
+# Roast responses
+roast_no_target: "Who do you want to roast\\? Use /roast @username"
+roast_self: "Hmph\\! Alya won't demean herself\\. Try roasting someone else\\."
+roast_owner: "Ne\\, ne\\! Alya won't demean her master\\."
+
+# System status responses
+system_info: "Alya\\-chan System Information\\:\n\n• CPU\\: {cpu_usage}%\n• Memory\\: {memory_usage}%\n• Uptime\\: {uptime}\n• Users\\: {user_count}\n• Messages\\: {message_count}\n• Version\\: {version}"
+stats: "Alya\\-chan Statistics\\:\n\n• Uptime\\: {uptime}\n• Processing\\: {processing_time}ms\n• Users\\: {user_count}\n• Chats\\: {chat_count}\n• API calls\\: {api_calls}"

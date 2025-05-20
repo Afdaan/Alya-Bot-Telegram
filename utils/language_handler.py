@@ -1,223 +1,332 @@
 """
-Language Handling for Alya Telegram Bot.
+Language Handling Utilities for Alya Bot.
 
-This module provides multilingual support with response templates,
-language management, and formatting functions.
+This module provides multilingual support including translation loading,
+language detection, and language-specific formatting.
 """
 
+import os
 import logging
-from typing import Dict, Any, Optional
-from telegram.ext import CallbackContext
+import yaml
+from typing import Dict, Any, Optional, List
+from pathlib import Path
 
-from config.settings import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
+from config.settings import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, LANGUAGE_FILE_MAPPING
 
 logger = logging.getLogger(__name__)
 
-# =========================
-# Response Templates
-# =========================
+# Base paths for locales
+BASE_DIR = Path(__file__).parent.parent
+LOCALE_DIR = BASE_DIR / "config" / "locales"
 
-RESPONSES = {
-    # Basic commands
-    "start": {
-        "id": "Halo\\! Alya\\-chan di sini untuk membantu kamu\\~ 🌸\n\nAku sangat senang bisa berbicara denganmu\\! Bagaimana kabarmu hari ini\\? ✨",
-        "en": "Hello\\! Alya\\-chan is here to help you\\~ 🌸\n\nI'm so happy to talk with you\\! How are you doing today\\? ✨"
-    },
-    "help": {
-        "id": "Ini adalah daftar perintah yang bisa kamu gunakan\\:",
-        "en": "Here is the list of commands you can use\\:"
-    },
-    "reset": {
-        "id": "History chat telah dihapus\\! Ayo mulai percakapan baru\\~ 💕",
-        "en": "Chat history has been cleared\\! Let's start a new conversation\\~ 💕"
-    },
-    
-    # System messages
-    "language_changed": {
-        "id": "Bahasa telah diubah ke *{language}*\\. Alya\\-chan akan berbicara dalam Bahasa Indonesia sekarang\\~",
-        "en": "Language has been changed to *{language}*\\. Alya\\-chan will speak in English now\\~"
-    },
-    "dev_only": {
-        "id": "Ara\\~ Command ini khusus developer sayang\\~ 💅✨",
-        "en": "Ara\\~ This command is for developers only darling\\~ 💅✨"
-    },
-    
-    # Search-related
-    "search_usage": {
-        "id": "Cara penggunaan\\:\n\\!search \\<kata kunci\\>\n\nContoh\\:\n\\!search jadwal KRL lempuyangan jogja",
-        "en": "How to use\\:\n\\!search \\<keywords\\>\n\nExample\\:\n\\!search train schedule from Jakarta to Bandung"
-    },
-    "searching": {
-        "id": "🔍 Sedang mencari informasi\\.\\.\\.",
-        "en": "🔍 Searching for information\\.\\.\\."
-    },
-    
-    # Error messages
-    "timeout": {
-        "id": "Aduh\\, maaf ya\\~ Alya\\-chan butuh waktu lebih lama untuk memikirkan jawaban yang tepat\\. Coba tanyakan dengan cara yang lebih sederhana ya\\? 🥺💕",
-        "en": "Oops\\, sorry\\~ Alya\\-chan needs more time to think about the right answer\\. Could you ask in a simpler way\\? 🥺💕" 
-    },
-    "error": {
-        "id": "Gomenasai\\~ Ada masalah kecil\\. Alya akan lebih baik lagi ya\\~ 🥺💕",
-        "en": "Gomenasai\\~ There was a small problem\\. Alya will do better next time\\~ 🥺💕"
-    },
-    
-    # Language command help
-    "lang_help": {
-        "id": "*Pengaturan Bahasa*\n\n*Bahasa saat ini:* `{current_code}` \\({current_name}\\)\n\n*Cara penggunaan:*\n`/lang <kode_bahasa>`\n\n*Bahasa yang tersedia:*\n• `id` \\- Bahasa Indonesia\n• `en` \\- English \\(Inggris\\)\n\n*Contoh:*\n`/lang en` \\- Ganti ke Bahasa Inggris\n`/lang id` \\- Ganti ke Bahasa Indonesia",
-        "en": "*Language Settings*\n\n*Current language:* `{current_code}` \\({current_name}\\)\n\n*Usage:*\n`/lang <language_code>`\n\n*Available languages:*\n• `id` \\- Indonesian\n• `en` \\- English\n\n*Example:*\n`/lang en` \\- Switch to English\n`/lang id` \\- Switch to Indonesian"
-    },
-    "lang_invalid": {
-        "id": "*Kode bahasa tidak valid:* `{code}`\n\n*Bahasa yang tersedia:*\n• `id` \\- Bahasa Indonesia\n• `en` \\- English \\(Inggris\\)",
-        "en": "*Invalid language code:* `{code}`\n\n*Available languages:*\n• `id` \\- Indonesian\n• `en` \\- English"
-    },
-    "lang_success": {
-        "id": "*Bahasa berhasil diubah ke {language_name}*\n\nAlya\\-chan akan berbicara dalam Bahasa Indonesia sekarang\\~",
-        "en": "*Language changed to {language_name}*\n\nAlya\\-chan will speak in English now\\~"
-    }
-}
-
-# =========================
-# Language Functions
-# =========================
-
-def get_language(context: Optional[CallbackContext] = None) -> str:
+class LanguageHandler:
     """
-    Get current language setting from context.
+    Handler for loading and accessing language translations.
     
-    Args:
-        context: CallbackContext containing bot_data
+    This class manages loading translations from YAML files,
+    detecting languages, and providing translated responses.
+    """
+    
+    def __init__(self):
+        """Initialize language handler with default settings."""
+        # Initialize translations dictionary - FIX: Add this line
+        self.translations = {}
+        self.default_language = DEFAULT_LANGUAGE
+        self.supported_languages = SUPPORTED_LANGUAGES
+        self.fallbacks = {"en": "id", "id": "en"}  # Fallback chain
         
-    Returns:
-        Language code (defaults to DEFAULT_LANGUAGE if not set)
-    """
-    if context and hasattr(context, 'bot_data'):
-        return context.bot_data.get("language", DEFAULT_LANGUAGE)
-    return DEFAULT_LANGUAGE
-
-
-def set_language(context: CallbackContext, language_code: str) -> bool:
-    """
-    Set the language in the bot context.
-    
-    Args:
-        context: CallbackContext for storing language setting
-        language_code: Language code to set
+        # Track loaded languages
+        self.loaded_languages = set()
         
-    Returns:
-        True if language was set successfully, False otherwise
-    """
-    if language_code in SUPPORTED_LANGUAGES:
-        context.bot_data["language"] = language_code
-        logger.info(f"Language set to {language_code} ({SUPPORTED_LANGUAGES[language_code]})")
-        return True
-    return False
-
-
-def get_response(key: str, context: Optional[CallbackContext] = None, 
-                language: Optional[str] = None, **kwargs) -> str:
-    """
-    Get a localized response with formatting.
-    
-    Args:
-        key: Response key
-        context: CallbackContext for getting language setting
-        language: Override language (optional)
-        **kwargs: Format parameters for the response template
-    
-    Returns:
-        Localized and formatted response text
-    """
-    # Determine language to use - priority: explicit language > context > default
-    selected_language = DEFAULT_LANGUAGE
-    
-    if language is not None:
-        selected_language = language
-    elif context is not None:
-        selected_language = get_language(context)
+        # Load all languages
+        self._load_all_languages()
         
-    # Get response template
-    response_dict = RESPONSES.get(key, {})
-    response = response_dict.get(selected_language, response_dict.get(DEFAULT_LANGUAGE, f"Missing response key: {key}"))
-    
-    # Format with kwargs if provided
-    if kwargs:
-        try:
-            # Escape curly braces for Markdown V2 before formatting
-            escaped_kwargs = {}
-            for k, v in kwargs.items():
-                if isinstance(v, str):
-                    # Double escape curly braces to ensure they are properly escaped
-                    escaped_kwargs[k] = v.replace('{', '\\{').replace('}', '\\}')
-                else:
-                    escaped_kwargs[k] = v
+    def _get_language_file_path(self, language: str) -> Path:
+        """
+        Get path to language file.
+        
+        Args:
+            language: Language code
             
-            response = response.format(**escaped_kwargs)
-        except KeyError as e:
-            logger.warning(f"Missing format key in response template: {e}")
-            # Attempt to use original template if formatting fails
-            response = f"Error formatting response: {str(e)}"
-    
-    # Double check that all { and } are properly escaped
-    response = response.replace('{', '\\{').replace('}', '\\}')
-    
-    return response
-
-
-def get_prompt_language_instruction(language: Optional[str] = None, context: Optional[CallbackContext] = None) -> str:
-    """
-    Get language instruction for AI prompts.
-    
-    Provides a soft language preference rather than a strict requirement,
-    allowing the AI to respond in other languages if requested by the user.
-    
-    Args:
-        language: Language code (optional)
-        context: CallbackContext for getting language setting (optional)
+        Returns:
+            Path to language file
+        """
+        # Get filename from mapping or fallback to language code
+        filename = LANGUAGE_FILE_MAPPING.get(language, language)
+        return LOCALE_DIR / f"{filename}.yaml"
         
-    Returns:
-        Instruction string for the AI model
-    """
-    # If language not provided, get from context
-    if language is None and context is not None:
-        language = get_language(context)
-    elif language is None:
-        language = DEFAULT_LANGUAGE
-    
-    if language == "en":
-        return """
-        Your default response language is English.
-        Please respond in English unless the user specifically requests another language.
-        If the user asks you to speak in another language (like Japanese, Sundanese, Javanese, etc.), 
-        you can accommodate their request and respond in that language.
+    def _load_all_languages(self):
+        """Load all supported languages."""
+        # Ensure default language is loaded first
+        self._load_language(self.default_language)
+        
+        # Load remaining languages
+        for lang in self.supported_languages:
+            if lang != self.default_language:
+                self._load_language(lang)
+                
+        # Log language loading status
+        logger.info(f"Loaded translations for {len(self.loaded_languages)} languages: {', '.join(self.loaded_languages)}")
+        
+    def _load_language(self, language: str) -> bool:
         """
-    elif language == "id":
-        return """
-        Bahasa default untuk responmu adalah Bahasa Indonesia.
-        Mohon jawab dalam Bahasa Indonesia kecuali jika pengguna secara khusus meminta bahasa lain.
-        Jika pengguna memintamu berbicara dalam bahasa lain (seperti Jawa, Sunda, Jepang, dll.),
-        kamu boleh mengikuti permintaan mereka dan menjawab dalam bahasa tersebut.
+        Load translations for a specific language.
+        
+        Args:
+            language: Language code
+            
+        Returns:
+            True if loaded successfully
         """
-    return ""
+        if language in self.loaded_languages:
+            return True
+            
+        file_path = self._get_language_file_path(language)
+        
+        try:
+            if not file_path.exists():
+                logger.warning(f"Translation file not found: {file_path}")
+                return False
+                
+            # Load translations from file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                translations = yaml.safe_load(f)
+                
+            # Check if translations are valid
+            if not isinstance(translations, dict):
+                logger.error(f"Invalid translation format in {file_path}")
+                return False
+                
+            # Set translations
+            try:
+                self.translations[language] = translations
+                self.loaded_languages.add(language)
+                return True
+            except Exception as e:
+                logger.error(f"Error loading translations for {language}: {e}")
+                # Initialize with empty dictionary if not already present
+                self.translations[language] = {}
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error loading language file {file_path}: {e}")
+            return False
+            
+    def get_text(self, key: str, language: str = None) -> str:
+        """
+        Get translated text for a key.
+        
+        Args:
+            key: Translation key
+            language: Language code
+            
+        Returns:
+            Translated text or key if translation not found
+        """
+        # Use default language if none specified
+        language = language or self.default_language
+        
+        # Ensure language is loaded
+        if language not in self.loaded_languages:
+            self._load_language(language)
+            
+        # Try to get translation
+        try:
+            translations = self.translations.get(language, {})
+            
+            # Check multilingual section first
+            if "multilingual" in translations and language in translations["multilingual"]:
+                if key in translations["multilingual"][language]:
+                    return translations["multilingual"][language][key]
+            
+            # Check main translations
+            if key in translations:
+                return translations[key]
+                
+            # Try fallback language
+            fallback = self.fallbacks.get(language)
+            if fallback and fallback in self.translations:
+                fallback_translations = self.translations[fallback]
+                if key in fallback_translations:
+                    return fallback_translations[key]
+                
+            # If still not found, try default language
+            if language != self.default_language and self.default_language in self.translations:
+                default_translations = self.translations[self.default_language]
+                if key in default_translations:
+                    return default_translations[key]
+        except Exception as e:
+            logger.error(f"Error getting translation for key '{key}': {e}")
+            
+        # Return key as last resort
+        logger.warning(f"Translation not found for key: {key}")
+        return key
+        
+    def format_text(self, key: str, language: str = None, **kwargs) -> str:
+        """
+        Get and format translated text with variables.
+        
+        Args:
+            key: Translation key
+            language: Language code
+            **kwargs: Variables for formatting
+            
+        Returns:
+            Formatted translated text
+        """
+        text = self.get_text(key, language)
+        
+        try:
+            # Replace variables
+            for var_name, var_value in kwargs.items():
+                placeholder = "{" + var_name + "}"
+                text = text.replace(placeholder, str(var_value))
+        except Exception as e:
+            logger.error(f"Error formatting text: {e}")
+            
+        return text
+        
+    def detect_language(self, text: str) -> str:
+        """
+        Detect language of input text.
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            Detected language code or default language
+        """
+        # Simple detection based on common words
+        # For a production system, consider using a proper language detection library
+        common_words = {
+            "id": ["apa", "ini", "yang", "dan", "di", "ke", "dari", "untuk", "dengan", "tidak"],
+            "en": ["the", "is", "and", "to", "of", "in", "you", "that", "have", "for"]
+        }
+        
+        text_lower = text.lower()
+        scores = {}
+        
+        for lang, words in common_words.items():
+            scores[lang] = sum(1 for word in words if f" {word} " in f" {text_lower} ")
+            
+        # Get language with highest score
+        if scores:
+            max_score = max(scores.values())
+            # Only return detected language if score is significant
+            if max_score > 1:
+                for lang, score in scores.items():
+                    if score == max_score:
+                        return lang
+                        
+        # Return default language if detection failed
+        return self.default_language
 
+    def get_response(self, key: str, language: str = None) -> str:
+        """
+        Get response text for a specific key from translations.
+        
+        Args:
+            key: Response key from responses YAML
+            language: Optional language code (defaults to default language)
+            
+        Returns:
+            Formatted response text or empty string if not found
+        """
+        # Use default language if none specified
+        language = language or self.default_language
+        
+        # Try to get from translations dict
+        if language in self.translations and key in self.translations[language]:
+            return self.translations[language][key]
+        
+        # If not found and not default language, try default
+        if language != self.default_language:
+            if self.default_language in self.translations and key in self.translations[self.default_language]:
+                return self.translations[self.default_language][key]
+                
+        # Not found
+        logger.warning(f"Response not found for key: '{key}' in language: '{language}'")
+        return ""
 
-def translate_key(key: str, language: Optional[str] = None, context: Optional[CallbackContext] = None, **kwargs) -> str:
+# Create singleton instance
+language_handler = LanguageHandler()
+
+# Convenience functions
+def get_text(key: str, language: str = None) -> str:
     """
-    Shorthand function to translate a key based on current language.
+    Get translated text (convenience function).
     
     Args:
         key: Translation key
-        language: Language code (optional)
-        context: CallbackContext for getting language (optional)
-        **kwargs: Format parameters
+        language: Language code
         
     Returns:
-        Translated string
+        Translated text
     """
-    # Determine language to use
-    selected_language = language
-    if selected_language is None and context is not None:
-        selected_language = get_language(context)
+    return language_handler.get_text(key, language)
+
+def format_text(key: str, language: str = None, **kwargs) -> str:
+    """
+    Format translated text (convenience function).
     
-    # Get translated string
-    return get_response(key, language=selected_language, **kwargs)
+    Args:
+        key: Translation key
+        language: Language code
+        **kwargs: Variables for formatting
+        
+    Returns:
+        Formatted translated text
+    """
+    return language_handler.format_text(key, language, **kwargs)
+
+def detect_language(text: str) -> str:
+    """
+    Detect language of text (convenience function).
+    
+    Args:
+        text: Input text
+        
+    Returns:
+        Detected language code
+    """
+    return language_handler.detect_language(text)
+
+def get_response(key: str, language: str = None) -> str:
+    """
+    Get response text from translations (convenience function).
+    
+    Args:
+        key: Response key from responses YAML
+        language: Language code (defaults to default language)
+        
+    Returns:
+        Response text or empty string if not found
+    """
+    return language_handler.get_response(key, language)
+
+def get_language(user_data: Dict[str, Any]) -> str:
+    """
+    Get user's preferred language.
+    
+    Args:
+        user_data: User data dictionary
+        
+    Returns:
+        Language code
+    """
+    return user_data.get("language", DEFAULT_LANGUAGE)
+
+def get_prompt_language_instruction(language: str) -> str:
+    """
+    Get language instruction for model prompts.
+    
+    Args:
+        language: Language code
+        
+    Returns:
+        Language instruction string
+    """
+    if language == "en":
+        return "IMPORTANT: RESPOND IN ENGLISH."
+    else:
+        return "IMPORTANT: RESPOND IN INDONESIAN."

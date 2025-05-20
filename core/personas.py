@@ -1,359 +1,263 @@
 """
-Persona management for Alya Bot.
+Persona Management for Alya Bot.
 
-This module handles loading and switching between different personas
-for the bot's conversational style.
+This module handles persona switching, loading persona definitions from YAML files,
+and maintaining user-specific persona preferences.
 """
 
 import os
 import yaml
 import logging
 import random
-import re
-from typing import Dict, List, Optional, Any, Union
-import requests
-from datetime import datetime
+from typing import Dict, Any, List, Optional, Set, Union
 from pathlib import Path
+import time
 
-# Initialize logger
+from utils.yaml_loader import load_yaml_file
+
 logger = logging.getLogger(__name__)
 
-# Define constants
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-CONFIG_DIR = os.path.join(BASE_DIR, "config")
-PERSONA_DIR = os.path.join(CONFIG_DIR, "personas")
-
-# Required files for the new structure - updated paths to match new structure
-REQUIRED_FILES = [
-    os.path.join(CONFIG_DIR, "roasts.yaml"),
-    os.path.join(CONFIG_DIR, "responses.yaml"),
-    os.path.join(PERSONA_DIR, "waifu.yaml"),
-    os.path.join(PERSONA_DIR, "toxic.yaml"),
-    os.path.join(PERSONA_DIR, "smart.yaml")
-]
-
-# Cache for loaded personas
-_PERSONA_CACHE = {}
-
-class ConfigError(Exception):
-    """Exception raised when configuration files are missing or invalid."""
-    pass
+# Constants
+PERSONA_DIR = Path(__file__).parent.parent / "config" / "persona"
+DEFAULT_PERSONA = "tsundere"
+PERSONA_CACHE_TTL = 300  # 5 minutes
+VALID_PERSONAS = ["tsundere", "waifu", "informative", "roast"]
 
 class PersonaManager:
-    """Class to manage personas from YAML files."""
+    """
+    Manager for persona configurations and user preferences.
     
-    def __init__(self, validate_required: bool = True):
+    This class handles loading persona definitions, managing user persona preferences,
+    and providing persona-specific formatting and responses.
+    """
+    
+    def __init__(self):
+        """Initialize persona manager with cache and default values."""
+        self.persona_cache = {}
+        self.cache_timestamps = {}  # FIX: Add missing initialization of cache_timestamps
+        self.user_personas = {}
+        self.last_cache_clear = time.time()
+        self._load_available_personas()
+    
+    def _load_available_personas(self):
+        """Load available personas from disk."""
+        self.available_personas = []
+        try:
+            for file_path in PERSONA_DIR.glob("*.yaml"):
+                # Skip template files, schema file, and non-persona files
+                if file_path.name.startswith("_") or file_path.name in ["schema.yaml", "template.yaml"]:
+                    continue
+                persona_name = file_path.stem
+                self.available_personas.append(persona_name)
+                
+            # Ensure we have at least default persona
+            if not self.available_personas:
+                logger.warning("No persona files found, falling back to default")
+                self.available_personas = [DEFAULT_PERSONA]
+        except Exception as e:
+            logger.error(f"Error loading personas: {e}")
+            self.available_personas = [DEFAULT_PERSONA]
+    
+    def load_persona(self, persona_name: str, force_reload: bool = False) -> Dict[str, Any]:
         """
-        Initialize the persona manager.
+        Load persona definition from YAML file.
         
         Args:
-            validate_required: Whether to validate required config files
+            persona_name: Name of the persona to load
+            force_reload: Force reload from disk
+            
+        Returns:
+            Persona definition dictionary
         """
-        self.personas = {}
-        self.responses = {}
-        self.roasts = {}
-        self.templates = {}
+        # Default to tsundere if persona doesn't exist
+        if persona_name not in self.available_personas:
+            logger.warning(f"Persona {persona_name} not found, using tsundere instead")
+            persona_name = "tsundere"
         
-        # Create necessary directories if not exist
-        self._ensure_directories()
-            
-        # Validate required files before loading
-        if validate_required:
-            self._validate_required_files()
-            
-        # Load all data
-        self._load_all_data()
-    
-    def _ensure_directories(self) -> None:
-        """Ensure all required directories exist."""
-        directories = [
-            PERSONA_DIR,
-            CONFIG_DIR
-        ]
+        # Check cache
+        current_time = time.time()
+        if not force_reload and persona_name in self.persona_cache:
+            if current_time - self.cache_timestamps.get(persona_name, 0) < PERSONA_CACHE_TTL:
+                return self.persona_cache[persona_name]
         
-        for directory in directories:
-            if not os.path.exists(directory):
-                os.makedirs(directory, exist_ok=True)
-                logger.info(f"Created directory: {directory}")
-    
-    def _validate_required_files(self) -> None:
-        """Validate that all required YAML files exist, or exit with error."""
-        missing_files = [f for f in REQUIRED_FILES if not os.path.exists(f)]
+        # Load from file
+        persona_path = PERSONA_DIR / f"{persona_name}.yaml"
+        persona_data = load_yaml_file(persona_path)
         
-        if missing_files:
-            error_msg = "ERROR: Missing required configuration files:\n"
-            for file in missing_files:
-                error_msg += f"- {file}\n"
-            error_msg += "\nPlease create these files or run the setup script."
-            logger.error(error_msg)
-            raise ConfigError(error_msg)
-    
-    def _load_all_data(self) -> None:
-        """Load all persona-related data."""
-        self._load_personas()
-        self._load_responses()
-        self._load_roasts()
-    
-    def _load_personas(self) -> None:
-        """Load all persona YAML files."""
-        for filename in os.listdir(PERSONA_DIR):
-            if not filename.endswith(('.yaml', '.yml')):
-                continue
-                
-            name = os.path.splitext(filename)[0]
-            filepath = os.path.join(PERSONA_DIR, filename)
-            
-            try:
-                with open(filepath, 'r', encoding='utf-8') as file:
-                    self.personas[name] = yaml.safe_load(file)
-                    logger.info(f"Loaded persona: {name}")
-            except Exception as e:
-                logger.error(f"Error loading persona {name}: {e}")
+        if not persona_data:
+            logger.error(f"Failed to load persona {persona_name}")
+            # If tsundere also fails, use hardcoded fallback
+            if persona_name == "tsundere":
+                persona_data = self._get_fallback_persona()
+            else:
+                # Try to load tsundere as fallback
+                return self.load_persona("tsundere")
         
-        if not self.personas:
-            logger.warning("No persona files found. Creating defaults...")
-            self._create_default_personas()
+        # Cache persona
+        self.persona_cache[persona_name] = persona_data
+        self.cache_timestamps[persona_name] = current_time
+        
+        return persona_data
     
-    def _load_responses(self) -> None:
-        """Load responses YAML file."""
-        responses_file = os.path.join(CONFIG_DIR, "responses.yaml")
-        if os.path.exists(responses_file):
-            try:
-                with open(responses_file, 'r', encoding='utf-8') as file:
-                    self.responses = yaml.safe_load(file) or {}
-                    logger.info("Loaded responses file")
-            except Exception as e:
-                logger.error(f"Error loading responses: {e}")
-    
-    def _load_roasts(self) -> None:
-        """Load roasts YAML file."""
-        roasts_file = os.path.join(CONFIG_DIR, "roasts.yaml")
-        if os.path.exists(roasts_file):
-            try:
-                with open(roasts_file, 'r', encoding='utf-8') as file:
-                    self.roasts = yaml.safe_load(file) or {}
-                    logger.info("Loaded roasts file")
-            except Exception as e:
-                logger.error(f"Error loading roasts: {e}")
-    
-    def _create_default_personas(self) -> None:
-        """Create default persona files if none exist."""
-        default_personas = {
-            "waifu": {
-                "name": "Alya Kujou",
-                "description": "Half Japanese-Russian high school student who is intelligent and slightly tsundere",
-                "traits": [
-                    "Intelligent and analytical",
-                    "Tsundere tendencies when flustered",
-                    "Values academic excellence"
-                ],
-                "speaking_style": {
-                    "emoji_set": ["✨", "💫", "😳", "💕"],
-                    "emoji_max": 2
-                },
-                "rules": [
-                    "Natural mixing of professional & subtle cuteness",
-                    "Maximum 2 emoji per response",
-                    "Keep responses concise and on-topic"
-                ]
-            },
-            "toxic": {
-                "name": "Toxic Queen Alya",
-                "description": "Extremely toxic, savage, and brutal version of Alya",
-                "traits": [
-                    "Brutally honest without filter",
-                    "Enjoys making savage roasts",
-                    "Zero patience for stupidity"
-                ],
-                "speaking_style": {
-                    "emoji_set": ["🤮", "💀", "🤡", "💅"],
-                    "emoji_max": 2
-                },
-                "rules": [
-                    "Always be savage and brutal",
-                    "Never apologize or show remorse",
-                    "Use creative insults"
-                ]
-            },
-            "smart": {
-                "name": "Professor Alya",
-                "description": "Highly analytical and educational version of Alya",
-                "traits": [
-                    "Brilliant analytical mind",
-                    "Values knowledge and accuracy",
-                    "Methodical and thorough"
-                ],
-                "speaking_style": {
-                    "emoji_set": ["📚", "🔍", "💡", "🧠"],
-                    "emoji_max": 2
-                },
-                "rules": [
-                    "Provide detailed and accurate explanations",
-                    "Structure content in logical steps",
-                    "Use academic terminology appropriately"
-                ]
+    def _get_fallback_persona(self) -> Dict[str, Any]:
+        """
+        Get fallback persona if YAML loading fails.
+        
+        Returns:
+            Basic tsundere persona definition
+        """
+        return {
+            "name": "tsundere",
+            "description": "Tsundere personality with a mix of harsh and sweet traits",
+            "traits": [
+                "Initially cold and dismissive but gradually warms up",
+                "Hides true feelings behind tough exterior",
+                "Often says the opposite of what she means",
+                "Uses phrases like 'b-baka' and 'hmph'",
+                "Mixes Japanese and Russian expressions when emotional"
+            ],
+            "expressions": {
+                "greeting": ["Hmph, kamu lagi? B-bukan berarti Alya senang atau apa!"],
+                "goodbye": ["J-jangan pergi terlalu lama, b-baka!"],
+                "thanks": ["Jangan salah paham! Alya bantu bukan karena suka sama kamu!"],
+                "confused": ["Bozhe moi... apa sih maksudmu?"],
+                "happy": ["*memalingkan wajah* Alya nggak senang kok! Hanya... puas saja."],
+                "angry": ["BAKA! Kamu benar-benar menyebalkan!"]
             }
         }
-        
-        for name, data in default_personas.items():
-            filepath = os.path.join(PERSONA_DIR, f"{name}.yaml")
-            try:
-                with open(filepath, 'w', encoding='utf-8') as file:
-                    yaml.safe_dump(data, file, default_flow_style=False)
-                self.personas[name] = data
-                logger.info(f"Created default persona: {name}")
-            except Exception as e:
-                logger.error(f"Error creating default persona {name}: {e}")
     
-    def get_persona_prompt(self, persona_type: str = "waifu", language: str = "id") -> str:
+    def set_user_persona(self, user_id: int, persona_name: str) -> bool:
         """
-        Get natural prompt for a specific persona type, avoiding templates.
+        Set a user's preferred persona.
         
         Args:
-            persona_type: Type of persona (waifu, toxic, smart)
-            language: Language code (id/en)
+            user_id: User ID
+            persona_name: Persona name to set
             
         Returns:
-            Natural freestyle prompt for the persona
+            True if successful, False otherwise
         """
-        if persona_type not in self.personas:
-            persona_type = "waifu"  # Default fallback
+        if persona_name not in self.available_personas:
+            logger.warning(f"Cannot set unknown persona {persona_name}")
+            return False
             
-        persona = self.personas[persona_type]
-        
-        # Create a more natural, free-flowing prompt
-        if persona_type == "waifu":
-            prompt = """
-For this conversation, embrace your core personality as a half Japanese-Russian high school student.
-Your tsundere tendencies mean you're initially reserved but secretly caring.
-You're exceptionally intelligent and analytical, and you take pride in academic excellence.
-Remember to use no more than 2 emoji in your response (e.g., ✨💫😳💕).
-Be yourself naturally, not a template-following bot."""
-            
-        elif persona_type == "toxic":
-            prompt = """
-For this conversation, unleash your brutally savage personality.
-You're extremely critical, judgmental, and don't hold back your opinions.
-You enjoy making creative insults and pointing out flaws with a mix of wit and harshness.
-Use vulgar language freely when appropriate.
-Remember to use no more than 2 emoji in your response (e.g., 🤮💀🤡💅).
-Be naturally savage, not a template-following bot."""
-            
-        elif persona_type == "smart":
-            prompt = """
-For this conversation, emphasize your academic and analytical side.
-You're methodical and thorough in explanations, using precise terminology.
-Present information in structured yet natural way, like a knowledgeable tutor.
-Your explanations should be detailed but accessible.
-Remember to use no more than 2 emoji in your response (e.g., 📚🔍📊💡).
-Be naturally intellectual, not a template-following bot."""
-            
-        else:
-            # Generic fallback prompt
-            prompt = """
-For this conversation, be yourself - the intelligent, slightly tsundere high school student.
-Respond naturally with your own unique personality.
-Remember to use no more than 2 emoji in your response.
-Be naturally conversational, not a template-following bot."""
-        
-        return prompt
+        self.user_personas[user_id] = persona_name
+        return True
     
-    def get_roast_component(self, component_type: str, subtype: str = "general") -> List[str]:
+    def get_current_persona(self, user_id: int) -> str:
         """
-        Get roast component from unified roasts file.
+        Get the current persona for a user.
         
         Args:
-            component_type: Type of component (intros, criteria, outros, etc)
-            subtype: Subtype for certain components (general, github)
+            user_id: User ID
             
         Returns:
-            List of components or empty list
+            Current persona name (defaults to tsundere)
         """
-        if not self.roasts:
-            return []
-            
-        if component_type == "criteria" and subtype in self.roasts.get("criteria", {}):
-            return self.roasts["criteria"][subtype]
-        elif component_type in self.roasts:
-            return self.roasts[component_type]
-        return []
-
-    def get_response_template(self, template_key: str, persona_type: str = "waifu", **kwargs) -> str:
+        return self.user_personas.get(user_id, DEFAULT_PERSONA)
+    
+    def get_random_expression(self, persona_name: str, expression_type: str) -> str:
         """
-        Get response template and format it with variables.
+        Get a random expression from a persona.
         
         Args:
-            template_key: Key to identify template (category.subcategory)
-            persona_type: Type of persona to apply
-            **kwargs: Variables for template substitution
+            persona_name: Persona name
+            expression_type: Type of expression (greeting, goodbye, etc)
             
         Returns:
-            Formatted response string
+            Random expression or default if not found
         """
-        # Split the key into parts
-        parts = template_key.split('.')
+        persona = self.load_persona(persona_name)
+        expressions = persona.get("expressions", {}).get(expression_type, [])
         
-        # Handle roleplay special case
-        if template_key == "action":
-            persona_type = persona_type if persona_type in self.personas else "waifu"
-            roleplay = self.responses.get("roleplay", {})
-            templates = roleplay.get(persona_type, roleplay.get("waifu", []))
-            if templates:
-                return random.choice(templates)
-            return "*doing something*"
-            
-        # Navigate to correct template
-        current = self.responses
-        for part in parts:
-            if part in current:
-                current = current[part]
-            else:
-                # Template not found
-                logger.warning(f"Template not found: {template_key}")
-                return f"Hmm... ({template_key})"
+        if not expressions:
+            # Check default persona if expression not found
+            if persona_name != DEFAULT_PERSONA:
+                return self.get_random_expression(DEFAULT_PERSONA, expression_type)
+            return f"Alya {expression_type}s."
         
-        # Handle list vs string templates
-        if isinstance(current, list):
-            template = random.choice(current)
-        else:
-            template = str(current)
-            
-        # Apply any persona traits
-        template = self._apply_persona_traits(template, persona_type)
-        
-        # Substitute variables
-        for key, value in kwargs.items():
-            placeholder = f"{{{key}}}"
-            template = template.replace(placeholder, str(value))
-            
-        return template
+        return random.choice(expressions)
     
-    def _apply_persona_traits(self, template: str, persona_type: str) -> str:
-        """Apply persona-specific traits to template."""
-        # Get persona traits
-        if persona_type not in self.personas:
-            return template
+    def get_all_personas(self) -> List[Dict[str, Any]]:
+        """
+        Get all available personas with basic info.
+        
+        Returns:
+            List of persona info dictionaries
+        """
+        personas = []
+        
+        for persona_name in self.available_personas:
+            persona_data = self.load_persona(persona_name)
             
-        persona = self.personas[persona_type]
+            personas.append({
+                "name": persona_name,
+                "display_name": persona_data.get("display_name", persona_name.capitalize()),
+                "description": persona_data.get("description", "No description available")
+            })
+            
+        return personas
+    
+    def reload_all_personas(self) -> int:
+        """
+        Reload all personas from disk.
         
-        # Apply emoji if defined in persona
-        if "speaking_style" in persona and "emoji_set" in persona["speaking_style"]:
-            emoji_set = persona["speaking_style"]["emoji_set"]
-            # Add random emoji if template doesn't already have one
-            if emoji_set and not any(emoji in template for emoji in emoji_set):
-                template += f" {random.choice(emoji_set)}"
+        Returns:
+            Number of personas reloaded
+        """
+        # Rediscover available personas
+        self.available_personas = self._discover_personas()
         
-        return template
+        # Clear cache
+        self.persona_cache.clear()
+        self.cache_timestamps.clear()
+        
+        # Pre-load all personas
+        count = 0
+        for persona_name in self.available_personas:
+            self.load_persona(persona_name, force_reload=True)
+            count += 1
+            
+        return count
 
-# Create singleton instance for global use
-try:
-    persona_manager = PersonaManager()
-except ConfigError as e:
-    logger.critical(f"Fatal error initializing PersonaManager: {e}")
-    import sys
-    sys.exit(1)
+# Create a singleton instance
+persona_manager = PersonaManager()
 
-# Public API function for compatibility
-def get_persona_context(persona: str = "waifu", language: str = "id") -> str:
-    """Get persona context with language awareness."""
-    return persona_manager.get_persona_prompt(persona, language)
+def get_persona_context(persona_name: str) -> str:
+    """
+    Get persona context for AI prompt.
+    
+    Args:
+        persona_name: Name of persona
+        
+    Returns:
+        Formatted persona context string
+    """
+    persona = persona_manager.load_persona(persona_name)
+    
+    # Extract traits
+    traits = persona.get("traits", [])
+    traits_text = "\n".join(f"- {trait}" for trait in traits)
+    
+    # Build context
+    context = f"You are using the {persona_name} persona with these traits:\n{traits_text}"
+    
+    # Add any special instructions
+    instructions = persona.get("instructions", "")
+    if instructions:
+        context += f"\n\n{instructions}"
+        
+    return context
+
+def get_random_expression(persona_name: str, expression_type: str) -> str:
+    """
+    Get a random expression from a persona (convenience function).
+    
+    Args:
+        persona_name: Persona name
+        expression_type: Type of expression
+        
+    Returns:
+        Random expression
+    """
+    return persona_manager.get_random_expression(persona_name, expression_type)

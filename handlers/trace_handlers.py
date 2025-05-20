@@ -7,81 +7,77 @@ with persistent context storage.
 
 import logging
 import time
-from telegram import Update
+from typing import Optional, Union
+from telegram import Update, Message, User
 from telegram.ext import CallbackContext
 
-from handlers.document_handlers import handle_trace_command
+# Remove circular import
+# from handlers.document_handlers import handle_trace_command
 from utils.context_manager import context_manager
+from config.settings import ANALYZE_PREFIX
 
 logger = logging.getLogger(__name__)
 
 async def handle_trace_request(update: Update, context: CallbackContext) -> None:
     """
-    Process !trace command for document/image analysis with context persistence.
+    Process trace command for document/image analysis with context persistence.
     
     Args:
-        update: Telegram Update object
+        update: Telegram update object
         context: CallbackContext object
     """
+    if not update.message:
+        logger.warning("Received trace request without a message")
+        return
+    
     message = update.message
     user = update.effective_user
     
-    # Process using document handler
-    await handle_trace_command(message, user)
+    # Use media interface instead of direct import
+    from handlers.media_interface import handle_media_trace
     
-    # If message has photo, store context
-    if message.photo:
-        # PERBAIKAN: Validasi tipe data dan error handling
-        try:
-            # Get user ID dan chat ID yang valid
-            user_id = int(user.id)
-            chat_id = int(message.chat.id)
-            
-            # Get the largest photo
-            photo = message.photo[-1]
-            
-            # Store context data
-            context_data = {
-                'command': 'trace',
-                'timestamp': int(time.time()),
-                'media_type': 'image',
-                'file_id': photo.file_id,
-                'chat_type': message.chat.type,
-                'caption': message.caption or "",
-                'response_summary': "Image analysis completed"
-            }
-            
-            # Tambahkan error handling
-            try:
-                context_manager.save_context(user_id, chat_id, 'trace', context_data)
-                logger.debug(f"Trace context saved for image from user_id: {user_id}")
-            except Exception as e:
-                logger.error(f"Failed to save trace context for image: {e}")
-        except (ValueError, TypeError) as e:
-            logger.error(f"Type error in trace handler for image: {e}")
+    # Process using document handler
+    await handle_media_trace(message, user)
+    
+    # Store context data using local function
+    await store_media_context(message, user.id, 'trace')
+
+async def store_media_context(
+    message: Message, 
+    user_id: int, 
+    context_type: str, 
+    additional_data: Optional[dict] = None
+) -> None:
+    """
+    Store media related context for persistence.
+    
+    Args:
+        message: Message containing media
+        user_id: User ID
+        context_type: Type of context (trace, sauce, etc.)
+        additional_data: Optional additional context data
+    """
+    try:
+        chat_id = message.chat.id
         
-    # If message has document, store context
-    elif message.document:
-        # PERBAIKAN: Sama dengan yang di atas
-        try:
-            user_id = int(user.id)
-            chat_id = int(message.chat.id)
-            
-            context_data = {
-                'command': 'trace',
-                'timestamp': int(time.time()),
-                'media_type': 'document',
-                'file_id': message.document.file_id,
-                'file_name': message.document.file_name,
-                'mime_type': message.document.mime_type,
-                'caption': message.caption or "",
-                'response_summary': "Document analysis completed"
-            }
-            
-            try:
-                context_manager.save_context(user_id, chat_id, 'trace', context_data)
-                logger.debug(f"Trace context saved for document from user_id: {user_id}")
-            except Exception as e:
-                logger.error(f"Failed to save trace context for document: {e}")
-        except (ValueError, TypeError) as e:
-            logger.error(f"Type error in trace handler for document: {e}")
+        # Basic context data
+        context_data = {
+            'command': context_type,
+            'timestamp': int(time.time()),
+            'chat_id': chat_id,
+            'message_id': message.message_id,
+            'has_photo': bool(message.photo),
+            'has_document': bool(message.document),
+            'caption': message.caption,
+        }
+        
+        # Add any additional data provided
+        if additional_data:
+            context_data.update(additional_data)
+        
+        # Save to context manager
+        context_manager.save_context(user_id, chat_id, f'media_{context_type}', context_data)
+        logger.debug(f"Stored {context_type} context for user {user_id}")
+        
+    except Exception as e:
+        logger.error(f"Error saving media context: {e}")

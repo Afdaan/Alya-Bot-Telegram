@@ -1,306 +1,254 @@
 """
-Command Parsing Utilities for Alya Telegram Bot.
+Command Understanding for Alya Telegram Bot.
 
-This module provides pattern matching and parsing for special commands,
-particularly focused on roast commands and @mentions.
+This module uses natural language understanding to identify command intents
+without relying on rigid regex patterns.
 """
 
-import re
+import logging
 import random
-import os
-import yaml
-from typing import Dict, Optional, Tuple, Any, List
-from pathlib import Path
+import re
+from typing import Dict, Optional, Tuple, Any, List, Set
 
-# =========================
-# Command Patterns
-# =========================
+logger = logging.getLogger(__name__)
 
-# Main roast command patterns with username/mention support
-GITHUB_ROAST_PATTERN = r'(?:!ai\s+)?roast\s+github\s+(?:@)?(\w+)(?:\s+(.+))?'  # Support @username
-PERSONAL_ROAST_PATTERN = r'(?:!ai\s+)?roast\s+(?:@)?(\w+)(?:\s+(.+))?'         # Support @username
-
-# Natural language variations of roast commands
-NATURAL_ROAST_PATTERNS = [
-    r'(?:!ai\s+)?roasting\s+si\s+@?(\w+)(?:\s+(.+))?',      # roasting si username [keywords]
-    r'(?:!ai\s+)?roasting\s+@?(\w+)(?:\s+(.+))?',           # roasting username [keywords]
-    r'(?:!ai\s+)?roast\s+@?(\w+)(?:\s+(.+))?',              # roast username [keywords]
-    r'(?:!ai\s+)?roast(?:ing)?\s+@?(\w+)(?:\s+(.+))?',      # roasting username [keywords]
-    r'(?:!ai\s+)?roast(?:ing)?\s+si\s+@?(\w+)(?:\s+(.+))?', # roasting si username [keywords]
-    r'(?:!ai\s+)?roast(?:ing)?\s+(.+)',                     # roast/roasting <free text>
-    r'(?:!ai\s+)?roast(?:ing)?\b',                          # roast/roasting (catch-all)
-]
-
-# Prefix words that indicate this is a roasting command
-ROAST_PREFIXES = ["roast", "roasting", "flame", "burn", "hina", "destroy"]
-
-# =========================
-# Roast Response Loading
-# =========================
-
-def load_roast_responses() -> Dict[str, List[str]]:
-    """
-    Load roast responses from YAML file.
+class CommandDetector:
+    """Natural command detection without regex patterns."""
     
-    Returns:
-        Dictionary containing roast responses by category
-    """
-    try:
-        # Load from unified structure
-        base_dir = Path(__file__).parent.parent
-        roasts_path = base_dir / "config" / "roasts.yaml"
-        
-        # If file exists, use it
-        if roasts_path.exists():
-            with open(roasts_path, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f)
-            
-            # Extract appropriate sections
-            if data and isinstance(data, dict):
-                # Process data in format
-                result = {
-                    "roast_intros": data.get("intros", []),
-                    "general_criteria": data.get("criteria", {}).get("general", []),
-                    "github_criteria": data.get("criteria", {}).get("github", []),
-                    "roast_outros": data.get("outros", []),
-                    "general_roasts": data.get("pre_made", {}).get("general", []),
-                    "github_roasts": data.get("pre_made", {}).get("github", [])
-                }
-                return result
-        
-        # Emergency fallback if file not found
-        logger.error(f"Roasts file not found at {roasts_path}")
-        return {
-            "roast_intros": ["*menatap*"],
-            "general_criteria": ["ketidakmampuan"],
-            "general_roasts": ["Hmm, {target}..."],
-            "github_criteria": ["coding style"],
-            "github_roasts": ["Repository {target}..."],
-            "roast_outros": ["..."]
+    def __init__(self):
+        """Initialize command detector."""
+        self.command_indicators = {
+            'roast': [
+                'roast', 'hina', 'toxic', 'bully', 'buli', 'flame', 'ejek',
+                '/roast', '/hina', '/bully', '/buli', '/flame', '/toxic'
+            ],
+            'search': [
+                'search', 'cari', 'find', 'lookup', '/search', '/cari', 
+                'tolong cari', 'please search', 'find me'
+            ],
+            'mode': [
+                'mode', 'persona', 'character', 'personality', 'switch',
+                '/mode', '/persona', 'ganti mode', 'change mode'
+            ],
+            'help': [
+                'help', 'bantuan', 'tolong', 'commands', '/help', '/bantuan',
+                '/commands', 'cara pakai', 'how to use'
+            ]
         }
+    
+    def detect_command_type(self, message: str) -> Optional[str]:
+        """
+        Detect command type using natural language understanding.
+        
+        Args:
+            message: User message to analyze
             
-    except Exception as e:
-        logger.error(f"Error loading roast responses: {e}")
-        # Return minimal fallback data
-        return {
-            "roast_intros": ["*menatap*"],
-            "general_criteria": ["ketidakmampuan"],
-            "general_roasts": ["Hmm, {target}..."],
-            "github_criteria": ["coding style"],
-            "github_roasts": ["Repository {target}..."],
-            "roast_outros": ["..."]
-        }
-
-# Cache for roast responses
-_ROAST_RESPONSES = None
-
-def get_roast_responses() -> Dict[str, List[str]]:
-    """
-    Get roast responses with caching.
-    
-    Returns:
-        Dictionary containing roast responses by category
-    """
-    global _ROAST_RESPONSES
-    if (_ROAST_RESPONSES is None):
-        _ROAST_RESPONSES = load_roast_responses()
-    return _ROAST_RESPONSES
-
-def get_random_brutal_roast(target: str, is_github: bool = False) -> str:
-    """
-    Generate super brutal Indonesian roast with vulgar language.
-    
-    Args:
-        target: Name of the roast target
-        is_github: Whether to use GitHub specific roasting criteria
-        
-    Returns:
-        Brutal roast text in Indonesian with profanity
-    """
-    responses = get_roast_responses()
-    
-    # Get basic components
-    intros = responses.get("roast_intros") or ["*menatap jijik*", "ANJIRR!", "NAJIS BANGET!"]
-    outros = responses.get("roast_outros") or ["DASAR SAMPAH!", "FIX MENTAL ISSUE!"]
-    
-    # Get appropriate criteria based on type
-    criteria_key = "github_criteria" if is_github else "general_criteria"
-    criteria = responses.get(criteria_key) or ["kebodohan", "muka ancur", "bau badan"]
-    
-    # Get kata kasar (profanity)
-    kata_kasar_mild = responses.get("kata_kasar", {}).get("mild") or ["tolol", "goblok", "bego"]
-    kata_kasar_medium = responses.get("kata_kasar", {}).get("medium") or ["bangsat", "brengsek", "kampret"]
-    kata_kasar_harsh = responses.get("kata_kasar", {}).get("harsh") or ["anjing", "kontol", "memek"]
-    
-    # Get templates and descriptors
-    brutal_templates = responses.get("brutal_templates") or ["{target} {kata_kasar1}! MUKA LO {descriptor}!"]
-    descriptors = responses.get("descriptors") or ["GORONG-GORONG BOCOR", "KAIN LAP BEKAS"]
-    consequences = responses.get("consequences") or ["BAU NYA NYENGET KEMANA-MANA", "BIKIN ORANG MUNTAH"]
-    penghubung = responses.get("penghubung_roast") or ["DASAR", "EMANG DASAR", "KAYAK"]
-    
-    # Build super brutal roast
-    # Start with all caps intro
-    intro = random.choice(intros).replace("{target}", target).upper()
-    
-    # Add multiple paragraphs of brutality (3-5 paragraphs)
-    paragraphs = [intro]
-    
-    # How brutal should it be (1-10 scale)?
-    brutality = random.randint(7, 10)
-    
-    # Number of paragraphs based on brutality
-    num_paragraphs = min(5, max(3, brutality - 5))
-    
-    # Choose criteria based on type
-    selected_criteria = random.sample(criteria, min(num_paragraphs, len(criteria)))
-    
-    # Generate brutal paragraphs
-    for i in range(num_paragraphs):
-        # For max brutality, include harsh language
-        if brutality >= 8:
-            kata_kasar1 = random.choice(kata_kasar_harsh if random.random() < 0.7 else kata_kasar_medium)
-            kata_kasar2 = random.choice(kata_kasar_harsh if random.random() < 0.5 else kata_kasar_medium)
-        else:
-            kata_kasar1 = random.choice(kata_kasar_medium if random.random() < 0.7 else kata_kasar_mild)
-            kata_kasar2 = random.choice(kata_kasar_medium if random.random() < 0.5 else kata_kasar_mild)
-        
-        # Create a harsh template
-        template = random.choice(brutal_templates)
-        descriptor = random.choice(descriptors)
-        consequence = random.choice(consequences)
-        penghubung_text = random.choice(penghubung)
-        
-        # Format the template with all the brutal pieces
-        brutal_paragraph = template.format(
-            target=target,
-            kata_kasar1=kata_kasar1.upper(),
-            kata_kasar2=kata_kasar2.upper(),
-            descriptor=descriptor,
-            consequence=consequence,
-            penghubung=penghubung_text
-        )
-        
-        # Add random emoji for effect
-        emoji = random.choice(["🤮", "💀", "🤡", "💅", "🖕", "😤", "💩", "🔪"]) * random.randint(2, 3)
-        
-        # Format paragraph and add to list
-        paragraphs.append(f"{brutal_paragraph} {emoji}")
-    
-    # Add brutal outro
-    outro = random.choice(outros).upper()
-    outro_emoji = random.choice(["🤮", "💀", "🤡", "💅", "🖕", "😤", "💩", "🔪"]) * 2
-    paragraphs.append(f"{outro} {outro_emoji}")
-    
-    # Combine all parts into one mega-brutal roast
-    full_roast = "\n\n".join(paragraphs)
-    
-    return full_roast
-
-# =========================
-# Mention Detection
-# =========================
-
-def get_user_info_from_mention(message, username: str) -> Optional[Dict[str, Any]]:
-    """
-    Extract user information from message mentions.
-    
-    Args:
-        message: Telegram message object
-        username: Username to look for in mentions
-        
-    Returns:
-        Dictionary with user info or None if not found
-    """
-    # No entities to check
-    if not message.entities:
-        return None
-        
-    # Look for mention entities
-    for entity in message.entities:
-        if entity.type == 'mention':  # @username mention
-            mention_text = message.text[entity.offset:entity.offset + entity.length]
+        Returns:
+            Command type or None if not a command
+        """
+        # Clean and normalize message
+        if not message:
+            return None
             
-            # Check if the mention matches the target username
-            if mention_text.lower() == f"@{username.lower()}":
-                return {
-                    'username': username,
-                    'mention': mention_text,
-                    'is_mention': True
-                }
+        clean_message = message.lower().strip()
+        
+        # Skip empty messages
+        if not clean_message:
+            return None
+            
+        # First check for explicit AI command prefix
+        if clean_message.startswith("!ai "):
+            clean_message = clean_message[4:].strip()
+            
+        # Get first word for simple command detection
+        words = clean_message.split()
+        if not words:
+            return None
+            
+        first_word = words[0]
+        
+        # Check all command types
+        for cmd_type, indicators in self.command_indicators.items():
+            # Check for direct match with first word
+            if first_word in indicators:
+                return cmd_type
                 
-    # No matching mention found
-    return None
+            # Check for phrase match
+            if len(words) >= 3:
+                three_word_phrase = " ".join(words[:3])
+                for indicator in indicators:
+                    if " " in indicator and indicator in three_word_phrase:
+                        return cmd_type
+        
+        return None
+    
+    def extract_command_args(self, message: str, command_type: str) -> List[str]:
+        """
+        Extract command arguments based on detected command type.
+        
+        Args:
+            message: Original message text
+            command_type: Detected command type
+            
+        Returns:
+            List of command arguments
+        """
+        if not message or not command_type:
+            return []
+            
+        clean_message = message.lower().strip()
+        
+        # Skip AI prefix if present
+        if clean_message.startswith("!ai "):
+            clean_message = clean_message[4:].strip()
+            
+        # Find command word
+        for indicator in self.command_indicators.get(command_type, []):
+            if " " in indicator:
+                # Multi-word command
+                if clean_message.startswith(indicator):
+                    return clean_message[len(indicator):].strip().split()
+            else:
+                # Single word command
+                words = clean_message.split()
+                if words and words[0] == indicator:
+                    return words[1:] if len(words) > 1 else []
+        
+        return []
+    
+    def extract_roast_target(self, message: str) -> Optional[str]:
+        """
+        Extract roast target through natural language understanding.
+        
+        Args:
+            message: Message text
+            
+        Returns:
+            Target username or None
+        """
+        args = self.extract_command_args(message, "roast")
+        if not args:
+            return None
+            
+        # First argument is the target
+        target = args[0]
+        
+        # Remove @ prefix if present
+        if target.startswith("@"):
+            target = target[1:]
+            
+        # Remove "si" prefix if present
+        if target == "si" and len(args) > 1:
+            target = args[1]
+            
+        # Basic validation
+        if len(target) >= 2 and target.isalnum():
+            return target
+            
+        return None
+    
+    def extract_search_query(self, message: str) -> Optional[str]:
+        """
+        Extract search query from message.
+        
+        Args:
+            message: Message text
+            
+        Returns:
+            Search query or None
+        """
+        args = self.extract_command_args(message, "search")
+        if not args:
+            return None
+            
+        # Join all args for the search query
+        return " ".join(args)
+    
+    def extract_mode_name(self, message: str) -> Optional[str]:
+        """
+        Extract mode name from mode switch command.
+        
+        Args:
+            message: Message text
+            
+        Returns:
+            Mode name or None
+        """
+        args = self.extract_command_args(message, "mode")
+        if not args:
+            return None
+            
+        # First arg is the mode name
+        mode_name = args[0].lower()
+        
+        # Validate mode
+        valid_modes = {"waifu", "tsundere", "smart", "toxic", "professional"}
+        if mode_name in valid_modes:
+            return mode_name
+            
+        return None
 
-# =========================
-# Command Detection
-# =========================
+# Create a singleton instance for global use
+command_detector = CommandDetector()
 
-def is_roast_command(message) -> Tuple[bool, Optional[str], bool, str, Optional[Dict]]:
+def parse_command_args(text: str) -> Tuple[str, List[str]]:
     """
-    Enhanced roast command detection with mention & natural language support.
+    Parse command and arguments from a text message.
     
     Args:
-        message: Telegram message object
+        text: The message text
         
     Returns:
-        Tuple containing:
-        - is_roast: Whether this is a roast command
-        - target: Username of roast target
-        - is_github: Whether this is a GitHub roast
-        - keywords: Additional roast keywords
-        - user_info: Dictionary with user information if available
+        Tuple of (command, args)
     """
-    if not message or not message.text:
-        return (False, None, False, '', None)
+    if not text or not text.startswith('/'):
+        return ('', [])
+    
+    parts = text.split()
+    command = parts[0].lower().lstrip('/')
+    args = parts[1:]
+    
+    return (command, args)
+
+def get_random_roast(target: str, is_github: bool = False) -> str:
+    """
+    Generate a random roast message for the target.
+    
+    Args:
+        target: Person to roast
+        is_github: Whether to use GitHub-specific roasts
         
-    text = message.text.lower().strip()
-    words = text.split()
+    Returns:
+        Roast message with target name inserted
+    """
+    # Sanitize target name
+    if not target or len(target) > 50:
+        target = "user"
+        
+    # Collection of brutal roasts
+    github_roasts = [
+        "*melihat repository {target}* ANJING CODE APA INI? Mending lu hapus GitHub account sebelum bikin malu komunitas programmer!",
+        "PR dari {target}? *tertawa sinis* Merge conflict parah banget, SAMA KAYAK OTAK LO YANG KONFLIK SAMA LOGIKA! 💩",
+        "Eh {target}, errornya BUKAN di code, tapi di PROGRAMMER-nya! Mending uninstall VSCode lu dah!",
+        "BAJINGAN! {target} masih push ke master branch?! Fix lu amateur yang gak pernah baca Git workflow! 🤬",
+        "Variable naming convention lu KACAU {target}! Sama kacaunya kayak hidup lu yang gak ada struktur! 😤",
+        "Pull request dari {target} auto-reject! Gak hanya karena code-nya sampah, tapi karena otak lu juga sampah! 🚮"
+    ]
     
-    # Input validation - check for minimum content
-    if not words:
-        return (False, None, False, '', None)
+    regular_roasts = [
+        "*menatap {target} dengan jijik* Najis! {target} kok bisa hidup tapi selalu salah langkah gini sih? Gak ada yang bener dari lu!",
+        "ANJIR {target} lagi? Kalo otak lu dijual mungkin harganya murah banget, SOALNYA GAK PERNAH DIPAKE! 🤢",
+        "HAH? {target}? *tertawa histeris* Muka kayak gitu kok berani nongol di public ya! Bikin mata sakit aja! 😤",
+        "Eh {target}, tolong dong berhenti jadi beban tim. Skillnya nol, otak kosong, nyusahin semua orang! 💩",
+        "Goblok lu {target}! Error lu tuh gak bisa di-debug soalnya sumbernya dari existensi lu!",
+        "ANJIRRR MINIMAL useless, MAKSIMAL jadi beban seperti biasa kan {target}? 🙄",
+        "NAJIS BGT SIH {target}! Kalo ada kontes bikin masalah, lu pasti juara beruntun 10 tahun!",
+        "Ya ampun {target}... *memutar mata* Code lu kacau, hidup lu kacau, semua tentang lu bikin muak! 🤮"
+    ]
     
-    # STRICT PREFIX CHECK: Word must be at beginning of sentence
-    if words[0] not in ROAST_PREFIXES:
-        # Allow for 'roast github' special case
-        if len(words) > 1 and words[0] == "roast" and words[1] == "github":
-            pass  # Continue checking
-        else:
-            return (False, None, False, '', None)
+    # Choose appropriate roast collection
+    roast_collection = github_roasts if is_github else regular_roasts
     
-    # First check for GitHub roast (highest specificity)
-    github_match = re.search(GITHUB_ROAST_PATTERN, text)
-    if github_match:
-        username = github_match.group(1)
-        keywords = github_match.group(2) or ''
-        user_info = get_user_info_from_mention(message, username)
-        return (True, username, True, keywords, user_info)
-    
-    # Then check for personal roast (explicit format)
-    personal_match = re.search(PERSONAL_ROAST_PATTERN, text)
-    if personal_match:
-        username = personal_match.group(1)
-        keywords = personal_match.group(2) or ''
-        user_info = get_user_info_from_mention(message, username)
-        return (True, username, False, keywords, user_info)
-    
-    # Finally check for natural language roast patterns
-    for pattern in NATURAL_ROAST_PATTERNS:
-        match = re.search(pattern, text)
-        if match:
-            # Extract username if available
-            username = match.group(1) if match.lastindex and match.lastindex >= 1 else None
-            # Extract keywords if available
-            keywords = match.group(2) if match.lastindex and match.lastindex >= 2 else ''
-            # Get user info if username is found
-            user_info = get_user_info_from_mention(message, username) if username else None
-            return (True, username or '', False, keywords, user_info)
-    
-    # Handle case with just prefix (self-roast)
-    if words and words[0] in ROAST_PREFIXES:
-        target = words[1] if len(words) > 1 else ""
-        is_github = words[0] == "gitroast" or (len(words) > 2 and words[1] == "github")
-        return (True, target, is_github, "", None)
-    
-    # Not a roast command
-    return (False, None, False, '', None)
+    # Select random roast and format with target name
+    roast_template = random.choice(roast_collection)
+    return roast_template.format(target=target)

@@ -1,197 +1,359 @@
 """
-Query Processing for Alya Telegram Bot.
+Query Processing Utilities for Alya Bot.
 
-Module ini mengoptimasi query pencarian untuk mendapatkan hasil yang lebih natural
-dan spesifik, dengan mendeteksi intent dan mengubah query sesuai kebutuhan.
+This module provides query processing, intent detection, and search query
+optimization for better search results and understanding user intentions.
 """
 
-import re
 import logging
-from typing import Dict, Tuple
+import re
+from typing import Dict, Any, List, Optional, Tuple, Set
+from utils.natural_parser import check_message_intent
 
 logger = logging.getLogger(__name__)
 
 class QueryProcessor:
-    """Processor untuk query pencarian dengan natural language understanding."""
+    """
+    Process user queries for enhanced search results and understanding.
+    
+    This class handles query preprocessing, optimization, and categorization
+    to improve search quality and user experience.
+    """
     
     def __init__(self):
-        """Initialize query processor with intent patterns."""
-        # Intent patterns untuk mendeteksi tipe pencarian
-        self.intent_patterns = {
-            'travel': r'(cara|rute|jalur|jalan)\s+(ke|menuju|dari|to)\s+([a-zA-Z0-9\s]+)',
-            'schedule': r'(jadwal|jam|waktu|schedule)\s+([a-zA-Z0-9\s]+)',
-            'price': r'(harga|biaya|tarif|price|cost)\s+([a-zA-Z0-9\s]+)',
-            'weather': r'(cuaca|weather|suhu)\s+(di|in|at)?\s*([a-zA-Z0-9\s]+)',
-            'news': r'(berita|kabar|news)\s+(tentang|mengenai|terbaru|about)?\s*([a-zA-Z0-9\s]+)',
-            'howto': r'(cara|tutorial|how to|bagaimana)\s+(membuat|menggunakan|melakukan|make|use|do)\s+([a-zA-Z0-9\s]+)',
-            'meaning': r'(apa|arti|maksud|pengertian|definisi)\s+(dari|itu|dari|of)?\s*([a-zA-Z0-9\s]+)',
-            # Add more specific patterns for search quality
-            'product_search': r'(beli|jual|cari|shop|toko)\s+(online)?\s*([a-zA-Z0-9\s]+)',
-            'job_search': r'(lowongan|kerja|karir|job|vacancy)\s+(di|untuk|at|in)?\s*([a-zA-Z0-9\s]+)',
-            'local_search': r'(tempat|lokasi|spot|area)\s+(di|dekat|sekitar|near|at|in)?\s*([a-zA-Z0-9\s]+)',
-            'review_search': r'(review|ulasan|rating|pendapat)\s+(tentang|untuk|about|of)?\s*([a-zA-Z0-9\s]+)'
+        """Initialize the query processor with intent and entity patterns."""
+        # Query categories with relevant keywords
+        self.query_categories = {
+            'travel': ['perjalanan', 'rute', 'jalan', 'ke', 'dari', 'menuju', 'tiket', 'transport'],
+            'schedule': ['jadwal', 'waktu', 'jam', 'schedule', 'acara', 'event', 'hari'],
+            'price': ['harga', 'biaya', 'tarif', 'cost', 'mahal', 'murah', 'beli', 'bayar'],
+            'weather': ['cuaca', 'suhu', 'weather', 'temperature', 'hujan', 'panas', 'dingin'],
+            'news': ['berita', 'kabar', 'news', 'update', 'terbaru', 'trending', 'viral'],
+            'product': ['beli', 'jual', 'produk', 'barang', 'shop', 'belanja', 'toko'],
+            'location': ['tempat', 'lokasi', 'spot', 'area', 'di mana', 'alamat', 'maps'],
+            'definition': ['apa itu', 'siapa itu', 'maksud dari', 'definisi', 'arti', 'pengertian'],
+            'howto': ['cara', 'bagaimana', 'tutorial', 'how to', 'petunjuk', 'panduan', 'langkah']
         }
         
-        # Query templates berdasarkan intent
-        self.query_templates = {
-            'travel': "{entity} rute perjalanan maps direction",
-            'schedule': "{entity} jadwal resmi timetable",
-            'price': "{entity} harga terbaru price comparison marketplace",
-            'weather': "prakiraan cuaca {entity} hari ini weather forecast",
-            'news': "{entity} berita terbaru update news",
-            'howto': "cara {verb} {entity} tutorial langkah step-by-step guide",
-            'meaning': "definisi pengertian arti {entity} adalah meaning definition",
-            'product_search': "{entity} jual beli online marketplace toko shop",
-            'job_search': "{entity} lowongan pekerjaan karir job vacancy",
-            'local_search': "{entity} lokasi tempat area site location",
-            'review_search': "{entity} review ulasan rating pendapat opinion"
-        }
+        # Load stopwords for query optimization
+        self.stopwords = self._load_stopwords()
         
-    def process(self, query: str) -> Tuple[str, Dict]:
-        """
-        Process query to identify intent and optimize for search.
-        
-        Args:
-            query: Original user query
-            
-        Returns:
-            Tuple of (optimized query, metadata dict)
-        """
-        query_lower = query.lower()
-        metadata = {'intent': 'general', 'entities': {}}
-        
-        # Detect query intent
-        for intent, pattern in self.intent_patterns.items():
-            match = re.search(pattern, query_lower)
-            if match:
-                metadata['intent'] = intent
-                
-                # Extract entities based on intent
-                if intent == 'travel':
-                    destination = match.group(3).strip()
-                    metadata['entities']['destination'] = destination
-                    return self.query_templates[intent].format(entity=destination), metadata
-                
-                elif intent == 'schedule':
-                    item = match.group(2).strip()
-                    metadata['entities']['item'] = item
-                    return self.query_templates[intent].format(entity=item), metadata
-                
-                elif intent == 'price':
-                    item = match.group(2).strip()
-                    metadata['entities']['item'] = item
-                    return self.query_templates[intent].format(entity=item), metadata
-                    
-                elif intent == 'weather':
-                    location = match.group(3).strip() if len(match.groups()) >= 3 else ""
-                    metadata['entities']['location'] = location
-                    return self.query_templates[intent].format(entity=location), metadata
-                
-                elif intent == 'news':
-                    topic = match.group(3).strip() if len(match.groups()) >= 3 else ""
-                    metadata['entities']['topic'] = topic
-                    return self.query_templates[intent].format(entity=topic), metadata
-                
-                elif intent == 'howto':
-                    verb = match.group(2).strip()
-                    entity = match.group(3).strip() if len(match.groups()) >= 3 else ""
-                    metadata['entities']['verb'] = verb
-                    metadata['entities']['entity'] = entity
-                    return self.query_templates[intent].format(verb=verb, entity=entity), metadata
-                
-                elif intent == 'meaning':
-                    term = match.group(3).strip() if len(match.groups()) >= 3 else ""
-                    metadata['entities']['term'] = term
-                    return self.query_templates[intent].format(entity=term), metadata
-                
-                elif intent == 'product_search':
-                    product = match.group(3).strip()
-                    metadata['entities']['product'] = product
-                    return self.query_templates[intent].format(entity=product), metadata
-                
-                elif intent == 'job_search':
-                    job = match.group(3).strip()
-                    metadata['entities']['job'] = job
-                    return self.query_templates[intent].format(entity=job), metadata
-                
-                elif intent == 'local_search':
-                    location = match.group(3).strip()
-                    metadata['entities']['location'] = location
-                    return self.query_templates[intent].format(entity=location), metadata
-                
-                elif intent == 'review_search':
-                    item = match.group(3).strip()
-                    metadata['entities']['item'] = item
-                    return self.query_templates[intent].format(entity=item), metadata
-        
-        # Remove filler words for general queries
-        fillers = [
-            "tolong", "coba", "bantu", "bisa", "minta", "alya", "dong", "ya", "kak",
-            "mbak", "mas", "bro", "sis", "sayang", "beb", "deh", "sih", "ai", "carikan",
-            "search", "cari", "carikan", "mencari", "apakah", "gimana"
+        # Region/city names for locality detection
+        self.regions = [
+            'jakarta', 'bandung', 'surabaya', 'medan', 'semarang', 'yogyakarta', 'jogja', 
+            'bali', 'makassar', 'palembang', 'padang', 'aceh', 'lampung', 'papua', 'malang',
+            'bogor', 'bekasi', 'tangerang', 'depok', 'solo', 'banten', 'lombok', 'batam'
         ]
         
-        for filler in fillers:
-            if f" {filler} " in f" {query_lower} ":
-                query_lower = query_lower.replace(f" {filler} ", " ")
-                
-        # Detect question type queries
-        if query_lower.startswith(('siapa', 'apa', 'kenapa', 'mengapa', 'bagaimana', 'dimana', 'kapan')):
-            metadata['intent'] = 'question'
-        
-        # Detect image search intent
-        if any(word in query_lower for word in ['gambar', 'foto', 'image', 'picture', 'pic']):
-            metadata['intent'] = 'image_search'
-            # Extract what the user is looking for images of
-            img_match = re.search(r'(gambar|foto|image|picture|pic)\s+(dari|tentang|of|about)?\s*([a-zA-Z0-9\s]+)', query_lower)
-            if img_match:
-                subject = img_match.group(3).strip()
-                metadata['entities']['subject'] = subject
-                return f"{subject} images pictures high quality", metadata
-        
-        # Also check for common misspellings and variations
-        query_cleaned = self._normalize_search_terms(query_lower)
-        
-        # If no specific intent detected, return cleaned query
-        return query_cleaned, metadata
-        
-    def _normalize_search_terms(self, query: str) -> str:
+    def _load_stopwords(self) -> Set[str]:
         """
-        Normalize search terms for better results. Fix common misspellings and variations.
+        Load stopwords for query cleaning.
+        
+        Returns:
+            Set of stopword strings
+        """
+        return {
+            # Indonesian stopwords
+            'yang', 'dan', 'di', 'ke', 'dari', 'dengan', 'untuk', 'pada', 'ini', 'itu',
+            'atau', 'juga', 'ada', 'akan', 'bisa', 'dalam', 'oleh', 'secara', 'jika',
+            'agar', 'tentang', 'seperti', 'adalah', 'sebagai', 'saya', 'kamu', 'dia',
+            # English stopwords
+            'the', 'and', 'to', 'of', 'in', 'for', 'on', 'with', 'by', 'at', 'from',
+            'about', 'as', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has',
+            'a', 'an', 'i', 'you', 'he', 'she', 'they', 'we', 'it'
+        }
+    
+    def process_query(self, query: str) -> Dict[str, Any]:
+        """
+        Process query for enhanced search.
         
         Args:
-            query: Query to normalize
+            query: User's search query
             
         Returns:
-            Normalized query
+            Dictionary with processed query information
         """
-        replacements = {
-            'instagram': ['ig', 'insta', 'instagtam'],
-            'facebook': ['fb', 'fasebook', 'fesbuk'],
-            'twitter': ['tweeter', 'twiter', 'twt'],
-            'github': ['git', 'gh'],
-            'youtube': ['yt', 'ytube', 'yutube'],
-            'tiktok': ['tt', 'tik-tok', 'tiktoc']
-        }
+        if not query or not query.strip():
+            return {
+                "original": "",
+                "processed": "",
+                "category": "unknown",
+                "entities": {},
+                "locality": None
+            }
         
-        for correct, variations in replacements.items():
-            for var in variations:
-                # Only replace if it's a whole word
-                query = re.sub(r'\b' + var + r'\b', correct, query)
+        # Clean and normalize query
+        cleaned_query = self.clean_query(query)
+        
+        # Get intent information to assist categorization
+        intent_info = check_message_intent(query)
+        
+        # Categorize query
+        category = self.categorize_query(cleaned_query, intent_info)
+        
+        # Extract key entities
+        entities = self.extract_entities(query)
+        
+        # Optimize query for search
+        optimized_query = self.optimize_query(cleaned_query, category)
+        
+        # Detect locality for region-specific searches
+        locality = self.detect_locality(query)
+        
+        return {
+            "original": query,
+            "processed": optimized_query,
+            "category": category,
+            "entities": entities,
+            "locality": locality,
+            "keywords": intent_info.get("keywords", [])
+        }
+    
+    def clean_query(self, query: str) -> str:
+        """
+        Clean query by removing noise and normalizing text.
+        
+        Args:
+            query: Original query
+            
+        Returns:
+            Cleaned query string
+        """
+        if not query:
+            return ""
+            
+        # Convert to lowercase
+        query = query.lower().strip()
+        
+        # Remove excess whitespace
+        query = re.sub(r'\s+', ' ', query)
+        
+        # Remove unnecessary prefixes
+        prefixes_to_remove = ['tolong', 'mau', 'cari', 'carikan', 'search', 'find', 'please']
+        
+        for prefix in prefixes_to_remove:
+            if query.startswith(prefix + " "):
+                query = query.replace(prefix, '', 1).strip()
+                
+        # Remove unnecessary punctuation at start/end
+        query = query.strip('.,;:?!-"\'')
                 
         return query
+    
+    def categorize_query(self, query: str, intent_info: Dict[str, Any] = None) -> str:
+        """
+        Categorize query based on content and intent.
+        
+        Args:
+            query: User's query
+            intent_info: Optional intent analysis results
+            
+        Returns:
+            Query category string
+        """
+        query_lower = query.lower()
+        
+        # Count matches for each category
+        category_matches = {}
+        
+        for category, keywords in self.query_categories.items():
+            category_matches[category] = 0
+            
+            for keyword in keywords:
+                if keyword in query_lower:
+                    category_matches[category] += 1
+                    
+                    # Give more weight to keywords at the start of the query
+                    if query_lower.startswith(keyword):
+                        category_matches[category] += 0.5
+        
+        # Use intent to influence categorization
+        if intent_info:
+            # Informative intent maps well to definition/howto
+            if intent_info.get('intent') == 'informative':
+                category_matches['definition'] = category_matches.get('definition', 0) + 0.5
+                category_matches['howto'] = category_matches.get('howto', 0) + 0.5
+                
+            # Questions often seek definitions
+            if intent_info.get('contains_question', False):
+                category_matches['definition'] = category_matches.get('definition', 0) + 0.5
+        
+        # Determine primary category (with most matches)
+        if category_matches:
+            # Find category with most matches
+            max_matches = max(category_matches.values())
+            
+            if max_matches > 0:
+                # Get all categories with max matches
+                max_categories = [
+                    category for category, matches 
+                    in category_matches.items() 
+                    if matches == max_matches
+                ]
+                
+                if max_categories:
+                    return max_categories[0]
+        
+        # Default to general search if no category matches
+        return "general"
+    
+    def optimize_query(self, query: str, category: str) -> str:
+        """
+        Optimize query for better search results based on category.
+        
+        Args:
+            query: Cleaned user query
+            category: Detected query category
+            
+        Returns:
+            Optimized query for search engine
+        """
+        words = query.split()
+        
+        # Remove stopwords if query is long enough
+        if len(words) > 3:
+            words = [word for word in words if word not in self.stopwords]
+            query = ' '.join(words)
+        
+        # Add category-specific optimizations
+        if category == 'travel':
+            if 'rute' in query and 'ke' in query:
+                query = re.sub(r'rute\s+ke', 'rute menuju', query)
+                
+        elif category == 'schedule':
+            if 'jadwal' in query:
+                # Add time qualifier if not present
+                time_qualifiers = ['hari ini', 'besok', 'minggu ini', 'bulan ini']
+                has_time = any(qualifier in query for qualifier in time_qualifiers)
+                
+                if not has_time:
+                    query += ' terbaru'
+                    
+        elif category == 'news':
+            # Add recency for news queries
+            if 'berita' in query and not any(word in query for word in ['terbaru', 'hari ini', 'update']):
+                query += ' terbaru'
+                
+        elif category == 'howto':
+            # Add tutorial qualifier for how-to queries
+            if 'cara' in query and not any(word in query for word in ['tutorial', 'langkah', 'metode']):
+                query += ' tutorial'
+                
+        return query
+    
+    def extract_entities(self, query: str) -> Dict[str, List[str]]:
+        """
+        Extract entities from query for structured understanding.
+        
+        Args:
+            query: User's query
+            
+        Returns:
+            Dictionary of entity types and values
+        """
+        entities = {
+            'locations': [],
+            'dates': [],
+            'products': [],
+            'organizations': []
+        }
+        
+        # Extract locations
+        location_patterns = [
+            r'di\s+([A-Za-z\s]+)(?:\s|$|\.|,)',
+            r'ke\s+([A-Za-z\s]+)(?:\s|$|\.|,)',
+            r'dari\s+([A-Za-z\s]+)(?:\s|$|\.|,)'
+        ]
+        
+        for pattern in location_patterns:
+            matches = re.findall(pattern, query, re.IGNORECASE)
+            for match in matches:
+                if match.strip() and len(match.strip()) > 2:
+                    entities['locations'].append(match.strip())
+        
+        # Extract dates
+        date_patterns = [
+            r'(?:tanggal|tgl)\s+(\d{1,2}(?:\s+)?\w+(?:\s+)?\d{2,4})',
+            r'(\d{1,2}\s+(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)(?:\s+\d{2,4})?)',
+            r'((?:senin|selasa|rabu|kamis|jumat|sabtu|minggu)(?:\s+(?:depan|ini|kemarin))?)'
+        ]
+        
+        for pattern in date_patterns:
+            matches = re.findall(pattern, query, re.IGNORECASE)
+            entities['dates'].extend([m.strip() for m in matches if m.strip()])
+            
+        # Extract products
+        product_patterns = [
+            r'(?:beli|jual|cari|produk)\s+([A-Za-z0-9\s]+)(?:\s|$|\.|,)',
+            r'(?:harga|review)\s+([A-Za-z0-9\s]+)(?:\s|$|\.|,)'
+        ]
+        
+        for pattern in product_patterns:
+            matches = re.findall(pattern, query, re.IGNORECASE)
+            for match in matches:
+                if match.strip() and len(match.strip()) > 2:
+                    entities['products'].append(match.strip())
+        
+        # Extract organizations
+        org_patterns = [
+            r'(?:perusahaan|company|PT|CV)\s+([A-Za-z\s]+)(?:\s|$|\.|,)',
+            r'(?:oleh|dari|with)\s+([A-Z][A-Za-z\s]+)(?:\s|$|\.|,)'
+        ]
+        
+        for pattern in org_patterns:
+            matches = re.findall(pattern, query, re.IGNORECASE)
+            for match in matches:
+                if match.strip() and len(match.strip()) > 2:
+                    entities['organizations'].append(match.strip())
+        
+        # Remove duplicates and clean up
+        for entity_type in entities:
+            if entities[entity_type]:
+                # Remove duplicates while preserving order
+                seen = set()
+                entities[entity_type] = [
+                    x for x in entities[entity_type] 
+                    if not (x in seen or seen.add(x))
+                ]
+        
+        return entities
+    
+    def detect_locality(self, query: str) -> Optional[str]:
+        """
+        Detect if query has a locality focus (region-specific).
+        
+        Args:
+            query: User's query
+            
+        Returns:
+            Detected locality or None
+        """
+        query_lower = query.lower()
+        
+        # Direct region mentions
+        for region in self.regions:
+            if region in query_lower:
+                return region
+        
+        # Check for location prepositions followed by potential regions
+        location_matches = re.findall(r'(?:di|ke|dari)\s+([a-z]+)', query_lower)
+        for match in location_matches:
+            if match in self.regions:
+                return match
+                
+        return None
 
 # Create singleton instance
 query_processor = QueryProcessor()
 
-def process_query(query: str) -> Tuple[str, Dict]:
+def process_query(query: str) -> Dict[str, Any]:
     """
-    Process search query for optimized results.
+    Process search query for better results (convenience function).
     
     Args:
-        query: Original search query
+        query: Search query
         
     Returns:
-        Tuple of (optimized query, metadata dict)
+        Processed query information
     """
-    return query_processor.process(query)
+    return query_processor.process_query(query)

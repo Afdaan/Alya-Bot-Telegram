@@ -22,147 +22,98 @@
   </p>
 </div>
 
+# Alya Bot for Telegram
+
+A conversational AI Telegram bot with a personality system, memory, and contextual awareness.
+
 ## Description
+
 Alya-chan is an AI-powered Telegram bot based on Alya from the anime/manga series "時々ボソッとロシア語でデレる隣のアーリャさん" (Alya Sometimes Hides Her Feelings in Russian), commonly known as "Roshidere". With her unique personality and Russian-Japanese background, Alya occasionally mutters her true feelings in Russian when she can't express them directly in Japanese. This bot brings her charm to your Telegram chats while providing powerful AI features powered by Google's Gemini!
 
 > 🌟 Your personal Alya AI assistant that combines the charm of Roshidere with cutting-edge AI technology
 
-## Key Features
-- 🌸 Waifu Chat Mode
-- 💅 Toxic Queen Mode
-- 🔍 Image/Document Analysis
-- 🎨 Source Image Search
-- 🤖 AI-Powered Responses
-- 👥 Group Chat Support
-- 🗣️ Multi-language Support
-- 🧠 Context Awareness
+---
+
+## Features
+
+- 🌸 **Multiple Personas**: Switch between tsundere, waifu, informative, or toxic queen mode
+- 🧠 **Memory System**: Remembers conversations and user facts for natural interactions
+- 💬 **Natural Language Understanding**: Detects intent and context in user messages
+- 🖼️ **Media Processing**: Handles images, documents, and provides content analysis
+- 🔍 **Source Image Search**: Find anime/artwork sources with SauceNAO & Google Lens
+- 🤖 **AI-Powered Responses**: Context-aware, roleplay, and multi-turn conversations
+- 👥 **Group Chat Support**: Use `!` prefix for commands in groups
+- 🌐 **Multi-language Support**: English & Indonesian (and more on request)
+- 🧠 **Retrieval Augmented Generation (RAG)**: Enhanced responses with knowledge base
+- ⚡ **Performance Optimizations**: Caching, API key rotation, efficient token usage
+
+---
 
 ## NEW FEATURES
 
-### 🖼️ Image Search with Results
-- Search for images with `!search picture <query>` or `!search foto <query>`
-- Receive both text information and actual images
-- Images include title and source information
-- Works with any topic: landmarks, people, animals, etc.
+- **Image Search with Results**: `!search picture <query>` or `!search foto <query>`
+- **Automatic Fallbacks**: Reliable image search with clickable previews if source fails
+- **Multiple Google Search API Keys**: Automatic rotation to avoid rate limits
+- **Enhanced Error Handling**: Markdown-safe, retry system, and better SauceNAO recovery
+- **Context-Aware Conversations**: Multi-turn, follow-up, and memory recall
+- **Flexible Language Switching**: `/lang [code]` or ask Alya directly
 
-### ⚡ Performance Optimizations
-- **Response Caching**: Stores answers to common questions
-- **Efficient Token Usage**: Gets more out of your Gemini API quota
-- **Multiple API Keys**: Automatic rotation system for handling rate limits
-- **Image Analysis Caching**: Saves results for previously analyzed images
+---
 
-### 🔍 Enhanced Error Handling
-- Better SauceNAO error recovery
-- Improved markdown formatting in responses
-- Format-safe username references
-- Automatic retry system for failed API calls
+## Requirements
 
-## 🔍 Enhanced Global Search Engine
-
-- **Global Results**: Search now covers the entire web, not just regional results
-- **Improved Image Results**: Automatic fallback system for failed image URLs
-- **Natural Language Understanding**: Intent detection for more accurate searches
-- **Optimized Query Processing**: Query reformulation for more relevant results
-- **Error Handling**: Better Markdown error handling for search results
-
-## 🌐 Multiple Search Options
-
-- **Regular Web Search**: Search for information across the entire web
-- **Image Search**: Find images with directly displayed results
-- **Social Media Profiles**: Find user profiles across various platforms
-- **Specialized Searches**: Dedicated search options for schedules, news, locations, etc.
-
-## Context-Aware Conversations
-- Alya remembers previous messages in your conversation
-- Ask follow-up questions without re-explaining
-- Bot understands the context of ongoing discussions
-- Example: Ask "What causes it?" after discussing a topic, and Alya knows what "it" refers to
-- Great for multi-turn interactions and complex conversations
-- Works in both English and Indonesian (and other languages upon request)
-
-## Language Features
-- Default languages: English & Indonesian
-- Flexible language switching: Ask Alya to speak in any language!
-- Usage: `/lang [code]` to set default language (en/id)
-- Example: "Can you speak in Japanese?" or "Bisakah bicara dalam bahasa Jawa?"
-
-## Tech Stack
 - Python 3.8+
-- Google Gemini AI
-- Telegram Bot API
-- SauceNAO API
+- Telegram Bot Token (from @BotFather)
+- Google Gemini API key
+- SauceNAO API key
+- (Optional) Multiple Google Search API keys
+
+---
 
 ## Installation
 
-1. Clone repository:
-```bash
-git clone https://github.com/Afdaan/alya-bot-telegram.git
-cd alya-bot-telegram
-```
+1. **Clone repository:**
+    ```bash
+    git clone https://github.com/Afdaan/alya-bot-telegram.git
+    cd alya-bot-telegram
+    ```
 
-2. Create virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-```
+2. **Create virtual environment:**
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # Windows: venv\Scripts\activate
+    ```
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+3. **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-4. Configure environment:
-```bash
-cp .env.example .env
-```
+4. **Configure environment:**
+    ```bash
+    cp .env.example .env
+    ```
+    Edit `.env` and fill in your API keys:
+    ```properties
+    TELEGRAM_BOT_TOKEN=   # From @BotFather
+    GEMINI_API_KEY=       # From Google AI Studio
+    SAUCENAO_API_KEY=     # From SauceNAO
+    DEVELOPER_IDS=        # Your Telegram User ID
+    GOOGLE_SEARCH_API_KEY=your_primary_google_api_key_here
+    GOOGLE_SEARCH_API_KEY_2=your_second_google_api_key_here
+    # Add more keys as needed (up to GOOGLE_SEARCH_API_KEY_10)
+    ```
 
-Required API Keys in `.env`:
-```properties
-TELEGRAM_BOT_TOKEN=   # From @BotFather
-GEMINI_API_KEY=       # From Google AI Studio
-SAUCENAO_API_KEY=     # From SauceNAO
-DEVELOPER_IDS=        # Your Telegram User ID
-```
+---
 
-## Multiple Google Search API Keys
+## Setup
 
-The bot now supports using multiple Google Search API keys to overcome rate limits:
+1. Clone the repository
+2. Install dependencies: `pip install -r requirements.txt`
+3. Configure your API keys in `.env` (recommended) or `config/settings.py`
+4. Run the bot: `python main.py`
 
-### How It Works
-- Configure multiple API keys in your `.env` file
-- Bot automatically rotates through keys when rate limits are hit
-- Seamlessly continues searching without interruption
-
-### Setting Up Multiple API Keys
-1. Create several Google Search API keys from Google Cloud Console
-2. Add them to your `.env` file:
-```properties
-GOOGLE_SEARCH_API_KEY=your_primary_google_api_key_here
-GOOGLE_SEARCH_API_KEY_2=your_second_google_api_key_here
-GOOGLE_SEARCH_API_KEY_3=your_third_google_api_key_here
-# Add more keys as needed (up to GOOGLE_SEARCH_API_KEY_10)
-```
-
-## Model Settings
-
-This bot uses the Gemini AI model with configuration in `config/settings.py`:
-
-- Default Model: `gemini-2.0-flash` (free plan)
-- Optimized token usage & API call efficiency
-- Response caching system for frequently asked questions
-- Reduced API calls through smart preprocessing
-
-### Performance Optimizations
-
-This bot is designed for cost efficiency with several optimizations:
-
-1. **Response Caching**: Stores answers to popular questions
-2. **Rate Limiting**: Manages API calls to avoid quota errors
-3. **Token Optimization**: Efficient prompts to maximize free quota usage
-4. **Multiple API Keys**: Rotation system to handle rate limits
-5. **Image Analysis Caching**: Stores results for previously analyzed images
-
-These strategies provide high performance with minimal cost.
+---
 
 ## Deployment
 
@@ -186,12 +137,50 @@ git pull
 python main.py
 ```
 
+---
+
+## Architecture
+
+- **Core**: Main bot logic, persona management, and memory systems
+- **Handlers**: Command and message handling
+- **Database**: SQLite persistence with migration system
+- **Utils**: Helper functions for natural language processing, media handling, etc.
+- **Config**: Settings and persona YAMLs
+
+---
+
+## Model Settings
+
+- Default Model: `gemini-2.0-flash` (free plan)
+- Optimized token usage & API call efficiency
+- Response caching system for frequently asked questions
+- Reduced API calls through smart preprocessing
+
+---
+
+## Performance Optimizations
+
+1. **Response Caching**: Stores answers to popular questions
+2. **Rate Limiting**: Manages API calls to avoid quota errors
+3. **Token Optimization**: Efficient prompts to maximize free quota usage
+4. **Multiple API Keys**: Rotation system to handle rate limits
+5. **Image Analysis Caching**: Stores results for previously analyzed images
+
+---
+
 ## Commands
-See [COMMANDS.md](COMMANDS.md) for complete list of available commands and usage examples.
+
+See [COMMANDS.md](COMMANDS.md) for a complete list of available commands and usage examples.
+
+---
 
 ## Developer Contact
+
 - Creator: Afdaan
 - Website: [alif.horn-yastudio.com](https://alif.horn-yastudio.com)
 
+---
+
 ## License
+
 MIT License. See `LICENSE` for details.

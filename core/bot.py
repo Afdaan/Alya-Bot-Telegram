@@ -24,8 +24,6 @@ from handlers.dev_handlers import (
     update_command, stats_command, debug_command, shell_command,
     set_language_command, db_stats_command, rotate_db_command
 )
-
-# New import for trace handlers with context persistence
 from handlers.trace_handlers import handle_trace_request
 
 logger = logging.getLogger(__name__)
@@ -34,28 +32,44 @@ def setup_handlers(application: Application) -> None:
     """
     Setup all handlers for the bot with proper priority.
     
+    This function organizes handlers in priority order:
+    1. Core command handlers (start, help, etc.)
+    2. Special message handlers (search, trace)
+    3. Callback handlers (buttons)
+    4. General message handlers
+    5. Media handlers
+    6. Admin/developer commands
+    
     Args:
         application: The Telegram Application instance
     """
     # =========================
     # Basic Command Handlers
     # =========================
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("reset", reset_command))
-    application.add_handler(CommandHandler("ping", ping_command))
-    application.add_handler(CommandHandler("lang", set_language_command))
+    basic_commands = [
+        ("start", start),
+        ("help", help_command),
+        ("reset", reset_command),
+        ("ping", ping_command),
+        ("lang", set_language_command)
+    ]
+    
+    for command, handler in basic_commands:
+        application.add_handler(CommandHandler(command, handler))
+        logger.debug(f"Registered command handler: /{command}")
     
     # =========================
     # Special Message Handlers (Higher Priority)
     # =========================
+    
+    # Search handler for messages starting with !search
     application.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(r'^!search'), 
         handle_search,
         block=False
     ))
     
-    # Add handler for !trace command with text filter
+    # Trace handler for messages starting with !trace
     application.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(r'^!trace'),
         handle_trace_request,
@@ -87,11 +101,17 @@ def setup_handlers(application: Application) -> None:
     # =========================
     # Developer/Admin Commands
     # =========================
-    application.add_handler(CommandHandler("update", update_command))
-    application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(CommandHandler("debug", debug_command))
-    application.add_handler(CommandHandler("shell", shell_command))
-    application.add_handler(CommandHandler("dbstats", db_stats_command))
-    application.add_handler(CommandHandler("rotatedb", rotate_db_command))
+    admin_commands = [
+        ("update", update_command),
+        ("stats", stats_command),
+        ("debug", debug_command),
+        ("shell", shell_command),
+        ("dbstats", db_stats_command),
+        ("rotatedb", rotate_db_command)
+    ]
+    
+    for command, handler in admin_commands:
+        application.add_handler(CommandHandler(command, handler))
+        logger.debug(f"Registered admin command handler: /{command}")
     
     logger.info("All handlers have been set up successfully")

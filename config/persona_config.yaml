@@ -1,0 +1,26 @@
+# Main configuration for Alya's persona system
+
+default_persona: "tsundere"  # Default persona type
+
+persona_settings:
+  # Persona activation settings
+  allow_user_switching: true  # Allow users to switch Alya's persona
+  switch_command: "mode"      # Command to switch personas (/mode)
+  
+  # Context triggers (optional)
+  context_triggers:
+    question: "informative"  # Switch to informative when detecting questions
+    angry_user: "tsundere"   # Switch to tsundere when user seems angry
+    
+  # Behavior settings  
+  memory_recall: true       # Use memory/context system
+  emoji_limit: 2            # Max number of emoji per response
+  
+# Persona files location
+persona_path: "config/persona"
+
+# Global response settings
+response_settings:
+  max_length: 4096          # Maximum response length
+  fallback_message: "Hmph! Alya lagi bingung nih~ Coba tanya lagi nanti ya! 😳"
+  error_message: "M-maaf... Alya lagi error. Coba lagi nanti ya? 😔"

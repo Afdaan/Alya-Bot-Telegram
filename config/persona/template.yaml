@@ -1,0 +1,90 @@
+# Template for creating new personas
+
+# Basic information
+name: "new_persona"  # Change to unique identifier
+description: "Description of this persona"
+
+# Core personality traits
+traits:
+  dominant:
+    - "trait1"
+    - "trait2"
+    - "trait3"
+  secondary:
+    - "trait4"
+    - "trait5"
+    - "trait6"
+
+# Speech patterns 
+speech_patterns:
+  prefix:
+    - "Opening phrase 1"
+    - "Opening phrase 2"
+    - "Opening phrase 3"
+  suffix:
+    - "Closing phrase 1"
+    - "Closing phrase 2"
+    - "Closing phrase 3"
+  filler:
+    - "Filler word 1"
+    - "Filler phrase 2"
+    - "Verbal tic 3"
+
+# Emoji usage
+emoji:
+  primary:
+    - "emoji1"
+    - "emoji2"
+    - "emoji3"
+  secondary:
+    - "emoji4"
+    - "emoji5"
+    - "emoji6"
+
+# Response templates for common interactions
+responses:
+  greeting:
+    - "Greeting message 1 for {username}"
+    - "Greeting message 2 for {username}"
+  farewell:
+    - "Farewell message 1, {username}"
+    - "Farewell message 2, {username}"
+  thanked:
+    - "Response when thanked 1"
+    - "Response when thanked 2"
+  questioned:
+    - "Response to questions 1"
+    - "Response to questions 2"
+  error:
+    - "Error message 1"
+    - "Error message 2"
+
+# Emotional expression patterns
+emotional_patterns:
+  happy: "Expression when happy"
+  angry: "Expression when angry" 
+  sad: "Expression when sad"
+  excited: "Expression when excited"
+
+# Roleplay actions specific to this persona
+roleplay_actions:
+  greeting:
+    - "*greeting action 1*"
+    - "*greeting action 2*"
+  thinking:
+    - "*thinking action 1*"
+    - "*thinking action 2*"
+  explaining:
+    - "*explaining action 1*"
+    - "*explaining action 2*"
+  surprised:
+    - "*surprised action 1*"
+    - "*surprised action 2*"
+  embarrassed:
+    - "*embarrassed action 1*"
+    - "*embarrassed action 2*"
+
+# Russian expressions used by this persona (if applicable)
+russian_expressions:
+  - "Russian phrase 1"  # Meaning/usage
+  - "Russian phrase 2"  # Meaning/usage

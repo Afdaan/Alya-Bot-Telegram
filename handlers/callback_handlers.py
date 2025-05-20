@@ -7,339 +7,329 @@ including reverse image search, menu navigation, and user preferences.
 
 import logging
 import asyncio
-from telegram import Update, InputMediaPhoto
+import os
+import tempfile
+import time  # Add missing import
+from typing import Optional, Dict, Any, Tuple, List  # Add missing import
+
+from telegram import Update, InputMediaPhoto, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackContext
 from telegram.error import BadRequest
 
-from utils.saucenao import search_with_saucenao
-from utils.formatters import format_markdown_response
+from utils.formatters import format_markdown_response, escape_markdown_v2
+from utils.context_manager import context_manager
+from utils.image_utils import analyze_image  # Use image_utils instead
+from config.settings import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
 
 logger = logging.getLogger(__name__)
 
 # =========================
-# Button Callbacks
+# Button Callback Handler
 # =========================
 
 async def handle_button_callback(update: Update, context: CallbackContext) -> None:
     """
     Process button callback queries from inline keyboards.
     
+    Routes callbacks to appropriate handlers based on callback data prefix
+    rather than using regex pattern matching.
+    
     Args:
         update: Telegram update object
         context: CallbackContext
     """
     query = update.callback_query
-    user = update.effective_user
+    
+    # Early return if no callback data
+    if not query or not query.data:
+        logger.warning("Received callback without data")
+        return
+        
     callback_data = query.data
+    user = update.effective_user
     
     try:
-        # Always answer the callback query to clear the loading state
+        # Always answer the callback query first to clear loading state
         await query.answer()
         
-        # Handle image search mode selections
-        if callback_data.startswith('img_'):
-            image_mode = callback_data.split('_')[1]
-            await handle_image_search_callback(query, user, image_mode)
-            return
+        # Parse callback data
+        callback_parts = callback_data.split('_', 1)
+        callback_type = callback_parts[0]
+        callback_args = callback_parts[1] if len(callback_parts) > 1 else None
         
-        # Handle image source search callbacks
-        if callback_data.startswith('sauce_'):
-            source_type = callback_data.split('_')[1]
-            await handle_sauce_callback(query, user, source_type)
-            return
-            
-        # Handle language selection
-        if callback_data.startswith('lang_'):
-            lang_code = callback_data.split('_')[1]
-            await handle_language_callback(query, context, lang_code)
-            return
-        
-        # Handle try_search callback
-        if callback_data == 'try_search':
-            await handle_try_search_callback(query, user)
-            return
-            
-        # Default response for unknown callback
-        try:
-            await query.edit_message_text(
-                f"Gomennasai\\! Alya\\-chan tidak mengerti callback ini\\: `{callback_data}`",
-                parse_mode='MarkdownV2'
-            )
-        except BadRequest as e:
-            # Jika pesan tidak dapat diubah karena identik, cukup abaikan
-            if "message is not modified" in str(e):
-                logger.debug("Message not modified because content is identical")
-            else:
-                raise e
-            
+        # Route to appropriate handler based on prefix
+        if callback_type == "img":
+            await handle_image_mode_callback(query, user, callback_args)
+        elif callback_type == "sauce":
+            await handle_source_search_callback(query, user, callback_args)
+        elif callback_type == "lang":
+            await handle_language_callback(query, context, callback_args)
+        elif callback_type == "search":
+            await handle_search_callback(query, user, callback_args)
+        elif callback_type == "page":
+            await handle_pagination_callback(query, context, callback_args)
+        else:
+            # Unknown callback type
+            logger.warning(f"Unknown callback type: {callback_type}")
+            try:
+                await query.edit_message_text(
+                    f"Gomennasai\\! Alya\\-chan tidak mengerti callback ini\\: `{escape_markdown_v2(callback_data)}`",
+                    parse_mode='MarkdownV2'
+                )
+            except BadRequest as e:
+                # Ignore "message is not modified" errors
+                if "message is not modified" not in str(e):
+                    raise
+                    
     except Exception as e:
         logger.error(f"Error in button callback: {e}")
         try:
+            # Generic error message for all callback errors
             await query.edit_message_text(
                 "Gomen ne\\~ Ada error saat memproses perintah\\. \\. \\. 🥺",
                 parse_mode='MarkdownV2'
             )
         except BadRequest as e:
-            # Jika pesan tidak dapat diubah karena identik, kirim pesan baru saja
+            # If message can't be modified, send a new message
             if "message is not modified" in str(e):
                 await query.message.reply_text(
                     "Gomen ne\\~ Ada error saat memproses perintah\\. \\. \\. 🥺",
                     parse_mode='MarkdownV2'
                 )
             else:
-                raise e
+                raise
 
-# New callback handler for image search modes
-async def handle_image_search_callback(query, user, mode):
+# =========================
+# Image Mode Callbacks
+# =========================
+
+async def handle_image_mode_callback(query, user, mode: str) -> None:
     """
     Handle image search mode selection callbacks.
     
     Args:
         query: CallbackQuery object
         user: User who triggered the callback
-        mode: Selected image search mode (describe/source)
+        mode: Selected image search mode
     """
     message = query.message
+    
+    # Get original message (the one being replied to)
     original_msg = message.reply_to_message
     if not original_msg or not original_msg.photo:
-        try:
-            await query.edit_message_text(
-                "Gomennasai\\! Alya tidak dapat menemukan gambar untuk diproses\\. \\. \\. 🥺",
-                parse_mode='MarkdownV2'
-            )
-        except BadRequest as e:
-            if "message is not modified" in str(e):
-                await message.reply_text(
-                    "Gomennasai\\! Alya tidak dapat menemukan gambar untuk diproses\\. \\. \\. 🥺",
-                    parse_mode='MarkdownV2'
-                )
-            else:
-                raise e
+        await handle_missing_image_error(query, message)
         return
     
     # Get largest photo (best quality)
     photo = original_msg.photo[-1]
     
     # Process based on selected mode
-    if mode == 'describe':
-        # Show processing status
-        try:
-            await query.edit_message_text(
-                f"*{user.first_name}\\-kun*\\~ Alya sedang menganalisis gambar ini\\.\\.\\. 🔎",
-                parse_mode='MarkdownV2'
-            )
-        except BadRequest as e:
-            if "message is not modified" in str(e):
-                await message.reply_text(
-                    f"*{user.first_name}\\-kun*\\~ Alya sedang menganalisis gambar ini\\.\\.\\. 🔎",
-                    parse_mode='MarkdownV2'
-                )
-            else:
-                raise e
+    if mode == "describe":
+        # Confirm processing
+        await edit_or_reply(query, message, 
+            f"*{escape_markdown_v2(user.first_name)}\\-kun*\\~ Alya sedang menganalisis gambar ini\\.\\.\\. 🔎",
+            parse_mode='MarkdownV2'
+        )
         
-        # Get file and process
+        # Process image
         try:
             photo_file = await photo.get_file()
             from handlers.document_handlers import process_file
             await process_file(original_msg, user, photo_file, "jpg")
         except Exception as e:
             logger.error(f"Error in image describe callback: {e}")
-            try:
-                await query.edit_message_text(
-                    f"Gomen ne\\~ Ada error saat menganalisis gambar\\. \\. \\. 🥺",
-                    parse_mode='MarkdownV2'
-                )
-            except BadRequest:
-                pass
-    elif mode == 'source':
-        # Redirect to sauce command handler
+            await edit_or_reply(query, message,
+                f"Gomen ne\\~ Ada error saat menganalisis gambar\\. \\. \\. 🥺\n\n"
+                f"Error: {escape_markdown_v2(str(e)[:100])}",
+                parse_mode='MarkdownV2'
+            )
+            
+    elif mode == "source":
+        # Handle source search
         from handlers.document_handlers import handle_sauce_command
         await handle_sauce_command(original_msg, user)
+        
+    elif mode == "ocr":
+        # Handle OCR (text extraction) using Gemini instead of OCR-specific module
+        await edit_or_reply(query, message, 
+            f"*{escape_markdown_v2(user.first_name)}\\-kun*\\~ Alya sedang mengekstrak teks dari gambar\\.\\.\\. 🔎",
+            parse_mode='MarkdownV2'
+        )
+        
+        try:
+            # Download image
+            photo_file = await photo.get_file()
+            temp_path = None
+            
+            try:
+                # Create temp file
+                temp_fd, temp_path = tempfile.mkstemp(suffix='.jpg')
+                os.close(temp_fd)
+                
+                # Download image
+                await photo_file.download_to_drive(temp_path)
+                
+                # Use analyze_image from document_handlers with OCR-focused prompt
+                from handlers.document_handlers import analyze_with_gemini
+                
+                ocr_prompt = """
+                Extract and return ONLY the text visible in this image.
+                Format the text exactly as it appears.
+                Preserve line breaks and paragraph structure.
+                If there is no text visible, simply respond with "No text detected in this image."
+                DO NOT include any analysis or description of the image itself.
+                """
+                
+                # Extract text using Gemini
+                extracted_text = await analyze_with_gemini(temp_path, ocr_prompt)
+                
+                # Check if text was found
+                if not extracted_text or "No text detected" in extracted_text:
+                    await edit_or_reply(query, message,
+                        f"*{escape_markdown_v2(user.first_name)}\\-kun*\\~ Alya tidak menemukan teks dalam gambar ini\\. 🤔",
+                        parse_mode='MarkdownV2'
+                    )
+                else:
+                    # Format extracted text
+                    response = (
+                        f"*{escape_markdown_v2(user.first_name)}\\-kun*\\~ Alya menemukan teks berikut dalam gambar\\:\n\n"
+                        f"```\n{escape_markdown_v2(extracted_text)}\n```"
+                    )
+                    
+                    # Handle long text
+                    if len(response) > 4000:
+                        response = response[:3950] + "\n\n_Text too long\\, truncated\\._"
+                    
+                    await edit_or_reply(query, message, response, parse_mode='MarkdownV2')
+                    
+            finally:
+                # Clean up temp file
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception as e:
+                        logger.error(f"Failed to remove temp file: {e}")
+                        
+        except Exception as e:
+            logger.error(f"Error in OCR processing: {e}")
+            await edit_or_reply(query, message,
+                f"Gomen ne\\~ Ada error saat mengekstrak teks\\. \\. \\. 🥺\n\n"
+                f"Error: {escape_markdown_v2(str(e)[:100])}",
+                parse_mode='MarkdownV2'
+            )
+    else:
+        # Unknown mode
+        logger.warning(f"Unknown image mode: {mode}")
+        await edit_or_reply(query, message,
+            f"Gomennasai\\! Alya tidak mengenali mode gambar: `{escape_markdown_v2(mode)}`",
+            parse_mode='MarkdownV2'
+        )
+
+async def handle_missing_image_error(query, message) -> None:
+    """
+    Handle error when image is missing for processing.
     
+    Args:
+        query: CallbackQuery object
+        message: Message object
+    """
+    await edit_or_reply(query, message,
+        "Gomennasai\\! Alya tidak dapat menemukan gambar untuk diproses\\. \\. \\. 🥺",
+        parse_mode='MarkdownV2'
+    )
+
 # =========================
-# Sauce Callbacks
+# Source Search Callbacks
 # =========================
 
-async def handle_sauce_callback(query, user, source_type):
+async def handle_source_search_callback(query, user, search_type: str) -> None:
     """
     Process reverse image search callbacks.
     
     Args:
         query: CallbackQuery object
         user: User who triggered the callback
-        source_type: Type of source search (anime/lens)
+        search_type: Type of source search 
     """
     message = query.message
     original_msg = message.reply_to_message
+    
+    # Check if image exists
     if not original_msg or not original_msg.photo:
-        try:
-            await query.edit_message_text(
-                "Gomennasai\\! Alya tidak dapat menemukan gambar untuk dicari\\. \\. \\. 🥺",
-                parse_mode='MarkdownV2'
-            )
-        except BadRequest as e:
-            if "message is not modified" in str(e):
-                await message.reply_text(
-                    "Gomennasai\\! Alya tidak dapat menemukan gambar untuk dicari\\. \\. \\. 🥺",
-                    parse_mode='MarkdownV2'
-                )
-            else:
-                raise e
+        await handle_missing_image_error(query, message)
         return
     
-    # Get largest photo (best quality)
+    # Get largest photo
     photo = original_msg.photo[-1]
     
-    # Show searching status
-    try:
-        await query.edit_message_text(
-            f"*{user.first_name}\\-kun*\\~ Alya sedang mencari sumber gambarnya\\.\\.\\. 🔍",
-            parse_mode='MarkdownV2'
-        )
-    except BadRequest as e:
-        if "message is not modified" in str(e):
-            # Jika pesan tidak dapat diubah karena identik, kirim status melalui pesan baru
-            status_msg = await message.reply_text(
-                f"*{user.first_name}\\-kun*\\~ Alya sedang mencari sumber gambarnya\\.\\.\\. 🔍",
-                parse_mode='MarkdownV2'
-            )
-        else:
-            raise e
-    
-    # Get image file and process
-    try:
-        photo_file = await photo.get_file()
-        
-        if source_type == 'anime':
-            # Use SauceNAO for anime image search
-            sauce_results = await reverse_search_image(photo_file)
-            if not sauce_results or len(sauce_results) == 0:
-                # No results found
-                try:
-                    await query.edit_message_text(
-                        f"*{user.first_name}\\-kun*\\~ Alya tidak menemukan sumber gambar ini\\. \\. \\. 😔",
-                        parse_mode='MarkdownV2'
-                    )
-                except BadRequest as e:
-                    if "message is not modified" in str(e):
-                        await message.reply_text(
-                            f"*{user.first_name}\\-kun*\\~ Alya tidak menemukan sumber gambar ini\\. \\. \\. 😔",
-                            parse_mode='MarkdownV2'
-                        )
-                    else:
-                        raise e
-                return
-            
-            # Format and send results
-            response = format_sauce_results(sauce_results, user.first_name)
-            try:
-                await query.edit_message_text(
-                    response,
-                    parse_mode='MarkdownV2',
-                    disable_web_page_preview=True
-                )
-            except BadRequest as e:
-                if "message is not modified" in str(e):
-                    # Jika konten sama persis, kirim hasil sebagai pesan baru
-                    await message.reply_text(
-                        response,
-                        parse_mode='MarkdownV2',
-                        disable_web_page_preview=True
-                    )
-                else:
-                    raise e
-        elif source_type == 'lens':
-            # Generate Google Lens URL
-            file_url = f"https://lens.google.com/uploadbyurl?url={photo_file.file_path}"
-            escaped_username = user.first_name.replace('.', '\\.').replace('-', '\\-')
-                    
-            try:
-                await query.edit_message_text(
-                    f"*{escaped_username}\\-kun*\\~ Kamu bisa mencari dengan Google Lens\\:\n\n"
-                    f"[🔎 Buka di Google Lens]({file_url})",
-                    parse_mode='MarkdownV2',
-                    disable_web_page_preview=True
-                )
-            except BadRequest as e:
-                if "message is not modified" in str(e):
-                    await message.reply_text(
-                        f"*{escaped_username}\\-kun*\\~ Kamu bisa mencari dengan Google Lens\\:\n\n"
-                        f"[🔎 Buka di Google Lens]({file_url})",
-                        parse_mode='MarkdownV2',
-                        disable_web_page_preview=True
-                    )
-                else:
-                    raise e
-    except Exception as e:
-        logger.error(f"Error in sauce callback: {e}")
-        error_msg = "Gomen ne\\~ Ada error saat mencari sumber gambar\\. \\. \\. 🥺"
-        try:
-            await query.edit_message_text(error_msg, parse_mode='MarkdownV2')
-        except BadRequest as e:
-            if "message is not modified" in str(e):
-                await message.reply_text(error_msg, parse_mode='MarkdownV2')
-            else:
-                raise e
-
-# =========================
-# Try Search Callback
-# =========================
-
-async def handle_try_search_callback(query, user):
-    """
-    Handle try_search button callback from SauceNAO results.
-    
-    Provides user with instructions on using !search command as alternative.
-    
-    Args:
-        query: CallbackQuery object 
-        user: User who triggered the callback
-    """
-    message = query.message
-    
-    # Escape username for MarkdownV2
-    escaped_username = user.first_name.replace('.', '\\.').replace('-', '\\-')
-    
-    # Prepare help message for !search as alternative - FIX ESCAPING CHARACTERS
-    search_help = (
-        f"*{escaped_username}\\-kun*\\~ Alya akan menjelaskan cara mencari dengan \\!search\\!\n\n"
-        "Untuk mencari gambar dengan \\!search\\:\n"
-        "1\\. Reply pada gambar dengan pesan \"\\!search source\"\n"
-        "2\\. Atau kirim \"\\!search gambar \\<kata kunci\\>\"\n\n"
-        "Опции поиска \\(Opsi pencarian\\)\\:\n"
-        "• \\!search describe \\- analisis gambar\n"
-        "• \\!search source \\- cari sumber gambar\n\n"
-        "Alya\\-chan menggunakan mesin pencari berbeda\\, mungkin hasilnya lebih baik\\."
+    # Show search status
+    await edit_or_reply(query, message,
+        f"*{escape_markdown_v2(user.first_name)}\\-kun*\\~ Alya sedang mencari sumber gambarnya\\.\\.\\. 🔍",
+        parse_mode='MarkdownV2'
     )
     
+    # Process search based on type
     try:
-        # Update message with search help
-        await query.edit_message_text(
-            search_help,
-            parse_mode='MarkdownV2',
-            disable_web_page_preview=True
-        )
+        file = await photo.get_file()
+        
+        if search_type == "anime":
+            # Handle anime source search
+            from utils.saucenao import search_with_saucenao
+            
+            # Download image
+            temp_path = None
+            
+            try:
+                # Create temp file
+                temp_fd, temp_path = tempfile.mkstemp(suffix='.jpg')
+                os.close(temp_fd)
+                
+                # Download image
+                await file.download_to_drive(temp_path)
+                
+                # Search with SauceNAO
+                await search_with_saucenao(message, temp_path)
+                
+            finally:
+                # Clean up temp file
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception as e:
+                        logger.error(f"Failed to remove temp file: {e}")
+                        
+        elif search_type == "lens":
+            # Generate Google Lens URL
+            google_lens_url = f"https://lens.google.com/uploadbyurl?url={file.file_path}"
+            
+            await edit_or_reply(query, message,
+                f"*{escape_markdown_v2(user.first_name)}\\-kun*\\~ Kamu bisa mencari dengan Google Lens\\:\n\n"
+                f"[🔎 Buka di Google Lens]({escape_markdown_v2(google_lens_url)})",
+                parse_mode='MarkdownV2',
+                disable_web_page_preview=True
+            )
+            
+        else:
+            # Unknown search type
+            logger.warning(f"Unknown source search type: {search_type}")
+            await edit_or_reply(query, message,
+                f"Gomennasai\\! Alya tidak mengenali tipe pencarian: `{escape_markdown_v2(search_type)}`",
+                parse_mode='MarkdownV2'
+            )
+            
     except Exception as e:
-        logger.error(f"Error handling try_search callback: {e}")
-        try:
-            # Fallback to simple Markdown if MarkdownV2 fails
-            await message.reply_text(
-                f"{user.first_name}-kun~ Untuk mencari gambar, gunakan:\n"
-                "• !search source - saat reply ke gambar\n"
-                "• !search gambar <kata kunci> - untuk mencari gambar baru",
-                parse_mode='Markdown'
-            )
-        except Exception:
-            # Last resort without any parsing
-            await message.reply_text(
-                "Untuk mencari dengan !search, reply ke gambar dengan '!search source' atau kirim '!search gambar <kata kunci>'."
-            )
+        logger.error(f"Error in sauce callback: {e}")
+        await edit_or_reply(query, message,
+            f"Gomen ne\\~ Ada error saat mencari sumber gambar\\. \\. \\. 🥺\n\n"
+            f"Error: {escape_markdown_v2(str(e)[:100])}",
+            parse_mode='MarkdownV2'
+        )
 
 # =========================
 # Language Callbacks
 # =========================
 
-async def handle_language_callback(query, context, lang_code):
+async def handle_language_callback(query, context: CallbackContext, lang_code: str) -> None:
     """
     Process language selection callbacks.
     
@@ -348,88 +338,288 @@ async def handle_language_callback(query, context, lang_code):
         context: CallbackContext for state storage
         lang_code: Selected language code
     """
-    # Update user's language preference
-    # ...existing code...
+    message = query.message
+    user = query.from_user
+    
+    # Validate language code
+    if lang_code not in SUPPORTED_LANGUAGES:
+        await edit_or_reply(query, message,
+            f"Gomennasai\\! Alya tidak mendukung bahasa dengan kode: `{escape_markdown_v2(lang_code)}`",
+            parse_mode='MarkdownV2'
+        )
+        return
+    
+    # Update user language preference
+    user_id = user.id
+    
+    # Store in context manager
+    language_context = {
+        'timestamp': int(time.time()),
+        'language': lang_code,
+        'set_by_user_id': user_id,
+        'set_by_username': user.username or user.first_name,
+    }
+    
+    try:
+        context_manager.save_context(user_id, message.chat_id, 'language', language_context)
+        logger.info(f"User {user_id} set language to {lang_code}")
+        
+        # Update message to confirm change
+        language_name = SUPPORTED_LANGUAGES[lang_code]
+        await edit_or_reply(query, message,
+            f"*Bahasa berhasil diubah\\!* ✅\n\n"
+            f"*{escape_markdown_v2(user.first_name)}\\-kun*\\~ Alya akan menggunakan bahasa "
+            f"{escape_markdown_v2(language_name)} \\({escape_markdown_v2(lang_code)}\\) sekarang\\.",
+            parse_mode='MarkdownV2'
+        )
+    except Exception as e:
+        logger.error(f"Error setting language: {e}")
+        await edit_or_reply(query, message,
+            "Gomen ne\\~ Ada error saat mengubah bahasa\\. \\. \\. 🥺",
+            parse_mode='MarkdownV2'
+        )
+
+# =========================
+# Search Callbacks
+# =========================
+
+async def handle_search_callback(query, user, search_type: str) -> None:
+    """
+    Handle search-related callbacks.
+    
+    Args:
+        query: CallbackQuery object
+        user: User who triggered the callback
+        search_type: Type of search action
+    """
+    message = query.message
+    
+    # Process based on search type
+    if search_type == "web":
+        # Show web search interface
+        keyboard = [
+            [
+                InlineKeyboardButton("🔍 Regular Search", callback_data="search_regular"),
+                InlineKeyboardButton("🔎 Detail Search", callback_data="search_detail")
+            ]
+        ]
+        
+        markup = InlineKeyboardMarkup(keyboard)
+        await edit_or_reply(query, message,
+            f"*{escape_markdown_v2(user.first_name)}\\-kun*\\~ Pilih jenis pencarian yang kamu inginkan\\:",
+            reply_markup=markup,
+            parse_mode='MarkdownV2'
+        )
+        
+    elif search_type in ["regular", "detail"]:
+        # Provide search instructions
+        is_detailed = search_type == "detail"
+        detail_flag = "-d " if is_detailed else ""
+        
+        await edit_or_reply(query, message,
+            f"*{escape_markdown_v2(user.first_name)}\\-kun*\\~ Gunakan format berikut untuk pencarian\\:\n\n"
+            f"`!search {detail_flag}<kata kunci>`\n\n"
+            f"Contoh: `!search {detail_flag}jadwal kereta api bandung jakarta`",
+            parse_mode='MarkdownV2'
+        )
+        
+    else:
+        # Unknown search type
+        logger.warning(f"Unknown search type: {search_type}")
+        await edit_or_reply(query, message,
+            f"Gomennasai\\! Alya tidak mengenali tipe pencarian: `{escape_markdown_v2(search_type)}`",
+            parse_mode='MarkdownV2'
+        )
+
+# =========================
+# Pagination Callbacks
+# =========================
+
+async def handle_pagination_callback(query, context: CallbackContext, page_data: str) -> None:
+    """
+    Handle pagination for search results or other paginated content.
+    
+    Args:
+        query: CallbackQuery object
+        context: CallbackContext for state storage
+        page_data: Page data in format "type:id:page"
+    """
+    message = query.message
+    user = query.from_user
+    
+    try:
+        # Parse page data
+        page_parts = page_data.split(':')
+        if len(page_parts) < 3:
+            logger.warning(f"Invalid page data: {page_data}")
+            await edit_or_reply(query, message,
+                "Gomennasai\\! Data halaman tidak valid\\.",
+                parse_mode='MarkdownV2'
+            )
+            return
+            
+        content_type = page_parts[0]
+        content_id = page_parts[1]
+        page_num = int(page_parts[2])
+        
+        # Handle based on content type
+        if content_type == "search":
+            # Get search results from context
+            search_context = context_manager.get_context(user.id, message.chat_id, 'search')
+            if not search_context:
+                await edit_or_reply(query, message,
+                    "Gomennasai\\! Alya tidak menemukan hasil pencarian sebelumnya\\.",
+                    parse_mode='MarkdownV2'
+                )
+                return
+                
+            # Get results and paginate
+            results = search_context.get('results', [])
+            max_page = (len(results) - 1) // 5 + 1
+            page_num = max(1, min(page_num, max_page))
+            
+            # Display results for this page
+            start_idx = (page_num - 1) * 5
+            end_idx = min(start_idx + 5, len(results))
+            page_results = results[start_idx:end_idx]
+            
+            # Format results
+            results_text = f"*Hasil Pencarian (Halaman {page_num}/{max_page})*\n\n"
+            
+            for idx, result in enumerate(page_results, start=start_idx+1):
+                title = escape_markdown_v2(result.get('title', 'No title'))
+                snippet = escape_markdown_v2(result.get('snippet', 'No description'))
+                link = escape_markdown_v2(result.get('link', '#'))
+                
+                results_text += (
+                    f"{idx}\\. *{title}*\n"
+                    f"_{snippet}_\n"
+                    f"[🔗 Link]({link})\n\n"
+                )
+            
+            # Create pagination buttons
+            keyboard = []
+            nav_buttons = []
+            
+            if page_num > 1:
+                nav_buttons.append(InlineKeyboardButton("◀️ Prev", callback_data=f"page:search:{content_id}:{page_num-1}"))
+                
+            if page_num < max_page:
+                nav_buttons.append(InlineKeyboardButton("Next ▶️", callback_data=f"page:search:{content_id}:{page_num+1}"))
+                
+            if nav_buttons:
+                keyboard.append(nav_buttons)
+                
+            markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+            
+            # Update message
+            await edit_or_reply(query, message, results_text, 
+                                reply_markup=markup, 
+                                parse_mode='MarkdownV2')
+            
+        else:
+            # Unknown pagination type
+            logger.warning(f"Unknown pagination content type: {content_type}")
+            await edit_or_reply(query, message,
+                f"Gomennasai\\! Alya tidak mengenali tipe konten: `{escape_markdown_v2(content_type)}`",
+                parse_mode='MarkdownV2'
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in pagination: {e}")
+        await edit_or_reply(query, message,
+            "Gomen ne\\~ Ada error saat memproses pagination\\. \\. \\. 🥺",
+            parse_mode='MarkdownV2'
+        )
 
 # =========================
 # Helper Functions
 # =========================
 
-def format_sauce_results(results, username):
+async def edit_or_reply(query, message, text: str, **kwargs) -> None:
+    """
+    Edit message or reply if editing fails.
+    
+    Args:
+        query: CallbackQuery object
+        message: Original message
+        text: New text content
+        **kwargs: Additional arguments for edit/reply
+    """
+    try:
+        await message.edit_text(text, **kwargs)
+    except BadRequest as e:
+        # If message can't be modified, send a new message
+        if "message is not modified" in str(e):
+            logger.debug("Message not modified (identical content)")
+        else:
+            logger.error(f"Failed to edit message: {e}")
+            await message.reply_text(text, **kwargs)
+    except Exception as e:
+        logger.error(f"Error in edit_or_reply: {e}")
+        # Try simpler message as fallback
+        try:
+            await message.reply_text(
+                "Terjadi kesalahan saat memproses pesan. Silakan coba lagi.",
+                parse_mode=None
+            )
+        except Exception:
+            pass
+
+def format_sauce_results(results: List[Dict[str, Any]], username: str) -> str:
     """
     Format SauceNAO results with proper Markdown escaping.
     
     Args:
         results: List of source matches
         username: User's first name for personalization
-    
+        
     Returns:
         Formatted results string with MarkdownV2 escaping
     """
     # Escape username for MarkdownV2
-    escaped_username = username.replace('.', '\\.').replace('-', '\\-')
+    escaped_username = escape_markdown_v2(username)
     
     # Start with header
     response = f"*{escaped_username}\\-kun*\\~ Alya menemukan sumber gambar\\! 🎉\n\n"
     
-    # Ensure results is a list before slicing
+    # Ensure results is a list
     if not isinstance(results, list):
-        # Convert to list if it's not already one
-        if hasattr(results, 'items') and callable(getattr(results, 'items')):
-            # If it's a dict-like object
-            results_list = list(results.items())
-        elif hasattr(results, '__iter__'):
-            # If it's any other iterable
-            results_list = list(results)
-        else:
-            # If it's neither iterable nor dict-like
-            results_list = [results]
-    else:
-        results_list = results
+        results = [results] if results else []
     
-    # Get maximum 3 results safely
-    display_results = results_list[:min(3, len(results_list))]
+    # Get maximum 3 results
+    display_results = results[:min(3, len(results))]
+    
+    if not display_results:
+        return f"*{escaped_username}\\-kun*\\~ Alya tidak menemukan sumber gambar ini\\. 😔"
     
     # Add results with similarity
     for i, result in enumerate(display_results):
         try:
-            # Get values safely, handling different result formats
-            if isinstance(result, dict):
-                title = result.get('title', 'Unknown Title')
-                source = result.get('source', 'Unknown Source')
-                url = result.get('url', 'Unknown')
-                similarity = result.get('similarity', 0)
-            else:
-                # If not a dict, use string representation
-                title = str(result)
-                source = "Unknown Source"
-                url = "Unknown"
-                similarity = 0
+            # Get values safely
+            title = result.get('title', 'Unknown title')
+            source = result.get('source', 'Unknown source')
+            similarity = result.get('similarity', 0)
+            url = result.get('url', '')
             
             # Escape text for MarkdownV2
-            safe_title = title.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('*', '\\*')
-            safe_source = source.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!').replace('*', '\\*')
+            safe_title = escape_markdown_v2(title)
+            safe_source = escape_markdown_v2(source)
             
             response += f"*Hasil #{i+1}* \\({similarity}% match\\)\n"
             response += f"📌 *{safe_title}*\n"
             response += f"🔍 {safe_source}\n"
             
-            # Add URL with markdown link if available and valid
+            # Add URL with markdown link if available
             if url and url != 'Unknown':
-                # Make sure URL is properly formatted for Markdown
-                url_parts = url.split('://')
-                if len(url_parts) > 1:
-                    # Format as link only if it has proper protocol
-                    response += f"🔗 [Lihat Sumber]({url})\n"
-                else:
-                    # Otherwise just show the URL text
-                    safe_url = url.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!')
-                    response += f"🔗 URL: {safe_url}\n"
+                safe_url = escape_markdown_v2(url)
+                response += f"🌐 [Lihat Sumber]({safe_url})\n"
+                
             response += "\n"
         except Exception as e:
             logger.error(f"Error formatting result {i}: {e}")
             response += f"*Hasil #{i+1}*: Error formatting result\n\n"
-            
+    
     # Add footer with tip
     response += "_Klik link di atas untuk melihat sumber aslinya\\~_ ✨"
     return response
