@@ -887,5 +887,38 @@ class ContextManager:
             
         return self._safe_execute("get_db_stats", _operation)
 
+    def clear_chat_history(self, user_id: int, chat_id: Optional[int] = None) -> bool:
+        """
+        Clear chat history for a user/chat.
+        
+        Args:
+            user_id: User ID
+            chat_id: Optional chat ID (if None, clears all chats for user)
+            
+        Returns:
+            Success status
+        """
+        try:
+            conn = self._get_connection()
+            with conn:
+                if chat_id:
+                    # Clear history for specific chat
+                    conn.execute(
+                        'DELETE FROM chat_history WHERE user_id = ? AND chat_id = ?',
+                        (user_id, chat_id)
+                    )
+                else:
+                    # Clear history across all chats
+                    conn.execute(
+                        'DELETE FROM chat_history WHERE user_id = ?',
+                        (user_id,)
+                    )
+            
+            logger.info(f"Chat history cleared for user {user_id}, chat {chat_id or 'all'}")
+            return True
+        except Exception as e:
+            logger.error(f"Error clearing chat history: {e}")
+            return False
+
 # Create a singleton instance
 context_manager = ContextManager()

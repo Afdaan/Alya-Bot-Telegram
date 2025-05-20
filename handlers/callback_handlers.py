@@ -68,6 +68,10 @@ async def handle_callback_query(update: Update, context: CallbackContext) -> Non
             await handle_search_callback(query, user, callback_args)
         elif callback_type == "page":
             await handle_pagination_callback(query, context, callback_args)
+        elif callback_type == "persona":
+            # Import persona handler
+            from handlers.persona_handlers import handle_persona_callback
+            await handle_persona_callback(query, context, callback_args)
         else:
             # Unknown callback type
             logger.warning(f"Unknown callback type: {callback_type}")

@@ -232,21 +232,25 @@ class LanguageHandler:
         Returns:
             Formatted response text or empty string if not found
         """
-        # Use default language if none specified
-        language = language or self.default_language
-        
-        # Try to get from translations dict
-        if language in self.translations and key in self.translations[language]:
-            return self.translations[language][key]
-        
-        # If not found and not default language, try default
-        if language != self.default_language:
-            if self.default_language in self.translations and key in self.translations[self.default_language]:
-                return self.translations[self.default_language][key]
-                
-        # Not found
-        logger.warning(f"Response not found for key: '{key}' in language: '{language}'")
-        return ""
+        try:
+            # Use default language if none specified
+            language = language or self.default_language
+            
+            # Try to get from translations dict
+            if language in self.translations and key in self.translations[language]:
+                return self.translations[language][key]
+            
+            # If not found and not default language, try default
+            if language != self.default_language:
+                if self.default_language in self.translations and key in self.translations[self.default_language]:
+                    return self.translations[self.default_language][key]
+                    
+            # Not found
+            logger.warning(f"Response not found for key: '{key}' in language: '{language}'")
+            return ""
+        except Exception as e:
+            logger.error(f"Error getting response for key '{key}': {e}")
+            return ""
 
 # Create singleton instance
 language_handler = LanguageHandler()

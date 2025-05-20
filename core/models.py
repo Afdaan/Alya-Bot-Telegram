@@ -36,9 +36,8 @@ from config.settings import (
     HISTORY_EXPIRE,
     GEMINI_BACKUP_API_KEYS
 )
-from utils.rate_limiter import rate_limited, gemini_limiter
+from utils.rate_limiter import rate_limited, gemini_limiter, get_api_key_manager
 # Fix imports untuk hindari circular dependency
-from utils.rate_limiter import get_api_key_manager, gemini_limiter
 from utils.context_manager import context_manager
 
 # Setup logger
@@ -53,7 +52,8 @@ __all__ = [
     'can_user_chat',
     'is_message_valid',
     'generate_chat_response',
-    'generate_response'
+    'generate_response',
+    'fix_roleplay_format'
 ]
 
 # --------------------
@@ -122,16 +122,9 @@ def _convert_safety_settings() -> List[Dict[str, Any]]:
         ]
 
 # Define necessary helper functions
-def _get_current_gemini_key():
+def _get_current_gemini_key() -> str:
     """Get current Gemini API key from rotation manager."""
-    # fix import to avoid circular dependency
     return get_api_key_manager().get_current_key()
-
-# Configure Gemini API with proper key management
-def _get_current_gemini_key():
-    """Get current Gemini API key from rotation manager."""
-    from utils.rate_limiter import api_key_manager
-    return api_key_manager.get_current_key()
 
 # Updated initialization using key from manager
 try:
@@ -329,6 +322,10 @@ async def wait_for_rate_limit() -> None:
     global request_timestamps
     now = time.time()
     request_timestamps = [t for t in request_timestamps if now - t < 60]
+    
+    # Define constant for rate limiting - was using undefined var
+    MAX_REQUESTS_PER_MINUTE = 60
+    
     if len(request_timestamps) >= MAX_REQUESTS_PER_MINUTE:
         wait_time = 60 - (now - request_timestamps[0])
         logger.warning(f"Rate limit reached. Waiting {wait_time:.2f} seconds.")
@@ -341,8 +338,9 @@ async def wait_for_rate_limit() -> None:
 
 # Define paths to prompts
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-PROMPT_TEMPLATE_PATH = os.path.join(BASE_DIR, "config", "prompts", "templates", "chat.yaml")
-PERSONALITY_TEMPLATE_PATH = os.path.join(BASE_DIR, "config", "prompts", "personality.yaml")
+PERSONA_DIR = os.path.join(BASE_DIR, "config", "persona")
+PROMPT_TEMPLATE_PATH = os.path.join(PERSONA_DIR, "chat.yaml")
+PERSONALITY_TEMPLATE_PATH = os.path.join(PERSONA_DIR, "personality.yaml")
 
 def _load_personality_template() -> Dict[str, Any]:
     """
@@ -379,6 +377,24 @@ def get_personality_template() -> Dict[str, Any]:
 
 # Global prompt templates with lazy loading
 _PROMPT_TEMPLATES = None
+
+def _load_prompt_templates() -> Dict[str, Any]:
+    """
+    Load prompt templates from YAML file.
+    
+    Returns:
+        Dictionary of prompt templates
+    """
+    try:
+        if os.path.exists(PROMPT_TEMPLATE_PATH):
+            with open(PROMPT_TEMPLATE_PATH, 'r', encoding='utf-8') as f:
+                return yaml.safe_load(f) or {}
+        else:
+            logger.warning(f"Prompt templates not found at {PROMPT_TEMPLATE_PATH}, using defaults")
+            return {}
+    except Exception as e:
+        logger.error(f"Error loading prompt templates: {e}")
+        return {}
 
 def get_prompt_templates() -> Dict[str, Any]:
     """
@@ -449,13 +465,13 @@ async def generate_chat_response(
         # For debugging - print the values we're working with
         logger.debug(f"Memory context params - user_id: {user_id}, chat_id: {chat_id}")
         
-        # Determine if we need to check for memory recall intent
+        # Determine if we need to check for memory recall intent - SIMPLIFIED
         memory_recall_intent = detect_memory_recall_intent(message)
         
-        # Debug memory recall only with debug level (tidak ke console)
+        # Debug memory recall
         if memory_recall_intent:
-            logger.debug(f"Memory recall detected: {message[:30]}...")
-            
+            logger.debug(f"Memory recall detected in message: {message[:50]}...")
+        
         # Check cache only for non-memory-recall queries
         if not memory_recall_intent:
             cache_key = f"{user_id}:{message[:100]}"
@@ -469,32 +485,21 @@ async def generate_chat_response(
                 logger.debug(f"Using cached response for user {user_id}")
                 try:
                     # Run in thread to avoid blocking
-                    asyncio.create_task(
-                        _save_message_to_context_async(
-                            user_id, "user", message, chat_id, importance=1.2
-                        )
-                    )
-                    asyncio.create_task(
-                        _save_message_to_context_async(
-                            user_id, "assistant", cached_response, chat_id, importance=1.2
-                        )
-                    )
+                    # FIX: Function not defined earlier, fix async call without creating partial function
+                    asyncio.create_task(_save_message_to_context(user_id, "user", message, chat_id, 1.2))
+                    asyncio.create_task(_save_message_to_context(user_id, "assistant", cached_response, chat_id, 1.2))
                 except Exception as e:
                     logger.error(f"Error saving cached messages: {e}")
                 
                 return cached_response
         
-        # Get relevant conversation history with better formatting
+        # Get relevant conversation history with better formatting - SIMPLIFIED TO MATCH ORIGINAL
         conversation_context, history_messages = format_conversation_history(user_id, message, chat_id)
         
-        # Debug log untuk memory recall - PERBAIKAN: turunin log level
+        # Add memory instructions - KEEP IT SIMPLE
+        memory_instructions = ""
         if memory_recall_intent:
-            logger.debug(f"Memory recall requested by user {user_id}")
-            logger.debug(f"Conversation history available: {len(history_messages)} messages")
-            logger.debug(f"Conversation context: {conversation_context[:100]}...")
-        
-        # Always include memory instructions - ENHANCED for better recall
-        memory_instructions = create_memory_instructions(message, memory_recall_intent)
+            memory_instructions = create_memory_instructions(message, True)
         
         # Get chat model with higher token limit for all responses
         chat = chat_model.start_chat(history=[])
@@ -511,7 +516,9 @@ async def generate_chat_response(
             logger.warning("Using default personality prompt - YAML template not found")
             personality_prompt = """
 You are Alya (Alisa Mikhailovna Kujou), a half Japanese-Russian high school student with a tsundere personality.
-# ...rest of the hardcoded prompt as fallback...
+You are smart, sometimes sarcastic, and exhibit a unique blend of shy and confident behaviors.
+You initially act cold or dismissive but gradually show your caring side.
+You occasionally use Russian expressions when emotional (like "Bozhe moy!", "Chert!", "Pryvet", "Da").
 """
         
         # Add persona-specific traits if provided
@@ -545,7 +552,7 @@ You are Alya (Alisa Mikhailovna Kujou), a half Japanese-Russian high school stud
         
         # Generate response with parameters optimized for free tier
         generation_config = {
-            "max_output_tokens": 2048,   # Free plan limit
+            "max_output_tokens": 4096,   # Increased from 2048 to 4096 for longer responses
             "temperature": 0.92,          # Slightly higher temperature for more creativity
             "top_p": 0.97,                # Higher value allows more diverse word choices
             "top_k": 80                   # More candidates to choose from
@@ -562,17 +569,9 @@ You are Alya (Alisa Mikhailovna Kujou), a half Japanese-Russian high school stud
         # Save to persistent context in background task to avoid blocking
         importance = 1.5 if memory_recall_intent else 1.2
         try:
-            # Run database operations asynchronously
-            asyncio.create_task(
-                _save_message_to_context_async(
-                    user_id, "user", message, chat_id, importance=importance
-                )
-            )
-            asyncio.create_task(
-                _save_message_to_context_async(
-                    user_id, "assistant", response_text, chat_id, importance=importance
-                )
-            )
+            # Run database operations asynchronously - use fixed function
+            asyncio.create_task(_save_message_to_context(user_id, "user", message, chat_id, importance))
+            asyncio.create_task(_save_message_to_context(user_id, "assistant", response_text, chat_id, importance))
         except Exception as e:
             logger.error(f"Error saving to context: {e}")
         
@@ -588,7 +587,9 @@ You are Alya (Alisa Mikhailovna Kujou), a half Japanese-Russian high school stud
         
         # Check if it's a rate limit error (429)
         if "429" in str(e) or "quota" in str(e).lower() or "rate" in str(e).lower():
-            # Don't retry too many times
+            # Don't retry too many times - use API key manager directly from module import
+            from utils.rate_limiter import api_key_manager
+            
             if retry_count >= len(api_key_manager.all_keys):
                 logger.error(f"Exhausted all API keys after {retry_count} retries")
                 error_response = "Maaf, semua API quota habis. Coba lagi nanti ya... 🥺"
@@ -618,7 +619,7 @@ You are Alya (Alisa Mikhailovna Kujou), a half Japanese-Russian high school stud
         return error_response
 
 @rate_limited(gemini_limiter)
-async def generate_response(prompt: str) -> str:
+async def generate_response(prompt: str, persona_context: Optional[str] = None) -> str:
     """
     Simple wrapper to generate a response from Gemini model.
     
@@ -626,6 +627,7 @@ async def generate_response(prompt: str) -> str:
     
     Args:
         prompt: The prompt to send to the model
+        persona_context: Optional persona context to include
         
     Returns:
         Generated response as a string
@@ -644,10 +646,22 @@ async def generate_response(prompt: str) -> str:
             safety_settings=_convert_safety_settings()
         )
         
+        # Create enhanced prompt with persona if provided
+        full_prompt = prompt
+        if persona_context:
+            # Create a persona-enhanced prompt
+            full_prompt = (
+                f"You are Alya, a high school student with the following traits:\n\n"
+                f"{persona_context}\n\n"
+                f"User message: {prompt}\n\n"
+                f"Respond in Indonesian language in character as Alya. Add appropriate "
+                f"roleplay actions in asterisks (like *menghela napas*) and use at most 2 emoji."
+            )
+            
         # Generate response
         response = await asyncio.to_thread(
             model.generate_content,
-            prompt
+            full_prompt
         )
         
         # Check if we got a valid response
@@ -699,6 +713,7 @@ async def generate_response(prompt: str) -> str:
 def detect_memory_recall_intent(message: str) -> bool:
     """
     Detect if the message contains an intent to recall memory/previous messages.
+    Natural language understanding without relying on strict regex patterns.
     
     Args:
         message: User's message
@@ -707,38 +722,98 @@ def detect_memory_recall_intent(message: str) -> bool:
         Boolean indicating if message contains memory recall intent
     """
     # Lowercase for case-insensitive matching
-    message_lower = message.lower()
+    message_lower = message.lower().strip()
     
-    # Common patterns for asking about previous messages (in Indonesian and English)
-    recall_patterns = [
-        # Indonesian patterns (formal and slang)
-        "tadi (aku|gw|gue|saya|ku) (tanya|nanya|bilang|ngomong) apa",
-        "apa yang (aku|gw|gue|saya|ku) (tanya|nanya|bilang|ngomong) (sebelumnya|tadi|sebelum ini)",
-        "(coba )?(inget|ingat|ingatin) (apa yang|apa) (aku|gw|gue|saya|ku) (bilang|ngomong|tanya|nanya)",
-        "apa yang (kita|kite) (bahas|omongin|bicarain) (sebelumnya|tadi)",
-        "(sebelumnya|tadi) (kita|kite) (bahas|omongin|bicarain) apa",
-        "(pertanyaan|pesan|chat) (aku|gw|gue|saya|ku) (sebelumnya|tadi)",
+    # Use semantic understanding by checking for key phrases and contexts
+    
+    # Check for direct questions about previous messages/conversation
+    if any(phrase in message_lower for phrase in [
+        # Common Indonesian phrases for asking about previous messages
+        "tadi nanya apa", "tadi aku tanya", "tadi gw tanya", "tadi saya tanya",
+        "tadi aku bilang apa", "tadi gue bilang", "tadi gw bilang", "tadi saya bilang",
+        "tadi aku ngomong apa", "tadi gue ngomong", "tadi gw ngomong", "tadi saya ngomong",
+        "tadi kita bahas apa", "tadi kita omongin", 
         
-        # English patterns
-        "what did i (ask|say|tell|talk about) (before|previously|earlier|last time)",
-        "(do you )?(remember|recall) what i (asked|said|told you|talked about)",
-        "what were we (talking|discussing) about",
-    ]
+        # Common questions about previous context
+        "sebelumnya kita bahas", "yang sebelumnya", "pertanyaan sebelumnya",
+        "yang tadi", "yang barusan", "yang tadi kita", 
+        
+        # Memory/recall oriented phrases
+        "inget gak yang tadi", "masih inget gak", "masih ingat",
+        "coba ingat", "coba inget", "coba ingatin", 
+        
+        # English equivalents (simpler check)
+        "what did i ask", "what did i say", "i asked before", "previous question",
+        "what were we talking", "remember what i"
+    ]):
+        logger.debug(f"Memory recall detected by phrase matching in: {message[:30]}...")
+        return True
     
-    # Check if any pattern matches
-    for pattern in recall_patterns:
-        if re.search(pattern, message_lower):
+    # Check for context-based recall triggers
+    if ("yang" in message_lower and any(word in message_lower for word in 
+                                        ["tadi", "barusan", "sebelumnya"])):
+        if any(verb in message_lower for verb in 
+               ["tanya", "bilang", "ngomong", "bahas", "omongin"]):
+            logger.debug(f"Memory recall detected by context in: {message[:30]}...")
             return True
-            
-    # Check for simpler patterns
-    simple_recall_markers = ["tadi nanya apa", "tadi aku tanya", "tadi gue tanya", "tadi gw tanya",
-                           "sebelumnya aku", "i asked before", "what did i ask", "pertanyaan sebelumnya"]
     
-    for marker in simple_recall_markers:
-        if marker in message_lower:
-            return True
+    # Check for first-person references combined with recall indicators
+    first_person = ["aku", "gw", "gue", "saya", "ku"]
+    recall_verbs = ["tanya", "bilang", "ngomong", "bahas", "omongin", "katakan"]
+    time_indicators = ["tadi", "sebelumnya", "barusan", "sebelum ini"]
+    
+    # Check if there's a combination of first person + recall verb + time indicator
+    if (any(fp in message_lower for fp in first_person) and
+        any(rv in message_lower for rv in recall_verbs) and
+        any(ti in message_lower for ti in time_indicators)):
+        logger.debug(f"Memory recall detected by component analysis in: {message[:30]}...")
+        return True
     
     return False
+
+def create_memory_instructions(message: str, is_memory_recall: bool = False) -> str:
+    """
+    Create instruction block for memory recall based on message intent.
+    
+    Args:
+        message: User's message
+        is_memory_recall: Whether message contains memory recall intent
+    
+    Returns:
+        Memory instruction string
+    """
+    # Standard memory instructions
+    standard_instructions = (
+        "\n\nCONVERSATION MEMORY INSTRUCTIONS:\n"
+        "1. ALWAYS maintain awareness of the conversation history shown above.\n"
+        "2. If the user refers to previous messages or asks what they said before, directly "
+        "reference the numbered conversation context.\n"
+        "3. If asked about 'what I asked before' or similar questions (in ANY language or slang), "
+        "quote their previous message from the context.\n"
+        "4. Stay AWARE of what topics have been discussed previously.\n"
+        "5. Don't invent or imagine previous messages that aren't in the context.\n"
+    )
+    
+    # Enhanced instructions for memory recall intent
+    if is_memory_recall:
+        memory_recall_instructions = (
+            "\n\nMEMORY RECALL REQUEST DETECTED - EXTREMELY IMPORTANT INSTRUCTIONS:\n"
+            "1. User is asking what they said before or what they previously asked.\n"
+            "2. YOU MUST search the RECENT CONVERSATION HISTORY section above.\n"
+            "3. Find and QUOTE the most recent USER message before the current one.\n"
+            "4. Format your response EXACTLY like this: \"Kamu bertanya: '[exact previous question]'\"\n"
+            "5. NEVER make up content that isn't in the history.\n"
+            "6. EXAMPLES OF CORRECT RESPONSES:\n"
+            "   - User asks: \"tadi gw nanya apa?\" → You respond: \"Kamu bertanya: 'kamu bisa bahasa "
+            "rusia?'\"\n"
+            "   - User asks: \"what did I ask before?\" → You respond: \"Kamu bertanya: 'apakah kamu "
+            "suka anime?'\"\n"
+            "7. If you REALLY can't find any previous messages, respond: \"Maaf, sepertinya ini "
+            "pertanyaan pertamamu.\"\n"
+        )
+        return standard_instructions + memory_recall_instructions
+    
+    return standard_instructions
 
 def format_conversation_history(user_id: int, current_message: str, chat_id: Optional[int] = None) -> Tuple[str, List[Dict[str, Any]]]:
     """
@@ -798,56 +873,13 @@ def format_conversation_history(user_id: int, current_message: str, chat_id: Opt
     
     return conversation_context, history_messages
 
-def create_memory_instructions(message: str, is_memory_recall: bool = False) -> str:
-    """
-    Create instruction block for memory recall based on message intent.
-    
-    Args:
-        message: User's message
-        is_memory_recall: Whether message contains memory recall intent
-    
-    Returns:
-        Memory instruction string
-    """
-    # Standard memory instructions
-    standard_instructions = (
-        "\n\nCONVERSATION MEMORY INSTRUCTIONS:\n"
-        "1. ALWAYS maintain awareness of the conversation history shown above.\n"
-        "2. If the user refers to previous messages or asks what they said before, directly "
-        "reference the numbered conversation context.\n"
-        "3. If asked about 'what I asked before' or similar questions (in ANY language or slang), "
-        "quote their previous message from the context.\n"
-        "4. Stay AWARE of what topics have been discussed previously.\n"
-        "5. Don't invent or imagine previous messages that aren't in the context.\n"
-    )
-    
-    # Enhanced instructions for memory recall intent
-    if is_memory_recall:
-        memory_recall_instructions = (
-            "\n\nMEMORY RECALL REQUEST DETECTED - EXTREMELY IMPORTANT INSTRUCTIONS:\n"
-            "1. User is asking what they said before or what they previously asked.\n"
-            "2. YOU MUST search the RECENT CONVERSATION HISTORY section above.\n"
-            "3. Find and QUOTE the most recent USER message before the current one.\n"
-            "4. Format your response EXACTLY like this: \"Kamu bertanya: '[exact previous question]'\"\n"
-            "5. NEVER make up content that isn't in the history.\n"
-            "6. EXAMPLES OF CORRECT RESPONSES:\n"
-            "   - User asks: \"tadi gw nanya apa?\" → You respond: \"Kamu bertanya: 'kamu bisa bahasa "
-            "rusia?'\"\n"
-            "   - User asks: \"what did I ask before?\" → You respond: \"Kamu bertanya: 'apakah kamu "
-            "suka anime?'\"\n"
-            "7. If you REALLY can't find any previous messages, respond: \"Maaf, sepertinya ini "
-            "pertanyaan pertamamu.\"\n"
-        )
-        return standard_instructions + memory_recall_instructions
-    
-    return standard_instructions
-
 # Helper function to make DB operations async
-async def _save_message_to_context_async(
-    user_id: int, role: str, content: str, chat_id: int, importance: float = 1.0
-) -> None:
-    """Save message to context manager asynchronously."""
+async def _save_message_to_context(user_id: int, role: str, content: str, 
+                                  chat_id: Optional[int] = None,
+                                  importance: float = 1.0) -> None:
+    """Save message to context database with proper await handling."""
     try:
+        # Perbaikan: gunakan context_manager secara asinkron, tidak langsung await boolean
         await asyncio.to_thread(
             context_manager.add_message_to_history,
             user_id=user_id,
@@ -857,56 +889,65 @@ async def _save_message_to_context_async(
             importance=importance
         )
     except Exception as e:
-        logger.error(f"Async context save error: {e}")
+        logger.error(f"Error saving message to context: {e}")
 
-async def generate_image_analysis(image_path: str) -> str:
+# Fix HTML formatting helper (needed by document analysis)
+def fix_html_formatting(text: str) -> str:
     """
-    Generate advanced analysis of an image using Gemini.
+    Fix common HTML formatting issues in Gemini outputs.
     
     Args:
-        image_path: Path to the image file
+        text: Text with potential HTML formatting issues
         
     Returns:
-        Detailed analysis text
+        Text with fixed HTML formatting
     """
-    try:
-        # Use the existing model creation function instead of undefined gemini_pro_vision
-        model = _get_gemini_model(DEFAULT_MODEL)
-        
-        # Load the image for Gemini
-        from PIL import Image
-        image = Image.open(image_path)
-        
-        # Create the prompt for image analysis
-        prompt = """
-        Analisis gambar ini dengan detail. Berikan informasi tentang:
-        - Apa yang ada di gambar ini
-        - Objek utama yang terlihat
-        - Suasana atau setting dari gambar
-        - Jika ada teks, apa isinya
-        - Jika ini artwork atau gambar anime, karakter apa yang ada di dalamnya
-        
-        Berikan analisis dalam Bahasa Indonesia dengan gaya Alya (tsundere, tapi tetap profesional).
-        Jangan gunakan format Markdown, gunakan format yang sesuai untuk HTML tag <b> untuk bold, <i> untuk italic.
-        """
-        
-        # Generate response using the correct API
-        response = await asyncio.to_thread(
-            model.generate_content,
-            [prompt, image]
-        )
-        
-        analysis = response.text if response and hasattr(response, 'text') else ""
-        
-        # Limit to 3000 characters to avoid issues
-        if len(analysis) > 3000:
-            analysis = analysis[:3000] + "..."
-        
-        return analysis
-    except Exception as e:
-        logger.error(f"Gemini image analysis error: {e}")
-        return f"<i>Tidak dapat menganalisis gambar dengan Gemini: {str(e)[:100]}...</i>"
+    # Replace potential markdown * with HTML tags
+    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+    
+    # Find all unclosed HTML tags or tag fragments
+    unclosed_tag_pattern = r'</[a-zA-Z]*$'
+    text = re.sub(unclosed_tag_pattern, '', text)
+    
+    # Check for unbalanced tags in common formats
+    common_tags = ['b', 'i', 'u', 's', 'ul', 'li', 'ol', 'p', 'code', 'pre']
+    
+    # Count tag occurrences
+    tag_counts = {}
+    for tag in common_tags:
+        open_count = text.count(f'<{tag}') + text.count(f'<{tag} ')
+        close_count = text.count(f'</{tag}>')
+        tag_counts[tag] = open_count - close_count
+    
+    # Close unclosed tags
+    for tag, count in tag_counts.items():
+        if count > 0:
+            # Add closing tags at the end
+            text += f'</{tag}>' * count
+        elif count < 0:
+            # Too many closing tags - remove excess closing tags
+            excess_close = abs(count)
+            for _ in range(excess_close):
+                last_pos = text.rfind(f'</{tag}>')
+                if (last_pos >= 0):
+                    text = text[:last_pos] + text[last_pos + len(f'</{tag}>'):]
+    
+    # Fix incorrectly escaped < and >
+    text = text.replace('&lt;b&gt;', '<b>')
+    text = text.replace('&lt;/b&gt;', '</b>')
+    text = text.replace('&lt;i&gt;', '<i>')
+    text = text.replace('&lt;/i&gt;', '</i>')
+    
+    # Fix partial tags - find any leftover partial tags at the end
+    partial_pattern = r'</?[a-zA-Z0-9]*$'
+    match = re.search(partial_pattern, text)
+    if match:
+        text = text[:match.start()]
+    
+    return text
 
+# Document analysis function that was missing
 async def generate_document_analysis(text_content: str) -> str:
     """
     Generate analysis of document text using Gemini.
@@ -980,7 +1021,8 @@ async def generate_document_analysis(text_content: str) -> str:
                 "temperature": 0.7,          # More factual for analysis
                 "top_p": 0.95,
                 "top_k": 40
-            }
+            },
+            safety_settings=_convert_safety_settings()
         )
         
         # Generate response
@@ -1008,57 +1050,91 @@ async def generate_document_analysis(text_content: str) -> str:
         logger.error(f"Gemini document analysis error: {e}")
         return f"<i>Tidak dapat menganalisis dokumen: {str(e)[:100]}...</i>"
 
-def fix_html_formatting(text: str) -> str:
+# Function to analyze images that was missing
+async def generate_image_analysis(image_path: str, prompt: Optional[str] = None) -> str:
     """
-    Fix common HTML formatting issues in Gemini outputs.
+    Generate analysis of image using Gemini.
     
     Args:
-        text: Text with potential HTML formatting issues
+        image_path: Path to image file
+        prompt: Optional custom prompt to use
         
     Returns:
-        Text with fixed HTML formatting
+        Analysis text
     """
-    # Replace potential markdown * with HTML tags
-    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+    try:
+        import PIL.Image
+        
+        # Use current API key from rotation
+        current_key = _get_current_gemini_key()
+        genai.configure(api_key=current_key)
+        
+        # Open image
+        image = PIL.Image.open(image_path)
+        
+        # Create default prompt if not provided
+        if not prompt:
+            prompt = """
+            Analisis gambar ini dengan detail.
+            1. Jelaskan apa yang terlihat dalam gambar
+            2. Identifikasi objek utama, orang, atau elemen penting
+            3. Jelaskan konteks gambar bila memungkinkan
+            4. Berikan informasi tambahan yang relevan
+            
+            Gunakan bahasa Indonesia yang natural, dengan sedikit sentuhan tsundere.
+            Kamu bisa menggunakan tag HTML <b></b> untuk teks penting dan <i></i> untuk penekanan.
+            Jangan gunakan simbol markdown seperti *, **.
+            Maksimal gunakan 2 emoji dalam responmu.
+            """
+        
+        # Get model with current configuration - perlu define IMAGE_MODEL
+        from config.settings import IMAGE_MODEL
+        
+        model = genai.GenerativeModel(
+            model_name=IMAGE_MODEL,
+            generation_config={
+                "max_output_tokens": 800,
+                "temperature": 0.8,
+                "top_p": 0.95,
+                "top_k": 40
+            },
+            safety_settings=_convert_safety_settings()
+        )
+        
+        # Generate response with image
+        response = await asyncio.to_thread(
+            model.generate_content,
+            [prompt, image]
+        )
+        
+        analysis = response.text.strip() if response and response.text else "Tidak dapat menganalisis gambar."
+        
+        # Fix HTML formatting and ensure valid HTML for Telegram
+        analysis = fix_html_formatting(analysis)
+        
+        # Limit length of analysis
+        if len(analysis) > 3000:
+            analysis = analysis[:3000] + "..."
+        
+        return analysis
+    except Exception as e:
+        logger.error(f"Gemini image analysis error: {e}")
+        return f"<i>Tidak dapat menganalisis gambar dengan Gemini: {str(e)[:100]}...</i>"
+
+# Function for roleplay formatting that was mistakenly removed
+def fix_roleplay_format(text: str) -> str:
+    """
+    Fix and format roleplay actions in text for MarkdownV2.
     
-    # Find all unclosed HTML tags or tag fragments
-    unclosed_tag_pattern = r'</[a-zA-Z]*$'
-    text = re.sub(unclosed_tag_pattern, '', text)
+    Args:
+        text: Text with roleplay actions
+        
+    Returns:
+        Text with properly formatted roleplay actions
+    """
+    # Already escaped text with \* - convert to italic for proper roleplay formatting
+    # Match text between \*...\* and format as italics
+    pattern = r'\\*([^\\*]+)\\*'
+    result = re.sub(pattern, r'_\1_', text)
     
-    # Check for unbalanced tags in common formats
-    common_tags = ['b', 'i', 'u', 's', 'ul', 'li', 'ol', 'p', 'code', 'pre']
-    
-    # Count tag occurrences
-    tag_counts = {}
-    for tag in common_tags:
-        open_count = text.count(f'<{tag}') + text.count(f'<{tag} ')
-        close_count = text.count(f'</{tag}>')
-        tag_counts[tag] = open_count - close_count
-    
-    # Close unclosed tags
-    for tag, count in tag_counts.items():
-        if count > 0:
-            # Add closing tags at the end
-            text += f'</{tag}>' * count
-        elif count < 0:
-            # Too many closing tags - remove excess closing tags
-            excess_close = abs(count)
-            for _ in range(excess_close):
-                last_pos = text.rfind(f'</{tag}>')
-                if last_pos >= 0:
-                    text = text[:last_pos] + text[last_pos + len(f'</{tag}>'):]
-    
-    # Fix incorrectly escaped < and >
-    text = text.replace('&lt;b&gt;', '<b>')
-    text = text.replace('&lt;/b&gt;', '</b>')
-    text = text.replace('&lt;i&gt;', '<i>')
-    text = text.replace('&lt;/i&gt;', '</i>')
-    
-    # Fix partial tags - find any leftover partial tags at the end
-    partial_pattern = r'</?[a-zA-Z0-9]*$'
-    match = re.search(partial_pattern, text)
-    if match:
-        text = text[:match.start()]
-    
-    return text
+    return result

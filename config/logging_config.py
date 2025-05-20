@@ -1,136 +1,174 @@
 """
 Logging configuration for Alya Telegram Bot.
 
-This module sets up logging configuration with appropriate handlers and filters.
+Provides clean, minimal logging focused on application events and errors.
 """
 import logging
 import os
 import sys
-from typing import Dict, Optional
+from typing import Optional, Dict, Any, Callable, Type
 from functools import wraps
 
-# Default log level if not specified in settings
-DEFAULT_LOG_LEVEL = "INFO"
+# Custom log levels
+VERBOSE = 15  # Between DEBUG and INFO
+logging.addLevelName(VERBOSE, "VERBOSE")
 
-class ColorFormatter(logging.Formatter):
-    """Custom color formatter for prettier logging"""
-    
-    COLORS = {
-        'DEBUG': '\x1b[38;21m',     # Grey
-        'INFO': '\x1b[34;21m',      # Blue 
-        'WARNING': '\x1b[33;21m',   # Yellow
-        'ERROR': '\x1b[31;21m',     # Red
-        'CRITICAL': '\x1b[31;1m'    # Bold Red
+class MinimalFormatter(logging.Formatter):
+    """
+    Minimal formatter that removes unnecessary information for cleaner logs.
+    """
+    # Mapping for module prefix shortenings
+    MODULE_PREFIX_MAP = {
+        'telegram.': 'tg.',
+        'handlers.': 'handlers.',
+        'utils.': 'utils.',
+        'core.': 'core.',
     }
-    RESET = '\x1b[0m'
-    FORMAT = '[%(asctime)s] [%(levelname)s] %(message)s'
+    
+    def __init__(self):
+        super().__init__('%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+                         datefmt='%H:%M:%S')
+    
+    def format(self, record):
+        # Simplify logger names but keep enough context for readability
+        for prefix, short_prefix in self.MODULE_PREFIX_MAP.items():
+            if record.name.startswith(prefix):
+                parts = record.name.split('.')
+                if len(parts) > 1:
+                    # Keep module name but shorten the prefix
+                    module_name = parts[1] if len(parts) > 1 else ''
+                    record.name = f"{short_prefix}{module_name}"
+                break
+        
+        # Return formatted record
+        return super().format(record)
 
-    def format(self, record: logging.LogRecord) -> str:
-        color = self.COLORS.get(record.levelname, self.COLORS['INFO'])
-        formatter = logging.Formatter(
-            f'{color}{self.FORMAT}{self.RESET}',
-            datefmt='%H:%M:%S'
-        )
-        return formatter.format(record)
+class HTTPFilter(logging.Filter):
+    """
+    Filter out HTTP logs except errors.
+    """
+    # HTTP-related terms to filter
+    HTTP_TERMS = ['HTTP Request:', 'https://', 'http://']
+    
+    def filter(self, record):
+        # Get message (safely)
+        message = getattr(record, 'getMessage', lambda: '')()
+        
+        # Allow if not HTTP-related
+        if not any(term in message for term in self.HTTP_TERMS):
+            return True
+            
+        # For HTTP logs, only allow ERROR+ level
+        return record.levelno >= logging.ERROR
 
-def log_command(logger):
-    """Decorator untuk logging command execution & error tracking"""
+def setup_logging(log_level: Optional[str] = None) -> None:
+    """
+    Setup logging configuration.
+    
+    Args:
+        log_level: Override log level (debug, info, warning, error)
+    """
+    # Determine log level from environment or parameter
+    level_name = log_level or os.environ.get("LOG_LEVEL", "INFO").upper()
+    level_map = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR,
+    }
+    level = level_map.get(level_name, logging.INFO)
+    
+    # Create console handler
+    handler = logging.StreamHandler()
+    handler.setFormatter(MinimalFormatter())
+    
+    # Configure root logger
+    _configure_root_logger(level, handler)
+    
+    # Configure library loggers - avoid noisy logs from certain modules
+    _configure_library_loggers(level)
+    
+    # Disable prefix detection logs - avoid spammy logs for common operations
+    logging.getLogger('core.bot').setLevel(logging.WARNING)  # Set to WARNING to suppress INFO logs
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"Logging initialized at level {level_name}")
+
+def _configure_root_logger(level: int, handler: logging.Handler) -> None:
+    """Configure root logger with custom handler and level."""
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    
+    # Remove existing handlers
+    for h in root_logger.handlers:
+        root_logger.removeHandler(h)
+        
+    # Add our custom handler
+    root_logger.addHandler(handler)
+    
+    # Add HTTP filter
+    root_logger.addFilter(HTTPFilter())
+
+def _configure_library_loggers(app_level: int) -> None:
+    """Configure specific loggers for various libraries and modules."""
+    # 1. HTTP-related libraries - completely disabled except errors
+    http_libraries = ['httpx', 'urllib3', 'aiohttp', 'requests']
+    for name in http_libraries:
+        logging.getLogger(name).setLevel(logging.ERROR)
+    
+    # 2. Telegram-related libraries - only show errors
+    telegram_libraries = ['telegram', 'telegram.ext', 'telegram.bot']
+    for name in telegram_libraries:
+        logging.getLogger(name).setLevel(logging.ERROR)
+    
+    # 3. Background libraries - only show warnings
+    background_libraries = ['asyncio', 'apscheduler', 'PIL']
+    for name in background_libraries:
+        logging.getLogger(name).setLevel(logging.WARNING)
+    
+    # 4. App components - use app level
+    app_components = ['handlers', 'core', 'utils']
+    for name in app_components:
+        logging.getLogger(name).setLevel(app_level)
+
+def log_command(logger: logging.Logger) -> Callable:
+    """
+    Decorator for logging command execution with minimal output.
+    
+    Args:
+        logger: Logger instance to use
+        
+    Returns:
+        Decorator function
+    """
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Get command & function info
-            command = func.__name__.replace('_command', '').replace('handle_', '')
-            module = func.__module__
+            # Extract command metadata
+            command_name = func.__name__.replace('_command', '').replace('handle_', '')
+            user_id = _extract_user_id_from_args(args)
             
-            # Log command start with module path
-            logger.info(f"Command: !{command}")
-            logger.info(f"↳ Handler: {module}.{func.__name__}")
+            # Log with or without user ID
+            if user_id:
+                logger.info(f"Cmd: !{command_name} (uid: {user_id})")
+            else:
+                logger.info(f"Cmd: !{command_name}")
             
             try:
+                # Execute command
                 result = await func(*args, **kwargs)
-                logger.info(f"↳ Status: Success ✓")
                 return result
             except Exception as e:
-                # Log detailed error info
-                logger.error(
-                    f"↳ Error in {module}.{func.__name__}:\n"
-                    f"  Type: {type(e).__name__}\n"
-                    f"  Message: {str(e)}\n"
-                    f"  Args: {args}\n"
-                    f"  Kwargs: {kwargs}"
-                )
+                # Log error with minimal details
+                logger.error(f"Err in !{command_name}: {type(e).__name__} - {str(e)}")
+                # Re-raise to allow proper error handling
                 raise
             
         return wrapper
     return decorator
 
-def setup_logger(name: str = None, level: int = logging.INFO) -> logging.Logger:
-    """
-    Setup custom logger with colored output
-    
-    Args:
-        name: Logger name (optional)
-        level: Logging level (default: INFO)
-    
-    Returns:
-        Configured logger instance
-    """
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-
-    # Remove existing handlers
-    logger.handlers.clear()
-    
-    # Setup stdout handler with color formatting
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(ColorFormatter())
-    logger.addHandler(handler)
-
-    return logger
-
-def setup_logging(log_level: Optional[str] = None) -> None:
-    """
-    Configure logging with custom filters.
-    
-    Args:
-        log_level: Optional override for log level (default: from settings or INFO)
-    """
-    # If log_level not provided, try to get from environment or use default
-    if not log_level:
-        log_level = os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL)
-    
-    # Convert string level to logging constant
-    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
-    
-    logging.basicConfig(
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        level=numeric_level
-    )
-    
-    # Add custom filter to hide successful HTTP request logs
-    class HTTPFilter(logging.Filter):
-        """Filter to remove successful HTTP request logs."""
-        def filter(self, record):
-            return not (
-                'HTTP Request:' in record.getMessage() and 
-                'HTTP/1.1 200' in record.getMessage()
-            )
-    
-    # Add filter to root logger
-    logging.getLogger().addFilter(HTTPFilter())
-    
-    # Reduce verbosity for HTTP-related logs
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    
-    # Reduce verbosity for other libraries
-    logging.getLogger("core.models").setLevel(logging.WARNING)
-    logging.getLogger("utils.database").setLevel(logging.ERROR)
-    logging.getLogger("utils.context_manager").setLevel(logging.ERROR)
-    
-    # Remove spammy logs from telegram and asyncio
-    logging.getLogger("telegram").setLevel(logging.ERROR)
-    logging.getLogger("asyncio").setLevel(logging.WARNING)
-    
-    # Log setup completion
-    logging.info(f"Logging initialized with level: {log_level}")
+def _extract_user_id_from_args(args) -> Optional[int]:
+    """Extract user ID from handler function arguments if available."""
+    if args and hasattr(args[0], 'effective_user') and args[0].effective_user:
+        return args[0].effective_user.id
+    return None

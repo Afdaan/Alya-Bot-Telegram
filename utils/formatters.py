@@ -70,21 +70,32 @@ def format_markdown_response(text: str, username: Optional[str] = None,
     # Step 3: Process each part with appropriate formatting
     result = []
     
-    for part_type, content in parts:
+    for i, (part_type, content) in enumerate(parts):
         if part_type == 'text':
             # Regular text - escape markdown
             escaped = escape_markdown_v2(content)
             result.append(escaped)
         else:
-            # Roleplay action - format with brackets and italics
+            # Roleplay action - format with clear visual separation
             formatted_action = format_roleplay_action(content)
             result.append(formatted_action)
     
-    return ''.join(result)
+    # Join all parts
+    final_text = ''.join(result)
+    
+    # FIX: Remove any period at the beginning of text that was incorrectly added
+    if final_text.startswith('\\.'):
+        final_text = final_text[2:]
+        
+    # Clean up excessive newlines
+    final_text = re.sub(r'\n{3,}', '\n\n', final_text)
+    
+    return final_text
 
 def format_roleplay_action(text: str) -> str:
     """
     Format text as roleplay action with Telegram MarkdownV2 safety.
+    Like Character.AI style with italic text in brackets.
     
     Args:
         text: Action text like "melirik ke arah jendela"
@@ -98,8 +109,9 @@ def format_roleplay_action(text: str) -> str:
     # Escape all MarkdownV2 special characters
     escaped_text = escape_markdown_v2(text)
     
-    # Format as distinct block with italic formatting
-    return f"\n\n_\\[ {escaped_text} \\]_\n\n"
+    # Format as Character.AI style: _[ roleplay action ]_
+    # Add CLEAR newlines before and after for better visual separation
+    return f"\n\n_\\[ {escaped_text} \\]_\n\n"  # Tambahkan double newline sebelum dan sesudah
 
 def escape_markdown_v2(text: str) -> str:
     """
@@ -118,9 +130,10 @@ def escape_markdown_v2(text: str) -> str:
     special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', 
                     '-', '=', '|', '{', '}', '.', '!']
     
-    # Escape each special character
+    # Escape each special character without double escaping
     for char in special_chars:
-        text = text.replace(char, f'\\{char}')
+        # Only escape if not already escaped
+        text = re.sub(f'(?<!\\\\){re.escape(char)}', f'\\{char}', text)
         
     return text
 
@@ -128,7 +141,7 @@ def escape_markdown_v2(text: str) -> str:
 # Message Splitting
 # =====================
 
-def split_long_message(text: str, max_length: int = 4000) -> List[str]:
+def split_long_message(text: str, max_length: int = 4096) -> List[str]:
     """
     Split a long message into multiple parts that fit within Telegram limits.
     
@@ -196,7 +209,7 @@ def split_long_message(text: str, max_length: int = 4000) -> List[str]:
 
 def format_response_with_persona(
     message_text: str,
-    persona_type: str = "waifu",
+    persona_type: str = "tsundere",  # Default ke tsundere
     username: Optional[str] = None,
     additional_context: Optional[Dict[str, Any]] = None
 ) -> str:
@@ -223,23 +236,38 @@ def format_response_with_persona(
         # Apply personality traits to message
         if '{persona}' in message_text and persona_context:
             message_text = message_text.replace('{persona}', persona_context)
-            
+        
         # Handle special formatting for different personas
         if persona_type == "tsundere":
             # Add tsundere hesitation markers
             message_text = message_text.replace("...", "... b-baka!")
+            # Tambahkan lebih banyak emoji untuk tsundere
+            if "💫" not in message_text and "✨" not in message_text and "😤" not in message_text:
+                message_text += " 💫"
             
+        elif persona_type == "waifu":
+            # Add more sweetness for waifu mode
+            if not message_text.endswith(("✨", "💕", "💖", "🌸")):
+                message_text += " 💖"
+                
         elif persona_type == "toxic":
             # Add intensity to toxic mode
             message_text = message_text.replace("!", "!!!")
+            if "🔥" not in message_text and "🙄" not in message_text:
+                message_text += " 🔥"
             
-        # Add character closing based on persona
+        elif persona_type == "informative":
+            # Add academic touch
+            if not any(emoji in message_text for emoji in ["📚", "📝", "🔍", "💡"]):
+                message_text += " 📚"
+            
+        # Add character closing based on persona with CLEAR spacing
         if additional_context and additional_context.get("add_closing", True):
             closings = {
-                "waifu": "\n\n*dengan senyum manis* ✨",
-                "tsundere": "\n\n*melipat tangan* Hmph!",
-                "toxic": "\n\n*memutar mata* 🙄",
-                "smart": "\n\n*merapikan kacamata* 📊"
+                "waifu": "\n\n*dengan senyum manis* ✨💕",
+                "tsundere": "\n\n*melipat tangan* Hmph! 😤",
+                "toxic": "\n\n*memutar mata* 🙄🔥",
+                "informative": "\n\n*merapikan kacamata* 📊📚"
             }
             
             if persona_type in closings and not message_text.endswith(closings[persona_type]):
@@ -427,4 +455,5 @@ def format_command_help(commands: Dict[str, str], username: Optional[str] = None
     else:
         help_text += "\n*tersenyum manis* Ada yang bisa Alya bantu\\~?"
     
-    return escape_markdown_v2(help_text)
+    # Return with final escaping
+    return help_text  # Text is already escaped through the construction process

@@ -8,6 +8,7 @@ including command handlers and middleware.
 import logging
 import os
 import time
+import re
 from typing import Any, Dict, List
 
 from telegram import Update
@@ -21,17 +22,23 @@ from config.settings import (
     DEVELOPER_IDS, 
     DEFAULT_LANGUAGE,
     GROUP_CHAT_REQUIRES_PREFIX,
+    CHAT_PREFIX,
+    ADDITIONAL_PREFIXES,
+    ANALYZE_PREFIX,
+    SAUCE_PREFIX,
+    ROAST_PREFIX
 )
 from config.logging_config import setup_logging
 from utils.rate_limiter import limiter
-from handlers.dev_handlers import update_command
 
 # Import handlers
-from handlers.command_handlers import start, help_command, reset_command, handle_search
+from handlers.command_handlers import start, help_command, reset_command, handle_search, ping_command # Tambah ping_command disini
 from handlers.document_handlers import handle_document_image, handle_trace_command, handle_sauce_command
-from handlers.message_handlers import handle_message
+from handlers.message_handlers import handle_message, process_chat_message
 from handlers.callback_handlers import handle_callback_query
 from handlers.roast_handlers import handle_roast_command, handle_github_roast
+# Import developer handlers
+from handlers.dev_handlers import register_dev_handlers
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -43,66 +50,94 @@ def setup_handlers(app: Application) -> None:
     Args:
         app: Telegram bot application instance
     """
-    # Add handlers for commands
+    # Add handlers for basic commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("reset", reset_command))
-    
-    # Search command handler
     app.add_handler(CommandHandler("search", handle_search))
+    app.add_handler(CommandHandler("ping", ping_command, filters=filters.ChatType.PRIVATE))
     
-    # PERBAIKAN: Handler untuk menangkap commands di grup yang diawali dengan `!`
-    # Filter ini akan menangkap pesan teks yang diawali dengan !sauce, !trace, !search
+    # Register developer command handlers
+    register_dev_handlers(app)
+
+    # Handle !ai prefix (chat commands)
     app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & 
-        (filters.Regex(r'^!sauce\b') | filters.Regex(r'^!trace\b') | filters.Regex(r'^!search\b')),
-        handle_text_commands
+        filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{CHAT_PREFIX}\\b'),
+        handle_chat_prefix
     ))
     
-    # PERBAIKAN: Media handler dengan improved detection untuk caption commands
+    # Handle !alya prefix (alternative chat)
+    for prefix in ADDITIONAL_PREFIXES:
+        if prefix.startswith('!'):  # Only handle text prefixes, not mentions
+            app.add_handler(MessageHandler(
+                filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{prefix}\\b'),
+                handle_chat_prefix
+            ))
+    
+    # Handle !trace prefix (image analysis)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{ANALYZE_PREFIX}\\b'),
+        handle_trace_prefix
+    ))
+    
+    # Handle !sauce prefix (reverse image search)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{SAUCE_PREFIX}\\b'),
+        handle_sauce_prefix
+    ))
+    
+    # Handle !search prefix (web search)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex('^!search\\b'),
+        handle_search_prefix
+    ))
+    
+    # Handle !ocr prefix (text extraction)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex('^!ocr\\b'),
+        handle_ocr_prefix
+    ))
+    
+    # Handle !roast prefix (roasting)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{ROAST_PREFIX}\\b'),
+        handle_roast_prefix
+    ))
+    
+    # Media handler with caption commands - FIX: Using regex instead of lambda function
+    caption_prefixes = [
+        re.escape(ANALYZE_PREFIX), re.escape(SAUCE_PREFIX), "!ocr",
+        "/trace", "/sauce", "/ocr"
+    ]
+    caption_pattern = f"^({('|'.join(caption_prefixes))})"
+    
     app.add_handler(MessageHandler(
         (filters.PHOTO | filters.Document.ALL) & 
-        filters.Caption(lambda text: text is not None and any(
-            text.startswith(prefix) for prefix in [
-                "!trace", "!sauce", "!ocr", "/trace", "/sauce", "/ocr"
-            ]
-        )),
+        filters.CaptionRegex(caption_pattern),
         handle_document_image
     ))
     
-    # Trace/sauce commands
+    # Slash command handlers for media operations
     app.add_handler(CommandHandler("trace", _trace_command_handler))
     app.add_handler(CommandHandler("sauce", _sauce_command_handler))
-    app.add_handler(CommandHandler("ocr", _trace_command_handler))  # OCR uses same handler for now
+    app.add_handler(CommandHandler("ocr", _trace_command_handler))  # OCR uses same handler
     
-    # Callback query handler for buttons
-    app.add_handler(CallbackQueryHandler(handle_callback_query))
-        
     # Roast command handlers
     app.add_handler(CommandHandler("roast", handle_roast_command))
     app.add_handler(CommandHandler("github_roast", handle_github_roast))
     
-    # Message handler (should be last to catch all other messages)
-    # FIX: Filter handler untuk !ai, !alya gak berfungsi dengan benar
-    if GROUP_CHAT_REQUIRES_PREFIX:
-        # Jika kita mewajibkan prefix di grup, gunakan filter yang benar
-        # PERBAIKAN UTAMA: filter Regex untuk !ai dan !alya perlu diperbaiki 
-        app.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND & 
-            (filters.ChatType.PRIVATE | 
-             filters.Regex(r'^!ai\b') | filters.Regex(r'^!alya\b')), # Ini tetap ada
-            handle_message
-        ))
-    else:
-        # Kalau tidak wajib prefix, gunakan filter sederhana
-        app.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            handle_message
-        ))
+    # Callback query handler for buttons
+    app.add_handler(CallbackQueryHandler(handle_callback_query))
+    
+    # General message handler (runs after text command handlers)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_message
+    ))
     
     logger.info("All handlers have been registered")
 
-# Simple bridge handlers to avoid circular imports
+# Bridge handlers to avoid circular imports
 async def _trace_command_handler(update: Update, context: CallbackContext) -> None:
     """Bridge for trace/OCR command."""
     if not update.message:
@@ -115,55 +150,98 @@ async def _sauce_command_handler(update: Update, context: CallbackContext) -> No
         return
     await handle_sauce_command(update.message, update.effective_user, context)
 
-# New handler for text-based commands with ! prefix
-async def handle_text_commands(update: Update, context: CallbackContext) -> None:
+# SIMPLIFIED PREFIX HANDLERS - Each handler is dedicated to a specific prefix type
+
+async def handle_chat_prefix(update: Update, context: CallbackContext) -> None:
     """
-    Process text-based commands that start with ! (e.g., !trace, !sauce, !search).
-    
-    Args:
-        update: Telegram update object
-        context: Callback context
+    Handle !ai and !alya prefixes for chat.
     """
     if not update.message or not update.message.text:
         return
         
     message_text = update.message.text.strip()
     
-    # Dispatch based on command
-    if message_text.startswith("!search"):
-        # Remove prefix and pass to search handler
-        query = message_text[7:].strip()  # Remove "!search"
+    # Change log level from INFO to DEBUG to reduce noise
+    if hasattr(logger, 'debug'):
+        logger.debug(f"Chat prefix detected: '{message_text[:20]}...'")
+    
+    # Extract everything after the prefix
+    if message_text.lower().startswith(CHAT_PREFIX):
+        processed_text = message_text[len(CHAT_PREFIX):].strip()
+    elif any(message_text.lower().startswith(prefix) for prefix in ADDITIONAL_PREFIXES):
+        # Find which prefix was used
+        used_prefix = next(prefix for prefix in ADDITIONAL_PREFIXES if message_text.lower().startswith(prefix))
+        processed_text = message_text[len(used_prefix):].strip()
+    else:
+        processed_text = ""
+    
+    # Check if it's a roast command
+    if processed_text.lower().startswith("roast "):
+        roast_args = processed_text[6:].strip()
+        context.args = roast_args.split()
+        await handle_roast_command(update, context)
+    else:
+        # Process as regular chat
+        await process_chat_message(update, context, processed_text)
 
-        # FIX: Masalah ini terjadi karena context.args tidak bisa di-assign
-        # Gunakan approach yang lebih direct dengan membuat message text dan split args
-        modified_message = update.message
-        context.args = query.split()  # Ini akan bekerja di python-telegram-bot versi baru
-        await handle_search(update, context)
+async def handle_trace_prefix(update: Update, context: CallbackContext) -> None:
+    """
+    Handle !trace prefix for image analysis.
+    """
+    # Change log level from INFO to DEBUG
+    logger.debug(f"Trace prefix detected: '{update.message.text[:20]}...'")
+    await handle_trace_command(update.message, update.effective_user, context)
+
+async def handle_sauce_prefix(update: Update, context: CallbackContext) -> None:
+    """
+    Handle !sauce prefix for reverse image search.
+    """
+    # Change log level from INFO to DEBUG
+    logger.debug(f"Sauce prefix detected: '{update.message.text[:20]}...'")
+    await handle_sauce_command(update.message, update.effective_user, context)
+
+async def handle_search_prefix(update: Update, context: CallbackContext) -> None:
+    """
+    Handle !search prefix for web search.
+    """
+    if not update.message or not update.message.text:
+        return
         
-    elif message_text.startswith("!trace"):
-        # Jangan pakai update.message karena handle_trace_command harapkan Message bukan Update
-        await handle_trace_command(update.message, update.effective_user, context)
+    message_text = update.message.text.strip()
+    # Change log level from INFO to DEBUG
+    logger.debug(f"Search prefix detected: '{message_text[:20]}...'")
+    
+    # Extract query and process search
+    query = message_text[7:].strip()  # Remove "!search"
+    context.args = query.split()
+    await handle_search(update, context)
+
+async def handle_ocr_prefix(update: Update, context: CallbackContext) -> None:
+    """
+    Handle !ocr prefix for text extraction.
+    """
+    # Change log level from INFO to DEBUG
+    logger.debug(f"OCR prefix detected: '{update.message.text[:20]}...'")
+    await handle_trace_command(update.message, update.effective_user, context)
+
+async def handle_roast_prefix(update: Update, context: CallbackContext) -> None:
+    """
+    Handle !roast prefix for roasting.
+    """
+    if not update.message or not update.message.text:
+        return
         
-    elif message_text.startswith("!sauce"):
-        await handle_sauce_command(update.message, update.effective_user, context)
-        
-    # FIX: Tambahan handler untuk !ai - ini yang gak ada sebelumnya
-    elif message_text.startswith("!ai") or message_text.startswith("!alya"):
-        # Kita extract text setelah prefix
-        prefix_len = 3 if message_text.startswith("!ai") else 5
-        processed_text = message_text[prefix_len:].strip()
-        
-        # Pass ke message handler yang sama dengan chat biasa
-        from handlers.message_handlers import process_chat_message
-        await process_chat_message(update, context, processed_text) 
+    message_text = update.message.text.strip()
+    # Change log level from INFO to DEBUG
+    logger.debug(f"Roast prefix detected: '{message_text[:20]}...'")
+    
+    # Extract roast args and process
+    roast_args = message_text[len(ROAST_PREFIX):].strip()
+    context.args = roast_args.split()
+    await handle_roast_command(update, context)
 
 async def post_init(app: Application) -> None:
-    """
-    Post-initialization setup.
-    
-    Args:
-        app: Telegram bot application instance
-    """
+    """Post-initialization setup."""
     # Set default language for the bot
     app.bot_data["language"] = DEFAULT_LANGUAGE
     
@@ -173,21 +251,13 @@ async def post_init(app: Application) -> None:
     # Initialize rate limiter
     limiter.allowance = {"global": limiter.rate}
     limiter.last_check = {"global": time.time()}
-    
-    # Set up any required background tasks here
-    # ...existing code...
 
 def create_app() -> Application:
-    """
-    Create and configure the bot application instance.
-    
-    Returns:
-        Configured Application instance
-    """
+    """Create and configure the bot application instance."""
     if not TELEGRAM_BOT_TOKEN:
         raise ValueError("No Telegram bot token provided. Set the TELEGRAM_BOT_TOKEN environment variable.")
     
-    # Create application with persistence
+    # Create application with post_init callback
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
     
     # Setup handlers

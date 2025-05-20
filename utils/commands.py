@@ -1,8 +1,8 @@
 """
 Command Understanding for Alya Telegram Bot.
 
-This module uses natural language understanding to identify command intents
-without relying on rigid regex patterns.
+This module provides simplified prefix detection and command parsing
+utilities focused on reliability rather than complex NLU.
 """
 
 import logging
@@ -10,43 +10,43 @@ import random
 import re
 from typing import Dict, Optional, Tuple, Any, List, Set
 
+from config.settings import (
+    CHAT_PREFIX, 
+    ADDITIONAL_PREFIXES, 
+    GROUP_CHAT_REQUIRES_PREFIX,
+    ANALYZE_PREFIX,
+    SAUCE_PREFIX,
+    ROAST_PREFIX
+)
+
 logger = logging.getLogger(__name__)
 
 class CommandDetector:
-    """Natural command detection without regex patterns."""
+    """Simplified command detector focusing on prefix detection."""
     
     def __init__(self):
         """Initialize command detector."""
-        self.command_indicators = {
-            'roast': [
-                'roast', 'hina', 'toxic', 'bully', 'buli', 'flame', 'ejek',
-                '/roast', '/hina', '/bully', '/buli', '/flame', '/toxic'
-            ],
-            'search': [
-                'search', 'cari', 'find', 'lookup', '/search', '/cari', 
-                'tolong cari', 'please search', 'find me'
-            ],
-            'mode': [
-                'mode', 'persona', 'character', 'personality', 'switch',
-                '/mode', '/persona', 'ganti mode', 'change mode'
-            ],
-            'help': [
-                'help', 'bantuan', 'tolong', 'commands', '/help', '/bantuan',
-                '/commands', 'cara pakai', 'how to use'
-            ]
-        }
+        # All command prefixes from settings
+        self.all_prefixes = [
+            CHAT_PREFIX, ANALYZE_PREFIX, SAUCE_PREFIX, ROAST_PREFIX
+        ] + ADDITIONAL_PREFIXES
+        
+        # Recognized prefixes without duplicates
+        self.recognized_prefixes = list(set(self.all_prefixes))
+        
+        # Lowercase all prefixes for case-insensitive matching
+        self.recognized_prefixes = [prefix.lower() for prefix in self.recognized_prefixes]
     
-    def detect_command_type(self, message: str) -> Optional[str]:
+    def detect_prefix(self, message: str) -> Optional[str]:
         """
-        Detect command type using natural language understanding.
+        Detect if the message starts with a recognized prefix.
         
         Args:
             message: User message to analyze
             
         Returns:
-            Command type or None if not a command
+            The detected prefix or None if no prefix found
         """
-        # Clean and normalize message
         if not message:
             return None
             
@@ -55,140 +55,84 @@ class CommandDetector:
         # Skip empty messages
         if not clean_message:
             return None
-            
-        # First check for explicit AI command prefix
-        if clean_message.startswith("!ai "):
-            clean_message = clean_message[4:].strip()
-            
-        # Get first word for simple command detection
-        words = clean_message.split()
-        if not words:
-            return None
-            
-        first_word = words[0]
         
-        # Check all command types
-        for cmd_type, indicators in self.command_indicators.items():
-            # Check for direct match with first word
-            if first_word in indicators:
-                return cmd_type
+        # Check for exact prefix matches
+        for prefix in self.recognized_prefixes:
+            if clean_message.startswith(f"{prefix} ") or clean_message == prefix:
+                return prefix
                 
-            # Check for phrase match
-            if len(words) >= 3:
-                three_word_phrase = " ".join(words[:3])
-                for indicator in indicators:
-                    if " " in indicator and indicator in three_word_phrase:
-                        return cmd_type
-        
         return None
     
-    def extract_command_args(self, message: str, command_type: str) -> List[str]:
+    def extract_message_after_prefix(self, message: str, prefix: str) -> str:
         """
-        Extract command arguments based on detected command type.
+        Extract the actual message content after removing the prefix.
         
         Args:
             message: Original message text
-            command_type: Detected command type
+            prefix: Detected prefix
             
         Returns:
-            List of command arguments
+            Message without prefix
         """
-        if not message or not command_type:
-            return []
+        if not message or not prefix:
+            return ""
             
-        clean_message = message.lower().strip()
+        clean_message = message.strip()
         
-        # Skip AI prefix if present
-        if clean_message.startswith("!ai "):
-            clean_message = clean_message[4:].strip()
+        # Remove prefix if present (case-insensitive)
+        if clean_message.lower().startswith(f"{prefix.lower()} "):
+            return clean_message[len(prefix)+1:].strip()
             
-        # Find command word
-        for indicator in self.command_indicators.get(command_type, []):
-            if " " in indicator:
-                # Multi-word command
-                if clean_message.startswith(indicator):
-                    return clean_message[len(indicator):].strip().split()
-            else:
-                # Single word command
-                words = clean_message.split()
-                if words and words[0] == indicator:
-                    return words[1:] if len(words) > 1 else []
-        
-        return []
+        if clean_message.lower() == prefix.lower():
+            return ""
+                
+        return clean_message
     
-    def extract_roast_target(self, message: str) -> Optional[str]:
+    def should_respond_in_group(self, message: str) -> bool:
         """
-        Extract roast target through natural language understanding.
+        Determine if the bot should respond in a group chat.
         
         Args:
             message: Message text
             
         Returns:
-            Target username or None
+            True if the bot should respond
         """
-        args = self.extract_command_args(message, "roast")
-        if not args:
-            return None
+        if not GROUP_CHAT_REQUIRES_PREFIX:
+            return True
             
-        # First argument is the target
-        target = args[0]
+        if not message:
+            return False
+            
+        # Check if message starts with any recognized prefix
+        return self.detect_prefix(message) is not None
         
-        # Remove @ prefix if present
-        if target.startswith("@"):
-            target = target[1:]
-            
-        # Remove "si" prefix if present
-        if target == "si" and len(args) > 1:
-            target = args[1]
-            
-        # Basic validation
-        if len(target) >= 2 and target.isalnum():
-            return target
-            
-        return None
-    
-    def extract_search_query(self, message: str) -> Optional[str]:
+    def is_roast_command(self, message: str) -> bool:
         """
-        Extract search query from message.
+        Check if the message is a roast command.
         
         Args:
             message: Message text
             
         Returns:
-            Search query or None
+            True if it's a roast command
         """
-        args = self.extract_command_args(message, "search")
-        if not args:
-            return None
+        if not message:
+            return False
             
-        # Join all args for the search query
-        return " ".join(args)
-    
-    def extract_mode_name(self, message: str) -> Optional[str]:
-        """
-        Extract mode name from mode switch command.
+        # First check if it has a chat prefix with "roast"
+        message_lower = message.lower().strip()
         
-        Args:
-            message: Message text
+        if message_lower.startswith(f"{CHAT_PREFIX} roast ") or message_lower.startswith("!alya roast "):
+            return True
             
-        Returns:
-            Mode name or None
-        """
-        args = self.extract_command_args(message, "mode")
-        if not args:
-            return None
+        # Then check for direct roast prefix
+        if message_lower.startswith(f"{ROAST_PREFIX} ") or message_lower == ROAST_PREFIX:
+            return True
             
-        # First arg is the mode name
-        mode_name = args[0].lower()
-        
-        # Validate mode
-        valid_modes = {"waifu", "tsundere", "smart", "toxic", "professional"}
-        if mode_name in valid_modes:
-            return mode_name
-            
-        return None
+        return False
 
-# Create a singleton instance for global use
+# Create singleton instance
 command_detector = CommandDetector()
 
 def parse_command_args(text: str) -> Tuple[str, List[str]]:
@@ -196,7 +140,7 @@ def parse_command_args(text: str) -> Tuple[str, List[str]]:
     Parse command and arguments from a text message.
     
     Args:
-        text: The message text
+        text: Message text
         
     Returns:
         Tuple of (command, args)
@@ -212,20 +156,20 @@ def parse_command_args(text: str) -> Tuple[str, List[str]]:
 
 def get_random_roast(target: str, is_github: bool = False) -> str:
     """
-    Generate a random roast message for the target.
+    Generate a random roast for the target.
     
     Args:
         target: Person to roast
-        is_github: Whether to use GitHub-specific roasts
+        is_github: Whether to use GitHub roasts
         
     Returns:
-        Roast message with target name inserted
+        Roast message with target name
     """
     # Sanitize target name
     if not target or len(target) > 50:
         target = "user"
         
-    # Collection of brutal roasts
+    # Collection of roasts
     github_roasts = [
         "*melihat repository {target}* ANJING CODE APA INI? Mending lu hapus GitHub account sebelum bikin malu komunitas programmer!",
         "PR dari {target}? *tertawa sinis* Merge conflict parah banget, SAMA KAYAK OTAK LO YANG KONFLIK SAMA LOGIKA! 💩",
@@ -246,9 +190,57 @@ def get_random_roast(target: str, is_github: bool = False) -> str:
         "Ya ampun {target}... *memutar mata* Code lu kacau, hidup lu kacau, semua tentang lu bikin muak! 🤮"
     ]
     
-    # Choose appropriate roast collection
+    # Select appropriate roast collection
     roast_collection = github_roasts if is_github else regular_roasts
     
-    # Select random roast and format with target name
+    # Select random roast and format
     roast_template = random.choice(roast_collection)
     return roast_template.format(target=target)
+
+def is_media_command(message: str) -> bool:
+    """
+    Check if message is a media command.
+    
+    Args:
+        message: Message text
+        
+    Returns:
+        True if it's a media command
+    """
+    if not message:
+        return False
+        
+    message_lower = message.lower().strip()
+    
+    return (message_lower.startswith(f"{ANALYZE_PREFIX} ") or 
+            message_lower == ANALYZE_PREFIX or
+            message_lower.startswith(f"{SAUCE_PREFIX} ") or
+            message_lower == SAUCE_PREFIX)
+
+def extract_roast_target(message: str) -> Optional[str]:
+    """
+    Extract target username from roast command.
+    
+    Args:
+        message: Message text
+        
+    Returns:
+        Target username or None
+    """
+    if not message:
+        return None
+        
+    # Check if it's a roast command
+    message_lower = message.lower().strip()
+    
+    for prefix in [f"{ROAST_PREFIX} ", "!ai roast ", "!alya roast "]:
+        if message_lower.startswith(prefix):
+            args = message_lower[len(prefix):].strip().split()
+            if args:
+                target = args[0]
+                # Remove @ if present
+                if target.startswith("@"):
+                    target = target[1:]
+                return target
+    
+    return None

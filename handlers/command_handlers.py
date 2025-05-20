@@ -45,6 +45,9 @@ logger = logging.getLogger(__name__)
 # Initialize search engine
 search_engine = SearchEngine()
 
+# Record process start time
+process_start_time = time.time()
+
 # =========================
 # Basic Commands
 # =========================
@@ -137,8 +140,9 @@ async def help_command(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text(
         help_text,
         parse_mode='MarkdownV2'
-    )
+    );
 
+@log_command(logger)
 async def reset_command(update: Update, context: CallbackContext) -> None:
     """
     Handle /reset command to clear chat history.
@@ -149,6 +153,7 @@ async def reset_command(update: Update, context: CallbackContext) -> None:
     """
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
+    username = update.effective_user.first_name
     
     # Clear in-memory chat history
     if user_id in user_chats:
@@ -168,13 +173,72 @@ async def reset_command(update: Update, context: CallbackContext) -> None:
         context_manager.save_context(user_id, chat_id, 'memory_reset', context_data)
         
         logger.info(f"Chat history reset for user {user_id}")
+        
+        # Create a safe response message without relying on get_response
+        safe_response = f"*{escape_markdown_v2(username)}\\-kun\\~* Alya berhasil menghapus history chat kamu\\! 🌸\n\n" \
+                       f"Memorinya sudah terhapus\\. Alya sudah lupa percakapan sebelumnya\\."
+        
+        await update.message.reply_text(
+            safe_response,
+            parse_mode='MarkdownV2'
+        )
     except Exception as e:
         logger.error(f"Error clearing persistent context: {e}")
+        # Fallback response when error
+        await update.message.reply_text(
+            f"Gomennasai, {username}-kun! Ada error saat menghapus history. 😔",
+            parse_mode=None
+        )
+
+@log_command(logger)
+async def ping_command(update: Update, context: CallbackContext) -> None:
+    """
+    Handle /ping command to check bot status.
     
-    await update.message.reply_text(
-        get_response("reset", context),
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
+    start_time = time.time()
+    
+    # Send initial message
+    message = await update.message.reply_text(
+        "Pong! Menghitung latency...",
+        parse_mode=None
+    )
+    
+    # Calculate time elapsed
+    end_time = time.time()
+    elapsed_ms = (end_time - start_time) * 1000
+    
+    # Update message with latency info
+    uptime = int(time.time() - process_start_time)
+    uptime_str = format_uptime(uptime)
+    
+    await message.edit_text(
+        f"*Pong\\!* 🏓\n\n"
+        f"Latency: `{elapsed_ms:.2f}ms`\n"
+        f"Uptime: `{uptime_str}`\n"
+        f"Status: *Online* ✅",
         parse_mode='MarkdownV2'
     )
+
+def format_uptime(seconds: int) -> str:
+    """Format seconds into days, hours, minutes, seconds string."""
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0 or days > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0 or hours > 0 or days > 0:
+        parts.append(f"{minutes}m")
+    parts.append(f"{seconds}s")
+    
+    return " ".join(parts)
 
 # =========================
 # Search Command
@@ -194,7 +258,6 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
     
     # Rate limiting - Only pass user_id, not other arguments
     allowed, wait_time = await limiter.acquire_with_feedback(user_id)
-    
     if not allowed:
         wait_msg = f"Tunggu {wait_time:.1f} detik sebelum mencoba lagi."
         await update.message.reply_text(wait_msg, parse_mode=None)
@@ -241,24 +304,22 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
                     "💡 *Mode Describe* terdeteksi\\! Alya akan menganalisis gambar ini\\.\\.\\.",
                     parse_mode='MarkdownV2'
                 )
-                
                 from handlers.document_handlers import process_file
                 await process_file(update.message.reply_to_message, update.effective_user, image_file, "jpg")
                 return
-                
+            
             # Handle image source search request
             elif any(keyword in query_lower for keyword in ["source", "sumber", "sauce", "origin", "asal"]):
                 await update.message.reply_text(
                     "💡 *Mode Source Search* terdeteksi\\! Alya akan mencari sumber gambar ini\\.\\.\\.",
                     parse_mode='MarkdownV2'
                 )
-                
                 from handlers.document_handlers import handle_sauce_command
                 await handle_sauce_command(update.message.reply_to_message, update.effective_user)
                 return
-                
+            
             else:
-                # Default: Show option buttons
+                # Default: Show options
                 keyboard = [
                     [
                         InlineKeyboardButton("📝 Describe (Analisis Gambar)", callback_data=f"img_describe"),
@@ -283,12 +344,11 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
         # Send searching indicator with randomized message
         searching_msgs = [
             "🔍 Sedang mencari informasi\\.\\.\\.",
-            "🔎 Mencari hasil terbaik untuk kamu\\.\\.\\.", 
+            "🔎 Mencari hasil terbaik untuk kamu\\.\\.\\.",
             "🧐 Memindai internet untuk informasi\\.\\.\\.",
             "⏳ Mencari data terbaru\\.\\.\\."
         ]
         searching_msg = random.choice(searching_msgs)
-        
         msg = await update.message.reply_text(
             searching_msg,
             parse_mode='MarkdownV2'
@@ -342,7 +402,6 @@ async def handle_search(update: Update, context: CallbackContext) -> None:
             logger.debug(f"Search context saved for query: {query}")
         except Exception as e:
             logger.error(f"Error saving search context: {e}")
-            
     except Exception as e:
         logger.error(f"Search error: {e}", exc_info=True)
         await update.message.reply_text(
@@ -380,14 +439,13 @@ async def send_search_results(update: Update, msg, search_text: str, image_resul
                             if url and not url.startswith(('http://', 'https://')):
                                 url = 'https://' + url
                                 
-                            # PERBAIKAN: Sanitasi title agar tidak mengandung karakter yang bisa mengganggu URL
+                            # PERBAIKAN: Sanitasi title agar tidak mengganggu URL
                             title = title.strip()[:15]  # Batasi panjang title
-                            
                             url_buttons.append((title, url))
                         except Exception as e:
                             logger.warning(f"Error parsing URL pair '{pair}': {e}")
         
-        # Clean and format search text
+        # Clean and format search text    
         formatted_text = clean_search_text(search_text)
         
         # Create inline keyboard if we have URLs
@@ -412,12 +470,11 @@ async def send_search_results(update: Update, msg, search_text: str, image_resul
             disable_web_page_preview=True,
             reply_markup=reply_markup
         )
-            
+        
         # If there are image results, send them in a cleaner format
         if image_results and len(image_results) > 0:
             # Filter valid images and extract useful information
             valid_images = []
-            
             for img in image_results[:3]:  # Limit to 3 images
                 # Check if the image has required fields
                 image_url = (img.get('url') or img.get('thumbnail') or 
@@ -499,46 +556,21 @@ def clean_search_text(text: str) -> str:
     
     Args:
         text: Raw search result text
-        
     Returns:
         Cleaned and formatted text
     """
-    # Fix inconsistent formatting
     lines = text.splitlines()
     cleaned_lines = []
     
-    # Add better formatting for search results
     for i, line in enumerate(lines):
         # Bold the title "Results for..."
         if line.startswith("Results for "):
             cleaned_lines.append(f"🔍 {line}")
             continue
-            
-        # Keep URL lines intact, don't strip them out!
-        if line.startswith("🔗 http"):
-            cleaned_lines.append(line)
-            continue
-            
-        # Skip empty URLs and placeholders
-        if line == "🔗 #":
-            continue
-            
-        # Format links with emojis based on content
-        if (line.startswith("http") or "://" in line) and not line.startswith("🔗 "):
-            # Add emoji if missing
-            cleaned_lines.append(f"🔗 {line}")
-            continue
-            
-        # Make section starts more obvious
-        if line.startswith("📌 ") or line.startswith("📍 "):
-            cleaned_lines.append("\n" + line)
-            continue
-            
+        
         # Use emoji indicators for different types of results
-        if i > 0 and lines[i-1].startswith("Results for "):
+        if any(x in line.lower() for x in ["wikipedia", "wiki"]):
             cleaned_lines.append(f"📄 {line}")
-        elif "wikipedia" in line.lower():
-            cleaned_lines.append(f"📚 {line}")
         elif "github" in line.lower():
             cleaned_lines.append(f"💻 {line}")
         elif any(x in line.lower() for x in ["berita", "news", "artikel"]):
