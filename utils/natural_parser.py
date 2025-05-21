@@ -9,6 +9,8 @@ import logging
 import re
 from typing import Dict, List, Optional, Tuple, Any
 
+from config.settings import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
+
 logger = logging.getLogger(__name__)
 
 # Add the missing function that's being imported
@@ -232,15 +234,16 @@ class NaturalLanguageParser:
         Returns:
             Language code ('id', 'en', or 'unknown')
         """
+        # Default to the system's default language if text is empty
         if not text:
-            return 'id'  # Default to Indonesian
+            return DEFAULT_LANGUAGE
         
         # Clean and tokenize text
         clean_text = text.lower()
         words = re.findall(r'\b[a-z]+\b', clean_text)
         
         if not words:
-            return 'id'  # Default to Indonesian if no words found
+            return DEFAULT_LANGUAGE
         
         # Count matches for each language
         id_count = sum(1 for word in words if word in self.language_indicators['id'])
@@ -251,7 +254,7 @@ class NaturalLanguageParser:
         elif en_count > id_count:
             return 'en'
         else:
-            return 'id'  # Default to Indonesian if tied
+            return DEFAULT_LANGUAGE
     
     def extract_keywords(self, text: str, max_keywords: int = 5) -> List[str]:
         """

@@ -81,6 +81,7 @@ Thumbs.db
 .github/prompts/copilot-*.md
 .github/prompts/
 .github/copilot-*.md
+copilot-*.md
 
 #Test
 *.test

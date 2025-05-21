@@ -1,377 +1,311 @@
 """
-Rate Limiting Utilities for Alya Bot.
+Rate limiting utilities for API calls and request management.
 
-This module provides utilities for limiting the rate of various operations
-to ensure responsible use of external APIs and prevent abuse.
+This module provides rate limiting decorators and an API key rotation manager
+to ensure API quota compliance and graceful fallbacks.
 """
-
-import logging
 import time
 import asyncio
-from typing import Dict, Any, Optional, Callable, TypeVar, Awaitable, Tuple, Union
-import functools
+import logging
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Callable, Optional, Union, TypeVar, Awaitable, Tuple
+from functools import wraps
 
+# Setup logger
 logger = logging.getLogger(__name__)
 
-# Type variables for generics
+# Type variables for generic function annotations
 T = TypeVar('T')
+FuncT = TypeVar('FuncT', bound=Callable[..., Any])
+AsyncFuncT = TypeVar('AsyncFuncT', bound=Callable[..., Awaitable[Any]])
 
-class RateLimiter:
-    """
-    Rate limiter implementation to prevent abuse.
-    """
-    def __init__(self, 
-                 rate: int = 3, 
-                 per: int = 60, 
-                 operations_per_minute: Optional[int] = None,
-                 operations_per_user_minute: Optional[int] = None,
-                 cooldown_period: Optional[int] = None):
+class ApiKeyRateLimiter:
+    """Rate limiter for API requests with configurable limits."""
+    
+    def __init__(self, max_requests: int = 60, time_window: int = 60):
         """
         Initialize rate limiter.
         
         Args:
-            rate: Number of requests allowed (deprecated, use operations_per_minute)
-            per: Time period in seconds (deprecated)
-            operations_per_minute: Number of operations allowed per minute
-            operations_per_user_minute: Number of operations allowed per user per minute
-            cooldown_period: Additional cooldown period in seconds
+            max_requests: Maximum number of requests allowed in the time window
+            time_window: Time window in seconds
         """
-        # Handle both old and new parameter styles
-        if operations_per_minute is not None:
-            self.rate = operations_per_minute
-            self.per = 60  # Always per minute
-        else:
-            self.rate = rate
-            self.per = per
-            
-        self.user_rate = operations_per_user_minute if operations_per_user_minute is not None else self.rate
-        self.cooldown = cooldown_period if cooldown_period is not None else 0
-        
-        self.allowance = {}  # Global allowance
-        self.user_allowance = {}  # Per-user allowance
-        self.last_check = {}
-        self.user_last_check = {}
-
-    # Deprecated - use acquire_with_feedback instead
-    async def acquire(self, user_id: Optional[int] = None) -> bool:
-        """
-        Attempt to acquire a token for the user.
-        
-        Args:
-            user_id: Telegram user ID (optional)
-            
-        Returns:
-            True if allowed, False if rate limited
-        """
-        allowed, _ = await self._check_rate_limits(user_id)
-        return allowed
-
-    async def acquire_with_feedback(self, 
-                                   update_or_user_id: Any = None, 
-                                   context_or_type: Any = None,
-                                   *args, **kwargs) -> Tuple[bool, Optional[float]]:
-        """
-        Acquire with feedback on wait time. Handles both legacy and new parameter formats.
-        
-        Args:
-            update_or_user_id: Either Update object, user_id, or None
-            context_or_type: Either context object, operation type, or None
-            *args: Additional args (ignored)
-            **kwargs: Additional kwargs (ignored)
-            
-        Returns:
-            Tuple of (allowed: bool, wait_time: Optional[float]) indicating if request is allowed and wait time
-        """
-        # Extract user_id from different parameter types
-        user_id = self._extract_user_id(update_or_user_id)
-        
-        # Check actual rate limiting
-        allowed, wait_time = await self._check_rate_limits(user_id)
-        
-        # If not allowed and we have an update object, provide feedback
-        if not allowed and wait_time and wait_time > 0 and hasattr(update_or_user_id, 'message'):
-            await self._send_rate_limit_feedback(update_or_user_id, context_or_type, wait_time)
-                    
-        return allowed, wait_time  # Return tuple of (bool, float) instead of just bool
+        self.max_requests = max_requests
+        self.time_window = time_window
+        self.request_timestamps: List[float] = []
+        self._lock = asyncio.Lock()
+        self._user_rate_limits: Dict[int, float] = {}
     
-    def _extract_user_id(self, update_or_user_id: Any) -> Optional[int]:
-        """Extract user ID from various input types."""
-        if update_or_user_id is None:
-            return None
-            
-        # Handle Update object
-        if hasattr(update_or_user_id, 'effective_user') and update_or_user_id.effective_user:
-            return update_or_user_id.effective_user.id
-            
-        # Handle direct user_id (int)
-        if isinstance(update_or_user_id, int):
-            return update_or_user_id
-            
-        return None
-    
-    async def _send_rate_limit_feedback(self, update: Any, context_or_type: Any, wait_time: float) -> None:
-        """Send rate limit feedback message to user."""
-        try:
-            operation = "chat" if isinstance(context_or_type, str) else "operation"
-            wait_seconds = int(wait_time) + 1
-            await update.message.reply_text(
-                f"Mohon tunggu {wait_seconds} detik sebelum mengirimkan {operation} lain."
-            )
-        except Exception as e:
-            logger.error(f"Error sending rate limit message: {e}")
-        
-    async def _check_rate_limits(self, user_id: Optional[int] = None) -> Tuple[bool, Optional[float]]:
+    async def acquire(self) -> bool:
         """
-        Internal method to check rate limits and calculate wait time.
+        Acquire permission to make a request.
         
-        Args:
-            user_id: Optional user ID to check
-            
         Returns:
-            Tuple of (allowed, wait_time)
+            True if request is allowed, False otherwise
         """
-        current = time.time()
-        global_key = 'global'
-        
-        # Check global rate limit first
-        global_allowed, global_wait = self._check_single_limit(
-            global_key, self.allowance, self.last_check, 
-            self.rate, self.per, current
-        )
-        
-        # If no user_id, just return global result
-        if user_id is None:
-            return global_allowed, global_wait
+        async with self._lock:
+            current_time = time.time()
+            # Remove timestamps outside the window
+            self.request_timestamps = [t for t in self.request_timestamps 
+                                      if current_time - t < self.time_window]
             
-        # Check user-specific rate limit
-        user_allowed, user_wait = self._check_single_limit(
-            user_id, self.user_allowance, self.user_last_check,
-            self.user_rate, self.per, current
-        )
-        
-        # If both allowed, consume tokens and return success
-        if global_allowed and user_allowed:
-            self.allowance[global_key] -= 1.0
-            self.user_allowance[user_id] -= 1.0
-            return True, None
+            # Check if we're under the limit
+            if len(self.request_timestamps) < self.max_requests:
+                self.request_timestamps.append(current_time)
+                return True
             
-        # Return the longer wait time
-        wait_time = max(global_wait or 0.0, user_wait or 0.0)
-        return False, wait_time
+            return False
     
-    def _check_single_limit(
-        self, key: Union[str, int], 
-        allowance_dict: Dict, last_check_dict: Dict,
-        rate: float, per: float, current: float
-    ) -> Tuple[bool, Optional[float]]:
-        """Check a single rate limit (global or per-user)."""
-        # Initialize if not present
-        if key not in allowance_dict:
-            allowance_dict[key] = rate
-            last_check_dict[key] = current
-            return True, None
+    async def wait_for_capacity(self) -> None:
+        """Wait until request capacity is available."""
+        while True:
+            if await self.acquire():
+                return
             
-        # Calculate time passed and add tokens
-        time_passed = current - last_check_dict[key]
-        last_check_dict[key] = current
-        
-        allowance_dict[key] += time_passed * (rate / per)
-        
-        # Cap at max rate
-        if allowance_dict[key] > rate:
-            allowance_dict[key] = rate
+            # Calculate wait time based on oldest request
+            current_time = time.time()
+            if self.request_timestamps:
+                oldest = min(self.request_timestamps)
+                wait_time = self.time_window - (current_time - oldest)
+                wait_time = max(0.1, wait_time)
+            else:
+                wait_time = 0.5
             
-        # Check if we have enough tokens
-        if allowance_dict[key] < 1.0:
-            # Calculate wait time needed
-            wait_time = (1.0 - allowance_dict[key]) * per / rate
-            return False, wait_time
-        
-        return True, None
-
-    def get_wait_time(self, user_id: Optional[int] = None) -> float:
-        """
-        Get wait time for user to have another token available.
-        
-        Args:
-            user_id: Telegram user ID (optional)
-            
-        Returns:
-            Wait time in seconds
-        """
-        global_key = 'global'
-        global_wait = 0.0
-        
-        if global_key in self.allowance and self.allowance[global_key] < 1.0:
-            global_wait = (1.0 - self.allowance[global_key]) * self.per / self.rate
-            
-        # If no user_id provided, just return global wait time
-        if user_id is None:
-            return global_wait
-            
-        # Check user wait time
-        user_wait = 0.0
-        if user_id in self.user_allowance and self.user_allowance[user_id] < 1.0:
-            user_wait = (1.0 - self.user_allowance[user_id]) * self.per / self.user_rate
-            
-        # Return the longer wait time
-        return max(global_wait, user_wait)
-
-    async def wait_if_needed(self, user_id: Optional[int] = None) -> None:
-        """
-        Wait if rate limited, then acquire token.
-        
-        Args:
-            user_id: Telegram user ID (optional)
-        """
-        allowed, wait_time = await self._check_rate_limits(user_id)
-        if not allowed and wait_time is not None:
-            logger.debug(f"Rate limited, waiting for {wait_time:.2f}s")
+            logger.debug(f"Rate limit reached. Waiting {wait_time:.2f}s")
             await asyncio.sleep(wait_time)
-            # Recurse - should succeed after waiting
-            await self.wait_if_needed(user_id)
 
-# Create standard limiters for various operations
-limiter = RateLimiter(operations_per_minute=30, operations_per_user_minute=10)
-heavy_limiter = RateLimiter(operations_per_minute=15, operations_per_user_minute=5, cooldown_period=2)
-gemini_limiter = RateLimiter(operations_per_minute=60, operations_per_user_minute=15)
+    @property
+    def rate(self) -> int:
+        """Get current rate limit."""
+        return self.max_requests
 
-class APIKeyManager:
+    def check_rate_limit(self, user_id: int) -> bool:
+        """
+        Check if the user is rate limited (per-user simple limiter).
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            True if user can proceed, False if rate limited
+        """
+        if not hasattr(self, "_user_rate_limits"):
+            self._user_rate_limits = {}
+            
+        now = time.time()
+        last_time = self._user_rate_limits.get(user_id, 0)
+        # 1 second cooldown per user (can be adjusted)
+        if now - last_time < 1:
+            return False
+            
+        self._user_rate_limits[user_id] = now
+        return True
+
+    async def acquire_with_feedback(self, user_id: Optional[int] = None) -> Tuple[bool, float]:
+        """
+        Try to acquire permission to make a request, returning if allowed and wait time if not.
+
+        Args:
+            user_id: Optional user ID for per-user rate limiting (not used in global limiter)
+
+        Returns:
+            Tuple (allowed: bool, wait_time: float)
+        """
+        async with self._lock:
+            current_time = time.time()
+            self.request_timestamps = [t for t in self.request_timestamps
+                                      if current_time - t < self.time_window]
+            if len(self.request_timestamps) < self.max_requests:
+                self.request_timestamps.append(current_time)
+                return True, 0.0
+            # Calculate wait time until next slot is available
+            oldest = min(self.request_timestamps) if self.request_timestamps else current_time
+            wait_time = self.time_window - (current_time - oldest)
+            wait_time = max(0.1, wait_time)
+            return False, wait_time
+
+# Default limiter for Gemini API with free tier limits
+gemini_limiter = ApiKeyRateLimiter(max_requests=60, time_window=60)
+
+# Alias for backward compatibility (for legacy imports)
+limiter = gemini_limiter
+
+def rate_limited(limiter: ApiKeyRateLimiter):
     """
-    Manages rotation of API keys for external services.
+    Decorator for rate limiting async functions.
     
-    This class provides functionality to rotate through multiple API keys
-    when rate limits are reached, ensuring continuous operation.
+    Args:
+        limiter: The rate limiter to use
+        
+    Returns:
+        Decorated function with rate limiting
+    """
+    def decorator(func: AsyncFuncT) -> AsyncFuncT:
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            await limiter.wait_for_capacity()
+            return await func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+class ApiKeyManager:
+    """
+    Manager for API key rotation to handle rate limits and quotas.
     """
     
-    def __init__(self, primary_key: str, backup_keys: Optional[list[str]] = None):
+    def __init__(self, 
+                 primary_key: str, 
+                 backup_keys: Optional[List[str]] = None, 
+                 cooldown_period: int = 60):
         """
         Initialize API key manager.
         
         Args:
             primary_key: Primary API key
             backup_keys: List of backup API keys
+            cooldown_period: Cooldown period in seconds for failed keys
         """
-        self.primary_key = primary_key
-        self.backup_keys = backup_keys or []
-        self.all_keys = [primary_key] + self.backup_keys
+        self.primary_key = primary_key.strip() if primary_key else ""
+        self.backup_keys = [k.strip() for k in (backup_keys or []) if k and k.strip()]
+        self.all_keys = [self.primary_key] + self.backup_keys if self.primary_key else self.backup_keys
+        self.cooldown_period = cooldown_period
         self.current_key_index = 0
-        self.key_usage_count = {key: 0 for key in self.all_keys}
-        self.key_last_used = {key: 0 for key in self.all_keys}
+        self.key_last_failed: Dict[str, datetime] = {}
         
-        # Skip empty backup keys
-        self.all_keys = [k for k in self.all_keys if k.strip()]
-        logger.debug(f"APIKeyManager initialized with {len(self.all_keys)} keys")
-
+        # Filter out empty keys
+        self.all_keys = [k for k in self.all_keys if k]
+        
+        if not self.all_keys:
+            logger.warning("No API keys provided. Functionality will be limited.")
+        else:
+            logger.info(f"API Key Manager initialized with {len(self.all_keys)} keys")
+    
     def get_current_key(self) -> str:
         """
-        Get the current API key.
+        Get current API key.
         
         Returns:
             Current API key
         """
         if not self.all_keys:
-            return ""
+            raise ValueError("No API keys available")
         
         current_key = self.all_keys[self.current_key_index]
-        self.key_usage_count[current_key] += 1
-        self.key_last_used[current_key] = time.time()
+        
+        # Check if key is in cooldown
+        if current_key in self.key_last_failed:
+            cooldown_end = self.key_last_failed[current_key] + timedelta(seconds=self.cooldown_period)
+            if datetime.now() < cooldown_end:
+                # Current key is in cooldown, try to rotate
+                return self.rotate_key()
+        
         return current_key
-
+    
     def rotate_key(self, force: bool = False) -> str:
         """
-        Rotate to the next API key.
+        Rotate to next available API key.
         
         Args:
-            force: Force rotation even if not needed
+            force: Force rotation even if current key is valid
             
         Returns:
             New API key
         """
         if not self.all_keys:
-            return ""
+            raise ValueError("No API keys available")
         
-        if not force and (time.time() - self.key_last_used[self.all_keys[self.current_key_index]]) < 60:
-            return self.get_current_key()
+        if len(self.all_keys) == 1:
+            return self.all_keys[0]  # Only one key, nothing to rotate
         
-        self.current_key_index = (self.current_key_index + 1) % len(self.all_keys)
-        logger.info(f"Rotated to API key #{self.current_key_index+1}")
-        return self.get_current_key()
-
-    def get_least_used_key(self) -> str:
+        # Mark the current key as failed if forced
+        if force:
+            current_key = self.all_keys[self.current_key_index]
+            self.key_last_failed[current_key] = datetime.now()
+        
+        # Find next available key not in cooldown
+        initial_index = self.current_key_index
+        while True:
+            # Move to next key
+            self.current_key_index = (self.current_key_index + 1) % len(self.all_keys)
+            
+            # Get the new key
+            next_key = self.all_keys[self.current_key_index]
+            
+            # Check if this key is usable (not in cooldown)
+            if next_key in self.key_last_failed:
+                cooldown_end = self.key_last_failed[next_key] + timedelta(seconds=self.cooldown_period)
+                if datetime.now() >= cooldown_end:
+                    # Cooldown has ended
+                    return next_key
+            else:
+                # Key has never failed
+                return next_key
+                
+            # If we've tried all keys and come back to the initial one, just use it
+            if self.current_key_index == initial_index:
+                return self.all_keys[self.current_key_index]
+    
+    def mark_key_failed(self, key: str) -> None:
         """
-        Get the least used API key.
+        Mark an API key as failed.
+        
+        Args:
+            key: The API key that failed
+        """
+        self.key_last_failed[key] = datetime.now()
+        
+        # If it's the current key, rotate
+        if self.all_keys[self.current_key_index] == key:
+            self.rotate_key()
+
+    def get_key_stats(self) -> List[Dict[str, Any]]:
+        """
+        Get statistics about API keys.
         
         Returns:
-            Least used API key
+            List of dictionaries with key statistics
         """
-        if not self.all_keys:
-            return ""
+        stats = []
+        for i, key in enumerate(self.all_keys):
+            # Get first 5 chars of key for display
+            key_prefix = key[:5] + "..." if key else "None"
+            is_current = (i == self.current_key_index)
+            
+            # Check if key is in cooldown
+            in_cooldown = False
+            cooldown_ends = None
+            
+            if key in self.key_last_failed:
+                cooldown_end = self.key_last_failed[key] + timedelta(seconds=self.cooldown_period)
+                in_cooldown = datetime.now() < cooldown_end
+                if in_cooldown:
+                    cooldown_ends = cooldown_end.strftime("%H:%M:%S")
+            
+            stats.append({
+                "key_prefix": key_prefix,
+                "is_current": is_current,
+                "in_cooldown": in_cooldown,
+                "cooldown_ends": cooldown_ends,
+                "index": i
+            })
         
-        least_used = min(self.all_keys, key=lambda k: self.key_usage_count[k])
-        return least_used
-
-    def get_key_stats(self) -> Dict[str, Any]:
-        """
-        Get usage statistics for all keys.
-        
-        Returns:
-            Dictionary mapping masked API keys to usage count
-        """
-        stats = {}
-        for key in self.all_keys:
-            masked_key = key[:4] + "..." + key[-4:]
-            stats[masked_key] = self.key_usage_count[key]
         return stats
 
-# Initialize API Key Manager - fixed to avoid circular import
-def init_api_key_manager():
-    """Initialize API Key Manager from settings."""
-    from config.settings import GEMINI_API_KEY, GEMINI_BACKUP_API_KEYS
-    return APIKeyManager(GEMINI_API_KEY, GEMINI_BACKUP_API_KEYS)
+# Import settings
+from config.settings import GEMINI_API_KEY, GEMINI_BACKUP_API_KEYS
 
-# Create singleton instance
-api_key_manager = init_api_key_manager()
+# Create global API key manager instance
+api_key_manager = ApiKeyManager(
+    primary_key=GEMINI_API_KEY,
+    backup_keys=GEMINI_BACKUP_API_KEYS,
+    cooldown_period=300  # 5 minutes cooldown for failed keys
+)
 
-# Function to get API key manager (NOT a property)
-def get_api_key_manager():
-    """Get API Key Manager singleton instance."""
-    global api_key_manager
-    return api_key_manager
-
-# Decorator for rate-limited functions
-def rate_limited(rate_limiter: RateLimiter):
+def get_api_key_manager() -> ApiKeyManager:
     """
-    Decorator to apply rate limiting to a function.
+    Get the global API key manager instance.
     
-    Args:
-        rate_limiter: RateLimiter instance to use
-        
     Returns:
-        Decorated function
+        ApiKeyManager instance
     """
-    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs) -> T:
-            user_id = None
-            if args and hasattr(args[0], 'effective_user') and args[0].effective_user:
-                user_id = args[0].effective_user.id
-            
-            await rate_limiter.wait_if_needed(user_id)
-            return await func(*args, **kwargs)
-        
-        return wrapper
-    
-    return decorator
-
-# Make sure these are directly exported
-__all__ = [
-    'RateLimiter',
-    'limiter',
-    'heavy_limiter',
-    'gemini_limiter',
-    'api_key_manager',
-    'get_api_key_manager',
-    'rate_limited',
-    'APIKeyManager'
-]
+    return api_key_manager

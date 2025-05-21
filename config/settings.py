@@ -154,8 +154,8 @@ SAFETY_SETTINGS = {
 # Chat Settings
 # =========================
 
-MAX_HISTORY = 10  # Maximum number of messages to keep in history
-HISTORY_EXPIRE = 3600  # History expiration in seconds (1 hour)
+MAX_HISTORY = 25  # Maximum number of messages to keep in history
+HISTORY_EXPIRE = 10800  # History expiration in seconds (3 hour)
 GITHUB_CACHE_DURATION = 3600  # Cache GitHub data for 1 hour
 
 # =========================
@@ -163,10 +163,10 @@ GITHUB_CACHE_DURATION = 3600  # Cache GitHub data for 1 hour
 # =========================
 
 # Time-to-live for context persistence (in seconds)
-CONTEXT_TTL = 7776000  # 90 days (3 months)
+CONTEXT_TTL = 604800  # 7 days in seconds
 
 # TTL for personal facts (in seconds)
-PERSONAL_FACTS_TTL = 31536000  # 1 year
+PERSONAL_FACTS_TTL = 7776000  # 90 days
 
 # Base data directory
 DATA_DIR = Path("data")
@@ -177,10 +177,10 @@ CONTEXT_DIR = DATA_DIR / "context"
 CONTEXT_DIR.mkdir(exist_ok=True)
 
 # Path to SQLite database for context storage
-CONTEXT_DB_PATH = str(CONTEXT_DIR / "alya_context.db")
+CONTEXT_DB_PATH = str(Path(__file__).parent.parent / "data" / "context.db")
 
 # Maximum number of messages to keep in context
-CONTEXT_MAX_HISTORY = 5  # Reduced from 15 to 5 for better performance
+CONTEXT_MAX_HISTORY = 25  # Increased from 10 to allow more context
 
 # Time window (in seconds) to consider recent commands as relevant context
 CONTEXT_RELEVANCE_WINDOW = 3600  # Reduced to 1 hour
@@ -199,21 +199,21 @@ CONTEXT_DB_PURGE_DAYS = 60  # Purge context database records after 60 days
 USER_HISTORY_PURGE_DAYS = 14  # Purge user chat history after 14 days
 INACTIVE_USER_PURGE_DAYS = 90  # Purge inactive users after 90 days of inactivity
 
-# Settings for database operations
-DB_BACKUP_INTERVAL_DAYS = 7  # Create automatic backup every 7 days
-DB_MAX_BACKUPS = 5  # Maximum number of backups to keep
-DB_VACUUM_INTERVAL_DAYS = 14  # Run VACUUM on database every 14 days
-DB_WAL_CHECKPOINT_INTERVAL = 24  # Run WAL checkpoint every 24 hours (in hours)
+# Settings for database operations (in days)
+DB_BACKUP_INTERVAL_DAYS = 7  # Create automatic backup every (in days)
+DB_MAX_BACKUPS = 5  # Maximum number of backups to keep (in days)
+DB_VACUUM_INTERVAL_DAYS = 8  # Run VACUUM on database (in days)
+DB_WAL_CHECKPOINT_INTERVAL = 24  # Run WAL checkpoint (in hours)
 
 # =========================
 # Memory Settings
 # =========================
 
 # Maximum tokens for memory storage
-MEMORY_MAX_TOKENS = 10000  # ~40K characters of memory per user
+MEMORY_MAX_TOKENS = 15000  # Batas token for memory management
 
 # Threshold importance for remembering old messages
-MEMORY_IMPORTANCE_THRESHOLD = 0.7
+MEMORY_IMPORTANCE_THRESHOLD = 0.5
 
 # Automatic importance boosting for certain topics
 MEMORY_IMPORTANT_TOPICS = [
@@ -234,13 +234,23 @@ MEMORY_IMPORTANT_TOPICS = [
     "keluarga", "family", "siblings", "parents", "children",
     "pacar", "gebetan", "partner", "girlfriend", "boyfriend", "crush", "relationship",
     # Location
-    "alamat", "rumah", "address", "home", "live in", "location", "stay"
+    "alamat", "rumah", "address", "home", "live in", "location", "stay",
+    "senang", "happy", "glad", "excited", 
+    "sedih", "sad", "upset", "down",
+    "marah", "angry", "upset", "mad",
+    "karakter", "character", "role", "peran",
+    "cerita", "story", "plot", "setting", "universe",
+    "hubungan", "relationship", "develop", "progress",
+    "teman", "friend", "sahabat", "bestie",
+    "cinta", "love", "suka", "crush", "perasaan", "feelings"
 ]
 
 # Elephant memory settings
 MEMORY_USE_ELEPHANT = True  # Enable "elephant memory" feature
 MEMORY_REFERENCE_STYLE = "natural"  # Options: "natural", "exact", "minimal"
-MEMORY_MAX_REFERENCES = 3  # Max past messages to reference in a response
+MEMORY_MAX_REFERENCES = 25  # Max past messages to reference in a response
+
+MEMORY_RELATIONSHIP_BOOST = 1.5  # Booster untuk ingatan terkait hubungan
 
 # =========================
 # Response Style Configuration
@@ -251,17 +261,43 @@ MEMORY_MAX_REFERENCES = 3  # Max past messages to reference in a response
 # 2: Normal (core response with some personality)
 # 3: Detailed (more explanation and personality)
 # 4: Verbose (full detailed explanations with strong personality)
-RESPONSE_VERBOSITY = 2  # Normal verbosity with some personality
+RESPONSE_VERBOSITY = 3  # Normal verbosity with some personality
 
 # Personality strength (0.0-1.0) - affects how much tsundere/personality is added
-PERSONALITY_STRENGTH = 0.7  # Moderate personality strength
+PERSONALITY_STRENGTH = 0.8  # Moderate personality strength
 
 # Response extension ratios (how much each component contributes to response)
 RESPONSE_CONFIG = {
-    "context_ratio": 0.4,     # How much context from previous messages to include
-    "detail_ratio": 0.4,      # How much additional detail to add to responses
-    "personality_ratio": 0.2  # Personality contribution to responses
+    "context_ratio": 0.3,     # How much context from previous messages to include
+    "detail_ratio": 0.3,      # How much additional detail to add to responses
+    "personality_ratio": 0.4  # Personality contribution to responses
 }
+
+# === Personality and Roleplay Settings ===
+PERSONALITY_STRENGTH = 0.8  # Response expressiveness level
+RESPONSE_VERBOSITY = 3  # Response detail level
+
+RESPONSE_CONFIG = {
+    "context_ratio": 0.3,     # Context proportion in responses
+    "detail_ratio": 0.3,      # Detail proportion in responses
+    "personality_ratio": 0.4  # Personality proportion in responses
+}
+
+# === Response & Emoji Settings ===
+MAX_RESPONSE_LENGTH = 8192
+MAX_EMOJI_PER_RESPONSE = 25  # Increased from 10 to allow more emoji expressions
+MIN_EMOJI_PER_RESPONSE = 4   # New setting to ensure minimum emoji usage
+
+# Emoji categories for different moods
+EMOJI_CATEGORIES = {
+    "happy": ["✨", "💫", "💕", "🌸", "💝", "💖", "💗", "🤗", "☺️", "😊"],
+    "tsundere": ["😤", "😳", "💢", "😒", "🙄", "😠", "😑", "😌", "😏", "🤨"],
+    "embarrassed": ["😳", "🙈", "😖", "💓", "😵", "❤️", "🫣", "😅", "😶", "🥺"],
+    "sad": ["😔", "🥺", "💔", "😢", "😭", "😿", "😓", "😥", "😞", "😟"],
+    "angry": ["😠", "😤", "💢", "😑", "😒", "👊", "😡", "🔥", "💥", "⚡"]
+}
+
+# Note: Mood & Emotion settings are now in config/moods.yaml
 
 # =========================
 # Developer Settings
@@ -321,7 +357,7 @@ DOCUMENT_EXTRACT_IMAGES = True  # Extract images from documents
 
 # OCR settings
 OCR_LANGUAGE = "eng+ind"  # Default OCR languages (English + Indonesian)
-MAX_OCR_PAGES = 5  # Maximum number of pages to OCR from PDFs
+MAX_OCR_PAGES = 6  # Maximum number of pages to OCR from PDFs
 
 # Allowed document mime types
 ALLOWED_DOCUMENT_TYPES = [
@@ -330,3 +366,6 @@ ALLOWED_DOCUMENT_TYPES = [
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 ]
+
+# Roast settings
+MAX_ROAST_LENGTH = 1000

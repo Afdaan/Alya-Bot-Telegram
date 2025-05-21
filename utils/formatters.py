@@ -7,8 +7,7 @@ username handling, MarkdownV2 escaping, and message splitting for Telegram.
 
 import logging
 import re
-from typing import List, Dict, Any, Optional, Tuple, Union
-from pathlib import Path
+from typing import List, Dict, Any, Optional
 
 # Import core persona functionality
 from core.personas import get_persona_context
@@ -19,123 +18,159 @@ logger = logging.getLogger(__name__)
 # Markdown Formatting
 # =====================
 
+def format_roleplay_message(message: str, roleplay_action: Optional[str] = None, 
+                          mood_action: Optional[str] = None,
+                          optional_message: Optional[str] = None
+    ) -> str:
+    """Format message with proper roleplay and mood styling."""
+    parts = []
+
+    if roleplay_action:
+        escaped_action = escape_markdown_v2(roleplay_action)
+        parts.append(f"_\\[{escaped_action}\\]_")
+
+    if message:
+        # Escape all except * and _ for markdown
+        preserved_msg = escape_markdown_v2(message, preserve="*_")
+        parts.append(preserved_msg)
+
+    if optional_message:
+        # Escape all except * and _ for markdown
+        preserved_optional = escape_markdown_v2(optional_message, preserve="*_")
+        parts.append(preserved_optional)
+
+    if mood_action:
+        escaped_mood = escape_markdown_v2(mood_action)
+        parts.append(f"_\\{{{escaped_mood}\\}}_")
+
+    return "\n\n".join(part for part in parts if part.strip())
+
+def format_alya_response(text: str, username: Optional[str] = None) -> str:
+    """
+    Format Alya's response with consistent styling.
+    
+    Args:
+        text: Raw response text
+        username: Optional username for substitution
+        
+    Returns:
+        Formatted response text
+    """
+    # Extract roleplay and mood parts
+    roleplay_match = re.search(r'\[([^\]]+)\]', text)
+    mood_match = re.search(r'\{([^\}]+)\}', text)
+    
+    # Split remaining text into main and optional messages
+    remaining_text = text
+    if roleplay_match:
+        remaining_text = remaining_text.replace(roleplay_match.group(0), '')
+    if mood_match:
+        remaining_text = remaining_text.replace(mood_match.group(0), '')
+        
+    # Split remaining text into main and optional messages
+    parts = remaining_text.split('\n\n')
+    main_message = parts[0].strip() if parts else ""
+    optional_message = parts[1].strip() if len(parts) > 1 else None
+    
+    # Format with proper structure
+    return format_roleplay_message(
+        message=main_message,
+        roleplay_action=roleplay_match.group(1) if roleplay_match else None,
+        mood_action=mood_match.group(1) if mood_match else None,
+        optional_message=optional_message
+    )
+
 def format_markdown_response(text: str, username: Optional[str] = None,
                            telegram_username: Optional[str] = None,
                            mentioned_username: Optional[str] = None,
                            mentioned_text: Optional[str] = None) -> str:
-    """
-    Format bot response with proper Markdown V2 escaping and variable substitution.
-    
-    Args:
-        text: Raw response text from the AI
-        username: User's first name for {username} substitution
-        telegram_username: User's Telegram username for {telegram_username} substitution
-        mentioned_username: Mentioned username for {mentioned_username} substitution
-        mentioned_text: Full mention text for {mentioned_text} substitution
-        
-    Returns:
-        Formatted text with Markdown V2 escaping and replaced variables
-    """
+    """Format bot response with proper spacing and styling."""
     if not text:
         return ""
+
+    # Handle substitutions
+    substitutions = {
+        '{username}': username,
+        '{telegram_username}': telegram_username,
+        '{mentioned_username}': mentioned_username,
+        '{mentioned_text}': mentioned_text
+    }
     
-    # Step 1: Replace variables before any formatting
-    if username:
-        text = text.replace('{username}', username)
-    if telegram_username:
-        text = text.replace('{telegram_username}', telegram_username)
-    if mentioned_username:
-        text = text.replace('{mentioned_username}', mentioned_username)
-    if mentioned_text:
-        text = text.replace('{mentioned_text}', mentioned_text)
-    
-    # Step 2: Split text into regular parts and roleplay actions
-    parts = []
-    last_end = 0
-    
-    # Extract roleplay actions (text between asterisks)
-    for match in re.finditer(r'\*(.*?)\*', text):
-        # Add text before the match
-        if match.start() > last_end:
-            parts.append(('text', text[last_end:match.start()]))
-        
-        # Add the roleplay action
-        parts.append(('roleplay', match.group(1)))
-        last_end = match.end()
-    
-    # Add remaining text
-    if last_end < len(text):
-        parts.append(('text', text[last_end:]))
-    
-    # Step 3: Process each part with appropriate formatting
-    result = []
-    
-    for i, (part_type, content) in enumerate(parts):
-        if part_type == 'text':
-            # Regular text - escape markdown
-            escaped = escape_markdown_v2(content)
-            result.append(escaped)
-        else:
-            # Roleplay action - format with clear visual separation
-            formatted_action = format_roleplay_action(content)
-            result.append(formatted_action)
-    
-    # Join all parts
-    final_text = ''.join(result)
-    
-    # FIX: Remove any period at the beginning of text that was incorrectly added
-    if final_text.startswith('\\.'):
-        final_text = final_text[2:]
-        
-    # Clean up excessive newlines
-    final_text = re.sub(r'\n{3,}', '\n\n', final_text)
-    
-    return final_text
+    # Replace variables
+    for placeholder, value in substitutions.items():
+        if value:
+            escaped_value = escape_markdown_v2(str(value))
+            text = text.replace(placeholder, escaped_value)
+
+    # Use Alya response formatter
+    return format_alya_response(text)
 
 def format_roleplay_action(text: str) -> str:
     """
-    Format text as roleplay action with Telegram MarkdownV2 safety.
-    Like Character.AI style with italic text in brackets.
+    Format text as roleplay action with proper spacing.
     
     Args:
         text: Action text like "melirik ke arah jendela"
     
     Returns:
-        Safe MarkdownV2 formatted italic text with brackets
+        Safe MarkdownV2 formatted italic text with brackets and spacing
     """
     if not text:
         return ""
     
-    # Escape all MarkdownV2 special characters
-    escaped_text = escape_markdown_v2(text)
+    # Clean up the text first
+    text = text.strip()
     
-    # Format as Character.AI style: _[ roleplay action ]_
-    # Add CLEAR newlines before and after for better visual separation
-    return f"\n\n_\\[ {escaped_text} \\]_\n\n"  # Tambahkan double newline sebelum dan sesudah
+    # Remove any existing brackets/formatting
+    text = re.sub(r'[\[\]\\*_\n]', '', text)
+    
+    # Remove multiple spaces
+    text = ' '.join(text.split())
+    
+    # Escape special characters for MarkdownV2
+    text = escape_markdown_v2(text)
+    
+    # Format with consistent style and clear spacing
+    return f"\n\n_\\[ {text} \\]_\n\n"  # Double newlines for clear separation
 
-def escape_markdown_v2(text: str) -> str:
+def escape_markdown_v2(text: str, preserve: str = "") -> str:
     """
-    Escape MarkdownV2 special characters.
+    Escape MarkdownV2 special characters for Telegram, except those in 'preserve'.
+
+    Args:
+        text: The text to escape.
+        preserve: String of characters to NOT escape (e.g. '*_').
+
+    Returns:
+        Escaped text safe for MarkdownV2.
+    """
+    if not text:
+        return ""
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+',
+                     '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        if char not in preserve:
+            text = re.sub(rf'(?<!\\){re.escape(char)}', f'\\{char}', text)
+    return text
+
+def format_dev_message(text: str) -> str:
+    """
+    Format text for developer commands with proper MarkdownV2 escaping.
+    
+    Uses existing escape_markdown_v2 but with special handling for
+    common patterns in developer messages.
     
     Args:
-        text: Text to escape
+        text: Raw text to format
         
     Returns:
-        Text with escaped special characters
+        Text formatted for MarkdownV2
     """
-    if not text:
-        return ""
+    # Replace common patterns with pre-escaped versions
+    text = text.replace("...", "\\.\\.\\.")
     
-    # Characters that need escaping in MarkdownV2
-    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', 
-                    '-', '=', '|', '{', '}', '.', '!']
-    
-    # Escape each special character without double escaping
-    for char in special_chars:
-        # Only escape if not already escaped
-        text = re.sub(f'(?<!\\\\){re.escape(char)}', f'\\{char}', text)
-        
-    return text
+    # Use general escaping for the rest
+    return escape_markdown_v2(text)
 
 # =====================
 # Message Splitting
@@ -164,14 +199,11 @@ def split_long_message(text: str, max_length: int = 4096) -> List[str]:
     current_part = ""
     
     for paragraph in paragraphs:
-        # Check if adding this paragraph would exceed the max length
         if len(current_part) + len(paragraph) + 4 > max_length:
             if current_part:
-                # Add the current part to our results
                 parts.append(current_part.strip())
                 current_part = paragraph
             else:
-                # The paragraph itself is too long, split it by lines
                 lines = paragraph.split('\n')
                 temp_part = ""
                 for line in lines:
@@ -180,13 +212,10 @@ def split_long_message(text: str, max_length: int = 4096) -> List[str]:
                         temp_part = line
                     else:
                         temp_part += "\n" + line if temp_part else line
-                
                 if temp_part:
                     current_part = temp_part
         else:
-            # Add the paragraph with a separator
             current_part += "\n\n" + paragraph if current_part else paragraph
-    
     # Add the last part if any
     if current_part:
         parts.append(current_part.strip())
@@ -207,76 +236,26 @@ def split_long_message(text: str, max_length: int = 4096) -> List[str]:
 # Persona-based Formatting
 # =====================
 
-def format_response_with_persona(
-    message_text: str,
-    persona_type: str = "tsundere",  # Default ke tsundere
-    username: Optional[str] = None,
-    additional_context: Optional[Dict[str, Any]] = None
-) -> str:
+def format_response_with_persona(message: str, persona: str) -> str:
     """
-    Format a response using a specific persona.
+    Format response with persona traits and inject emoji.
     
     Args:
-        message_text: Raw message text
-        persona_type: Type of persona to use
-        username: Username for substitution
-        additional_context: Additional context for formatting
-        
+        message: Raw response message.
+        persona: Persona type (e.g., tsundere, waifu).
+    
     Returns:
-        Formatted response
+        Formatted response with persona traits.
     """
-    if not message_text:
-        return ""
-        
-    # Get persona context
-    persona_context = get_persona_context(persona_type)
-    
-    # Apply persona traits to the message
-    try:
-        # Apply personality traits to message
-        if '{persona}' in message_text and persona_context:
-            message_text = message_text.replace('{persona}', persona_context)
-        
-        # Handle special formatting for different personas
-        if persona_type == "tsundere":
-            # Add tsundere hesitation markers
-            message_text = message_text.replace("...", "... b-baka!")
-            # Tambahkan lebih banyak emoji untuk tsundere
-            if "💫" not in message_text and "✨" not in message_text and "😤" not in message_text:
-                message_text += " 💫"
-            
-        elif persona_type == "waifu":
-            # Add more sweetness for waifu mode
-            if not message_text.endswith(("✨", "💕", "💖", "🌸")):
-                message_text += " 💖"
-                
-        elif persona_type == "toxic":
-            # Add intensity to toxic mode
-            message_text = message_text.replace("!", "!!!")
-            if "🔥" not in message_text and "🙄" not in message_text:
-                message_text += " 🔥"
-            
-        elif persona_type == "informative":
-            # Add academic touch
-            if not any(emoji in message_text for emoji in ["📚", "📝", "🔍", "💡"]):
-                message_text += " 📚"
-            
-        # Add character closing based on persona with CLEAR spacing
-        if additional_context and additional_context.get("add_closing", True):
-            closings = {
-                "waifu": "\n\n*dengan senyum manis* ✨💕",
-                "tsundere": "\n\n*melipat tangan* Hmph! 😤",
-                "toxic": "\n\n*memutar mata* 🙄🔥",
-                "informative": "\n\n*merapikan kacamata* 📊📚"
-            }
-            
-            if persona_type in closings and not message_text.endswith(closings[persona_type]):
-                message_text += closings[persona_type]
-    except Exception as e:
-        logger.error(f"Error applying persona to message: {e}")
-    
-    # Format with markdown and username
-    return format_markdown_response(message_text, username=username)
+    persona_context = get_persona_context(persona)
+    if persona == "tsundere":
+        return f"{persona_context}\n\n{message} Hmph! 😤"
+    elif persona == "waifu":
+        return f"{persona_context}\n\n{message} 💖"
+    elif persona == "toxic":
+        return f"{persona_context}\n\n{message} 🔥"
+    else:
+        return f"{persona_context}\n\n{message} 💫"
 
 def format_simple_message(template_key: str, username: Optional[str] = None, **kwargs) -> str:
     """
@@ -385,44 +364,35 @@ def detect_persona_type_from_text(text: str) -> str:
         text: Input text to analyze
         
     Returns:
-        Appropriate persona type (waifu, tsundere, toxic, smart)
+        Appropriate persona type (default, toxic, smart, embarrassed, happy)
     """
     text_lower = text.lower()
     
     # Check for toxic indicators
-    toxic_words = ["najis", "goblok", "bego", "tolol", "anjing", "bodoh"]
-    if any(word in text_lower for word in toxic_words):
+    if any(word in text_lower for word in ["bad", "angry", "annoyed"]):
         return "toxic"
         
     # Check for smart/informative indicators
-    smart_words = ["analisis", "menurut data", "berdasarkan", "statistik", "secara teknis"]
-    if any(word in text_lower for word in smart_words):
+    if any(word in text_lower for word in ["analyze", "data", "based", "statistics", "technical"]):
         return "smart"
         
     # Check for embarrassed indicators
-    embarrassed_words = ["malu", "maaf", "gomennasai", "sumimasen", "gomen"]
-    if any(word in text_lower for word in embarrassed_words):
+    if any(word in text_lower for word in ["sorry", "apologize", "regret"]):
         return "embarrassed"
         
     # Check for happiness indicators
-    happy_words = ["senang", "suka", "bahagia", "yeay", "yay"]
-    if any(word in text_lower for word in happy_words):
+    if any(word in text_lower for word in ["happy", "like", "joy", "yay"]):
         return "happy"
-        
-    # Check for tsundere indicators
-    tsundere_words = ["bukan berarti", "hmph", "b-baka", "bukannya", "bukan karena"]
-    if any(word in text_lower for word in tsundere_words):
-        return "tsundere"
     
-    # Default to waifu
-    return "waifu"
+    # Default persona
+    return "default"
 
-def format_command_help(commands: Dict[str, str], username: Optional[str] = None) -> str:
+def format_help_text(commands: Dict[str, str], username: Optional[str] = None) -> str:
     """
-    Format command help information.
+    Format help text with command descriptions.
     
     Args:
-        commands: Dictionary of command names and descriptions
+        commands: Dictionary of command descriptions
         username: User's name for personalization
         
     Returns:
@@ -457,3 +427,86 @@ def format_command_help(commands: Dict[str, str], username: Optional[str] = None
     
     # Return with final escaping
     return help_text  # Text is already escaped through the construction process
+
+def fix_html_formatting(text: str) -> str:
+    """
+    Fix common HTML formatting issues in text outputs.
+    
+    Args:
+        text: Text with potential HTML formatting issues
+        
+    Returns:
+        Text with fixed HTML formatting
+    """
+    # Fix incomplete tags at end of text (like "</u")
+    text = re.sub(r'</?[a-zA-Z0-9]*$', '', text)
+    
+    # Replace unsupported tags with simpler format
+    text = text.replace('<ul>', '')
+    text = text.replace('</ul>', '')
+    text = text.replace('<li>', '• ')
+    text = text.replace('</li>', '\n')
+    text = text.replace('<p>', '')
+    text = text.replace('</p>', '\n\n')
+    
+    # Count and balance tags
+    supported_tags = ['b', 'i', 'u', 's', 'code', 'pre', 'a']
+    for tag in supported_tags:
+        # Count opening tags
+        open_tags = len(re.findall(f'<{tag}[^>]*>', text))
+        # Count closing tags
+        close_tags = len(re.findall(f'</{tag}>', text))
+        # Add closing tags if missing 
+        if open_tags > close_tags:
+            text += f'</{tag}>' * (open_tags - close_tags)
+        # Remove extra closing tags from end
+        elif close_tags > open_tags:
+            for _ in range(close_tags - open_tags):
+                last_idx = text.rfind(f'</{tag}>')
+                if last_idx >= 0:
+                    text = text[:last_idx] + text[last_idx + len(f'</{tag}>'):]
+    
+    # Remove all unsupported tags
+    all_tags = re.findall(r'</?([a-zA-Z0-9]+)[^>]*>', text)
+    for tag in set(all_tags):
+        if tag.lower() not in supported_tags:
+            text = re.sub(f'<{tag}[^>]*>', '', text, flags=re.IGNORECASE)
+            text = re.sub(f'</{tag}>', '', text, flags=re.IGNORECASE)
+    
+    # Fix common HTML issues
+    text = text.replace('&nbsp;', ' ')
+    text = text.replace('\n\n\n\n', '\n\n')
+    text = text.replace('\n\n\n', '\n\n')
+    
+    # Final check: remove duplicate end tags
+    text = re.sub(r'(</?[a-zA-Z0-9]+>)\1+', r'\1', text)
+    
+    return text
+
+def format_document_analysis(text: str, metadata: Dict[str, str]) -> str:
+    """
+    Format document analysis with consistent styling.
+    
+    Args:
+        text: Analysis text content
+        metadata: Document metadata dictionary
+        
+    Returns:
+        Formatted HTML text
+    """
+    from utils.language_handler import get_response
+    
+    header = (
+        f"<b>📄 {get_response('doc_analysis.title')}</b>\n\n"
+        f"<b>{get_response('doc_analysis.info_header')}</b>\n"
+    )
+    
+    # Add metadata
+    for key, value in metadata.items():
+        header += f"• {key}: {value}\n"
+    
+    # Format main content with proper spacing
+    no_content_msg = get_response('doc_analysis.no_content')
+    body = f"\n{text.strip()}" if text else f"\n<i>{no_content_msg}</i>"
+    
+    return fix_html_formatting(f"{header}\n{body}")

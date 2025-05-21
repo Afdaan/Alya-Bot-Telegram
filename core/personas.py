@@ -4,12 +4,11 @@ Persona Management for Alya Telegram Bot.
 This module handles loading and managing persona templates from YAML files,
 providing consistent personality traits for Alya across different response modes.
 """
-
-import os
 import logging
-import random
 import yaml
-from typing import Dict, Any, Optional, List, Union
+import os
+import random
+from typing import Dict, List, Any, Optional, Union, Tuple
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -17,9 +16,187 @@ logger = logging.getLogger(__name__)
 # Base paths - FIXED to point correctly to yaml files
 BASE_DIR = Path(__file__).parent.parent
 PERSONA_DIR = BASE_DIR / "config" / "persona"
+DEFAULT_PERSONA = "tsundere"
 
 # Global cache for persona templates
 _PERSONA_CACHE: Dict[str, Dict[str, Any]] = {}
+
+class PersonaManager:
+    """Manager for user-specific personas."""
+    
+    def __init__(self):
+        """Initialize persona manager."""
+        # Dictionary to hold persona configurations
+        self.personas = {}
+        
+        # Dictionary to hold user preferences
+        self.user_personas = {}
+        
+        # Default persona name
+        self.default_persona = DEFAULT_PERSONA
+        
+        # Load all available personas
+        self._load_all_personas()
+    
+    def _load_all_personas(self) -> None:
+        """Load all persona configurations from YAML files."""
+        logger.info("Loading all personas...")
+        try:
+            # Check if directory exists
+            if not PERSONA_DIR.exists():
+                logger.error(f"Persona directory not found: {PERSONA_DIR}")
+                return
+                
+            # Find all YAML files
+            yaml_files = list(PERSONA_DIR.glob("*.yaml")) + list(PERSONA_DIR.glob("*.yml"))
+            
+            if not yaml_files:
+                logger.warning(f"No persona files found in {PERSONA_DIR}")
+                return
+                
+            # Load each file
+            for file_path in yaml_files:
+                try:
+                    # Skip moods.yaml as it's not a persona file
+                    if file_path.stem.lower() == "moods":
+                        continue
+                    
+                    persona_name = file_path.stem.lower()
+                    success = self.load_persona(persona_name, str(file_path))
+                    if success:
+                        logger.info(f"Loaded persona: {persona_name}")
+                    else:
+                        logger.warning(f"Failed to load persona: {persona_name}")
+                except Exception as e:
+                    logger.error(f"Error loading persona {file_path.name}: {e}")
+                    
+            logger.info(f"Loaded {len(self.personas)} personas")
+                
+        except Exception as e:
+            logger.error(f"Error loading all personas: {e}")
+                    
+    def set_user_persona(self, user_id: int, persona: str) -> bool:
+        """
+        Set persona for a specific user.
+        
+        Args:
+            user_id: User ID
+            persona: Persona name
+            
+        Returns:
+            True if set successfully, False otherwise
+        """
+        if persona not in self.personas and persona != "random":
+            logger.warning(f"Tried to set unknown persona: {persona}")
+            return False
+            
+        # Handle random persona
+        if persona == "random":
+            available = list(self.personas.keys())
+            if not available:
+                logger.warning("No personas available for random selection")
+                return False
+                
+            self.user_personas[user_id] = random.choice(available)
+        else:
+            self.user_personas[user_id] = persona
+            
+        logger.debug(f"Set persona for user {user_id} to {self.user_personas[user_id]}")
+        return True
+    
+    def get_user_persona(self, user_id: int) -> str:
+        """
+        Get persona for a specific user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Persona name
+        """
+        return self.user_personas.get(user_id, self.default_persona)
+    
+    def get_current_persona(self, user_id: int) -> str:
+        """
+        Get current persona for a user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Current persona name
+        """
+        return self.get_user_persona(user_id)
+        
+    def get_available_personas(self) -> List[str]:
+        """
+        Get list of available personas.
+        
+        Returns:
+            List of persona names
+        """
+        return list(self.personas.keys())
+    
+    def load_persona(self, persona_name: str, file_path: str) -> bool:
+        """
+        Load persona configuration from a file.
+        
+        Args:
+            persona_name: Name of the persona
+            file_path: Path to persona configuration file
+            
+        Returns:
+            True if loaded successfully, False otherwise
+        """
+        try:
+            if not os.path.exists(file_path):
+                logger.error(f"Persona file not found: {file_path}")
+                return False
+                
+            with open(file_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                
+            # Validate config
+            if not isinstance(config, dict):
+                logger.error(f"Invalid persona format in {file_path}")
+                return False
+                
+            # Store in personas dictionary
+            self.personas[persona_name] = config
+            logger.debug(f"Loaded persona: {persona_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error loading persona {persona_name}: {e}")
+            return False
+            
+    def get_persona_config(self, persona_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get persona configuration.
+        
+        Args:
+            persona_name: Name of the persona
+            
+        Returns:
+            Persona configuration dictionary or None if not found
+        """
+        return self.personas.get(persona_name)
+    
+    def set_persona(self, user_id: int, persona_name: str) -> bool:
+        """
+        Set persona for a user (alias for set_user_persona).
+        
+        Args:
+            user_id: User ID
+            persona_name: Persona name
+            
+        Returns:
+            True if set successfully, False otherwise
+        """
+        return self.set_user_persona(user_id, persona_name)
+
+# Create singleton instance
+persona_manager = PersonaManager()
 
 def get_persona_context(persona_type: str = "tsundere") -> Optional[str]:
     """
@@ -50,7 +227,7 @@ def get_persona_context(persona_type: str = "tsundere") -> Optional[str]:
         persona_data = _load_persona_template(persona_file)
         
         if not persona_data:
-            logger.warning(f"Persona template not found: {persona_file}. Using fallback.")
+            logger.warning(f"No persona data found for: {persona_type}")
             return _get_fallback_persona_context(persona_type)
             
         # Extract relevant sections - UPDATED to handle both new and old formats
@@ -58,10 +235,10 @@ def get_persona_context(persona_type: str = "tsundere") -> Optional[str]:
         
         # Add name and description if available
         if "name" in persona_data:
-            context += f"Character Name: {persona_data['name']}\n"
+            context += f"Name: {persona_data['name']}\n"
             
         if "description" in persona_data:
-            context += f"Description: {persona_data['description']}\n\n"
+            context += f"{persona_data['description']}\n\n"
             
         # Handle traits - supporting both old and new format
         traits = persona_data.get('traits', {})
@@ -92,14 +269,19 @@ def get_persona_context(persona_type: str = "tsundere") -> Optional[str]:
             
         # Check for speech_patterns structure (new format)
         if "speech_patterns" in persona_data:
-            speech_patterns_data = persona_data["speech_patterns"]
-            # Extract from different speech pattern types
-            for pattern_type in ["prefix", "suffix", "filler"]:
-                if pattern_type in speech_patterns_data:
-                    speech_patterns.extend(speech_patterns_data[pattern_type])
+            sp = persona_data["speech_patterns"]
+            
+            if "prefix" in sp and sp["prefix"]:
+                speech_patterns.append(f"Often starts sentences with: {', '.join(sp['prefix'][:3])}")
+                
+            if "suffix" in sp and sp["suffix"]:
+                speech_patterns.append(f"Often ends sentences with: {', '.join(sp['suffix'][:3])}")
+                
+            if "filler" in sp and sp["filler"]:
+                speech_patterns.append(f"Uses phrases like: {', '.join(sp['filler'][:3])}")
                     
         if speech_patterns:
-            context += f"Speech Pattern: {', '.join(speech_patterns)}\n"
+            context += f"Speech Pattern: {'; '.join(speech_patterns)}\n"
             
         # Extract emotional expressions
         emotions = []
@@ -110,40 +292,50 @@ def get_persona_context(persona_type: str = "tsundere") -> Optional[str]:
             
         # Check for emotional_patterns (new format)
         if "emotional_patterns" in persona_data:
-            for emotion, expression in persona_data["emotional_patterns"].items():
-                if isinstance(expression, str):
-                    emotions.append(f"{emotion}: {expression}")
+            for emotion, pattern in persona_data["emotional_patterns"].items():
+                if isinstance(pattern, str):
+                    emotions.append(f"When {emotion}: {pattern}")
                     
         if emotions:
-            context += f"Emotional Expression: {', '.join(emotions)}\n"
+            context += f"Emotional Expression: {'; '.join(emotions[:3])}\n"
         
         # Add roleplay instructions if available
         if "roleplay_actions" in persona_data:
-            roleplay = persona_data["roleplay_actions"]
-            context += "\nRoleplay actions you can use (choose appropriate ones for the situation):\n"
+            context += "Roleplay actions:\n"
             
-            for action_type, actions in roleplay.items():
-                if actions and isinstance(actions, list) and len(actions) > 0:
+            # Get up to 3 random action categories
+            categories = list(persona_data["roleplay_actions"].keys())
+            selected_categories = random.sample(categories, min(3, len(categories)))
+            
+            for category in selected_categories:
+                actions = persona_data["roleplay_actions"][category]
+                if actions:
                     example = random.choice(actions)
-                    context += f"- When {action_type}: {example}\n"
+                    context += f"- When {category}: {example}\n"
         
         # Add response examples if available
         if "responses" in persona_data:
-            responses = persona_data["responses"]
             context += "\nResponse examples:\n"
             
-            for response_type, examples in responses.items():
-                if examples and isinstance(examples, list) and len(examples) > 0:
-                    example = random.choice(examples)
-                    context += f"- For {response_type}: {example}\n"
+            # Get up to 2 random response categories
+            categories = list(persona_data["responses"].keys())
+            selected_categories = random.sample(categories, min(2, len(categories)))
+            
+            for category in selected_categories:
+                responses = persona_data["responses"][category]
+                if responses:
+                    example = random.choice(responses)
+                    # Clean up placeholders
+                    example = example.replace("{username}", "user")
+                    context += f"- When {category}: {example}\n"
                     
         # Add Russian expressions if available
         if "russian_expressions" in persona_data and isinstance(persona_data["russian_expressions"], list):
-            russian_words = persona_data["russian_expressions"]
-            if russian_words:
-                context += "\nRussian expressions you can use occasionally:\n"
-                for word in russian_words[:5]:  # Limit to 5 examples
-                    context += f"- {word}\n"
+            expressions = persona_data["russian_expressions"]
+            if expressions:
+                # Select a few random expressions
+                selected = random.sample(expressions, min(3, len(expressions)))
+                context += f"\nOccasionally uses Russian expressions like: {', '.join(selected)}\n"
         
         # Log to debug the successful loading
         logger.debug(f"Successfully loaded persona context for '{persona_type}'")
@@ -180,10 +372,10 @@ def _load_persona_template(persona_name: str) -> Dict[str, Any]:
         
         # List all YAML files in the directory for diagnostics
         try:
-            yaml_files = list(PERSONA_DIR.glob("*.yaml"))
-            logger.debug(f"Available YAML files in {PERSONA_DIR}: {[f.name for f in yaml_files]}")
+            yaml_files = list(PERSONA_DIR.glob("*.yaml")) + list(PERSONA_DIR.glob("*.yml"))
+            logger.debug(f"Available persona files: {[f.name for f in yaml_files]}")
         except Exception:
-            pass
+            logger.debug("Could not list available persona files")
             
         return {}
         
@@ -192,11 +384,9 @@ def _load_persona_template(persona_name: str) -> Dict[str, Any]:
         with open(persona_path, 'r', encoding='utf-8') as f:
             persona_data = yaml.safe_load(f)
             
-        # Log success
-        logger.debug(f"Successfully loaded persona template: {persona_name}")
-            
         # Cache for future use
         _PERSONA_CACHE[persona_name] = persona_data
+        
         return persona_data
         
     except Exception as e:
@@ -254,123 +444,75 @@ def load_all_personas() -> Dict[str, Dict[str, Any]]:
     personas = {}
     
     try:
-        # Check if directory exists
-        if not PERSONA_DIR.exists():
-            logger.warning(f"Persona directory not found: {PERSONA_DIR}")
-            return personas
-            
-        # Iterate through all YAML files
-        for file_path in PERSONA_DIR.glob("*.yaml"):
+        # Find all YAML files
+        yaml_files = list(PERSONA_DIR.glob("*.yaml")) + list(PERSONA_DIR.glob("*.yml"))
+        
+        for file_path in yaml_files:
             try:
-                persona_name = file_path.stem
+                # Skip moods.yaml as it's not a persona file
+                if file_path.stem.lower() == "moods":
+                    continue
+                    
+                persona_name = file_path.stem.lower()
                 persona_data = _load_persona_template(persona_name)
                 if persona_data:
                     personas[persona_name] = persona_data
             except Exception as e:
-                logger.error(f"Error loading persona {file_path.stem}: {e}")
+                logger.error(f"Error loading persona {file_path.name}: {e}")
                 
-        logger.info(f"Loaded {len(personas)} persona templates")
         return personas
         
     except Exception as e:
-        logger.error(f"Error loading personas: {e}")
-        return personas
+        logger.error(f"Error loading all personas: {e}")
+        return {}
 
-def get_current_persona(user_id: int, default_persona: str = "tsundere") -> str:
+def init_personas() -> bool:
     """
-    Get current persona for a user.
+    Initialize persona system by pre-loading all persona configurations.
     
-    Args:
-        user_id: User ID
-        default_persona: Default persona if none is set
-        
+    This function loads all persona YAML files from the config/persona directory
+    and initializes the persona_manager with them.
+    
     Returns:
-        Current persona name
+        True if initialization was successful, False otherwise
     """
-    # In a real implementation, this would check the database for user preferences
-    # For now, just return the default
-    return default_persona
-
-# Classes for persona management
-
-class PersonaManager:
-    """Manager for user-specific personas."""
-    
-    def __init__(self):
-        """Initialize persona manager."""
-        self.user_personas = {}
-        self.default_persona = "tsundere"  # Default persona adalah tsundere.yaml
-        self.available_personas = set(["tsundere", "waifu", "toxic", "informative", "smart", "professional"])
+    try:
+        logger.info("Initializing persona system...")
         
-        # Load all personas saat startup untuk validasi
-        try:
-            self._load_all_personas()
-            logger.info(f"Available personas: {', '.join(self.available_personas)}")
-        except Exception as e:
-            logger.error(f"Error loading personas: {e}")
-    
-    def _load_all_personas(self):
-        """Load all available personas for validation."""
-        for persona_file in PERSONA_DIR.glob("*.yaml"):
-            if persona_file.stem not in ['template', 'chat', 'personality', 'persona_config', '_templates']:
-                # Coba load untuk validasi
-                try:
-                    _load_persona_template(persona_file.stem)
-                    self.available_personas.add(persona_file.stem)
-                except Exception:
-                    pass
+        # Ensure persona directory exists
+        if not PERSONA_DIR.exists():
+            logger.error(f"Persona directory not found: {PERSONA_DIR}")
+            return False
+            
+        # Find all YAML files
+        persona_files = list(PERSONA_DIR.glob("*.yaml")) + list(PERSONA_DIR.glob("*.yml"))
+        
+        if not persona_files:
+            logger.warning(f"No persona files found in {PERSONA_DIR}")
+            return False
+            
+        # Load all personas
+        loaded_count = 0
+        for persona_file in persona_files:
+            try:
+                # Skip moods.yaml as it's not a persona file
+                if persona_file.stem.lower() == "moods":
+                    continue
                     
-    def set_user_persona(self, user_id: int, persona: str) -> bool:
-        """
-        Set persona for a specific user.
+                # Load the persona
+                persona_name = persona_file.stem.lower()
+                success = persona_manager.load_persona(persona_name, str(persona_file))
+                
+                if success:
+                    loaded_count += 1
+                    logger.info(f"Loaded persona: {persona_name}")
+                else:
+                    logger.warning(f"Failed to load persona: {persona_name}")
+            except Exception as e:
+                logger.error(f"Error loading persona {persona_file.name}: {e}")
         
-        Args:
-            user_id: User ID
-            persona: Persona name
-        
-        Returns:
-            Success status
-        """
-        if persona.lower() in self.available_personas:
-            self.user_personas[user_id] = persona.lower()
-            return True
+        logger.info(f"Initialized {loaded_count} personas successfully")
+        return loaded_count > 0
+    except Exception as e:
+        logger.error(f"Error initializing personas: {e}", exc_info=True)
         return False
-        
-    def get_user_persona(self, user_id: int) -> str:
-        """
-        Get current persona for a user.
-        
-        Args:
-            user_id: User ID
-            
-        Returns:
-            Current persona name
-        """
-        return self.user_personas.get(user_id, self.default_persona)
-        
-    def get_current_persona(self, user_id: int) -> str:
-        """
-        Get current persona for a user (alias for get_user_persona).
-        
-        Args:
-            user_id: User ID
-            
-        Returns:
-            Current persona name
-        """
-        return self.get_user_persona(user_id)
-        
-    def get_available_personas(self) -> List[str]:
-        """
-        Get list of available personas.
-        
-        Returns:
-            List of available persona names
-        """
-        return list(self.available_personas)
-
-# Create singleton instance
-persona_manager = PersonaManager()
-
-# Preload persona templates
-_ = load_all_personas()

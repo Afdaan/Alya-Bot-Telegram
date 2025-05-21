@@ -13,7 +13,7 @@ import time  # Add missing import
 from typing import Optional, Dict, Any, Tuple, List  # Add missing import
 
 from telegram import Update, InputMediaPhoto, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import CallbackContext
+from telegram.ext import CallbackContext, Application, CallbackQueryHandler
 from telegram.error import BadRequest
 
 from utils.formatters import format_markdown_response, escape_markdown_v2
@@ -622,3 +622,15 @@ def format_sauce_results(results: List[Dict[str, Any]], username: str) -> str:
     # Add footer with tip
     response += "_Klik link di atas untuk melihat sumber aslinya\\~_ ✨"
     return response
+
+def register_callback_handlers(app: Application) -> None:
+    """
+    Register callback handlers with the application.
+    
+    Args:
+        app: Telegram application instance
+    """
+    # Add handler for callback queries from inline buttons
+    app.add_handler(CallbackQueryHandler(handle_callback_query))
+    
+    logger.info("Callback handlers registered successfully")

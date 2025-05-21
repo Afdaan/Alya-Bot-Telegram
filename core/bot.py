@@ -153,36 +153,23 @@ async def _sauce_command_handler(update: Update, context: CallbackContext) -> No
 # SIMPLIFIED PREFIX HANDLERS - Each handler is dedicated to a specific prefix type
 
 async def handle_chat_prefix(update: Update, context: CallbackContext) -> None:
-    """
-    Handle !ai and !alya prefixes for chat.
-    """
+    """Handle chat commands with prefix."""
     if not update.message or not update.message.text:
         return
         
-    message_text = update.message.text.strip()
+    text = update.message.text.strip()
+    text_lower = text.lower()
     
-    # Change log level from INFO to DEBUG to reduce noise
-    if hasattr(logger, 'debug'):
-        logger.debug(f"Chat prefix detected: '{message_text[:20]}...'")
-    
-    # Extract everything after the prefix
-    if message_text.lower().startswith(CHAT_PREFIX):
-        processed_text = message_text[len(CHAT_PREFIX):].strip()
-    elif any(message_text.lower().startswith(prefix) for prefix in ADDITIONAL_PREFIXES):
-        # Find which prefix was used
-        used_prefix = next(prefix for prefix in ADDITIONAL_PREFIXES if message_text.lower().startswith(prefix))
-        processed_text = message_text[len(used_prefix):].strip()
+    if text_lower.startswith("!ai"):
+        query = text[3:].strip()  # Extract query after !ai
+    elif text_lower.startswith(f"{CHAT_PREFIX.lower()}"):
+        query = text[len(CHAT_PREFIX):].strip()
     else:
-        processed_text = ""
-    
-    # Check if it's a roast command
-    if processed_text.lower().startswith("roast "):
-        roast_args = processed_text[6:].strip()
-        context.args = roast_args.split()
-        await handle_roast_command(update, context)
-    else:
-        # Process as regular chat
-        await process_chat_message(update, context, processed_text)
+        return
+
+    # Import here to avoid circular imports
+    from handlers.message_handlers import process_chat_message
+    await process_chat_message(update, context, query)
 
 async def handle_trace_prefix(update: Update, context: CallbackContext) -> None:
     """

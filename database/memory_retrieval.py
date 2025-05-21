@@ -11,6 +11,8 @@ import os
 import time
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Move fact_extractor import inside functions to prevent circular import
 # from utils.fact_extractor import fact_extractor
@@ -46,6 +48,9 @@ class MemoryRetrievalSystem:
         # Default configuration values
         self.default_persona = "tsundere"
         self.default_language = DEFAULT_LANGUAGE
+
+        # Initialize embedding model
+        self.embedding_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
         
     def load_config(self, config_path: str) -> bool:
         """
@@ -121,7 +126,7 @@ class MemoryRetrievalSystem:
             context["personal_facts"] = facts
             
             # Find relevant past messages based on query
-            relevant_messages = context_manager.search_memory(user_id, user_query)
+            relevant_messages = await self.retrieve_relevant_memories(user_id, user_query)
             context["relevant_past"] = relevant_messages
             
             # Detect intent
@@ -138,6 +143,20 @@ class MemoryRetrievalSystem:
             logger.error(f"Error retrieving context: {e}")
         
         return context
+    
+    async def retrieve_relevant_memories(self, user_id: int, query: str) -> List[Dict]:
+        """Retrieve memories berdasarkan semantic similarity."""
+        query_vector = self.embedding_model.encode(query)
+        memories = self._get_all_memories(user_id)
+        relevant_memories = []
+
+        for memory in memories:
+            memory_vector = memory["vector"]
+            similarity = cosine_similarity([query_vector], [memory_vector])[0][0]
+            if similarity > 0.6:
+                relevant_memories.append({**memory, "similarity": similarity})
+
+        return sorted(relevant_memories, key=lambda x: x["similarity"], reverse=True)
     
     def format_conversation_history(self, 
                                    history: List[Dict[str, Any]], 
@@ -198,7 +217,8 @@ class MemoryRetrievalSystem:
                                user_id: int,
                                user_query: str, 
                                chat_id: Optional[int] = None, 
-                               persona: Optional[str] = None) -> str:
+                               persona: Optional[str] = None,
+                               language: Optional[str] = None) -> str:
         """
         Generate a response with memory-enhanced context.
         
@@ -207,6 +227,7 @@ class MemoryRetrievalSystem:
             user_query: User's query text
             chat_id: Optional chat ID (for groups)
             persona: Optional persona override
+            language: Optional language override
             
         Returns:
             Generated response text
@@ -224,6 +245,10 @@ class MemoryRetrievalSystem:
                 except Exception:
                     persona = self.default_persona
             
+            # Get language if not specified
+            if not language:
+                language = DEFAULT_LANGUAGE
+                
             # Get persona context
             persona_context = get_persona_context(persona)
             
@@ -248,7 +273,8 @@ class MemoryRetrievalSystem:
                     persona_context=persona_context,
                     conversation_history=formatted_history,
                     personal_facts=formatted_facts,
-                    knowledge=knowledge
+                    knowledge=knowledge,
+                    language=language
                 )
             else:
                 # For conversational queries
@@ -257,11 +283,12 @@ class MemoryRetrievalSystem:
                     persona_context=persona_context,
                     conversation_history=formatted_history,
                     personal_facts=formatted_facts,
-                    persona=persona
+                    persona=persona,
+                    language=language
                 )
             
             # Generate response
-            language = SUPPORTED_LANGUAGES.get(DEFAULT_LANGUAGE, "Indonesian")
+            lang_name = SUPPORTED_LANGUAGES.get(language, "Indonesian")
             response = await generate_chat_response(
                 prompt,
                 user_id=user_id,
@@ -287,7 +314,8 @@ class MemoryRetrievalSystem:
                                    persona_context: str,
                                    conversation_history: str,
                                    personal_facts: str,
-                                   persona: str) -> str:
+                                   persona: str,
+                                   language: str = DEFAULT_LANGUAGE) -> str:
         """
         Build a prompt for conversational interactions.
         
@@ -297,10 +325,13 @@ class MemoryRetrievalSystem:
             conversation_history: Formatted conversation history
             personal_facts: Formatted personal facts
             persona: Current persona name
+            language: Language code for response
             
         Returns:
             Formatted prompt string
         """
+        language_instruction = "Respond in Indonesian" if language == "id" else "Respond in English"
+        
         return f"""You are Alya, a half Japanese-Russian high school girl with a {persona} personality.
 
 {persona_context}
@@ -318,7 +349,7 @@ RESPONSE GUIDELINES:
 - Express your emotions and moods naturally like a real person would
 - Include natural roleplay actions like *adjusts glasses* when it fits
 - Use up to 2 emojis maximum in your response
-- Respond in Indonesian
+- {language_instruction}
 - Be authentic to your character while maintaining conversation flow
 - Don't explicitly state that you remember things, just use the information naturally
 
@@ -329,7 +360,8 @@ Remember to respond naturally as Alya would, maintaining your {persona} personal
                                persona_context: str,
                                conversation_history: str,
                                personal_facts: str,
-                               knowledge: str) -> str:
+                               knowledge: str,
+                               language: str = DEFAULT_LANGUAGE) -> str:
         """
         Build a prompt for informative interactions.
         
@@ -339,10 +371,13 @@ Remember to respond naturally as Alya would, maintaining your {persona} personal
             conversation_history: Formatted conversation history
             personal_facts: Formatted personal facts
             knowledge: Knowledge base information
+            language: Language code for response
             
         Returns:
             Formatted prompt string
         """
+        language_instruction = "Respond in Indonesian" if language == "id" else "Respond in English"
+        
         return f"""You are Alya, a half Japanese-Russian high school girl who is very knowledgeable.
 
 {persona_context}
@@ -363,7 +398,7 @@ RESPONSE GUIDELINES:
 - Provide accurate and informative responses while staying in character
 - Include natural roleplay actions like *adjusts glasses* when explaining
 - Use up to 2 emojis maximum in your response
-- Respond in Indonesian
+- {language_instruction}
 - Be helpful and educational while maintaining your persona
 - Use the provided knowledge to inform your response, but explain in your own words
 

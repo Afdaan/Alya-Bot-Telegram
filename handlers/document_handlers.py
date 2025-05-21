@@ -11,13 +11,19 @@ import logging
 import asyncio
 import tempfile
 import hashlib
+import time
 from typing import Optional, Union, Dict, Any, List, Tuple
 from pathlib import Path
+
+from core.models import generate_image_analysis, generate_document_analysis
 
 from telegram import Update, Message, User, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackContext
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
+
+import PIL.Image
+import google.generativeai as genai
 
 from config.settings import (
     ANALYZE_PREFIX,
@@ -29,14 +35,18 @@ from config.settings import (
     IMAGE_COMPRESS_QUALITY,
     SAUCENAO_API_KEY,
     IMAGE_FORMATS,
-    GROUP_CHAT_REQUIRES_PREFIX,  # Import ini penting
-    CHAT_PREFIX,                 # Import ini penting
-    ADDITIONAL_PREFIXES          # Import ini penting
+    GROUP_CHAT_REQUIRES_PREFIX,
+    CHAT_PREFIX,
+    ADDITIONAL_PREFIXES,
+    DEFAULT_MODEL,
+    IMAGE_MODEL
 )
 from utils.media_utils import extract_text_from_document, compress_image, get_extension, is_image_file
 from utils.image_utils import analyze_image, get_image_data, get_dominant_colors
-from utils.formatters import escape_markdown_v2, format_markdown_response
+from utils.formatters import escape_markdown_v2, format_markdown_response, fix_html_formatting
 from utils.saucenao import search_with_saucenao
+from utils.context_manager import context_manager
+from core.models import convert_safety_settings, get_current_gemini_key
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -377,203 +387,98 @@ async def analyze_with_gemini(
     status_msg: Message, 
     file_path: str, 
     content_type: str, 
-    context: CallbackContext,
+    context: Optional[CallbackContext] = None,
     text_content: Optional[str] = None
 ) -> None:
-    """
-    Analyze content with Gemini AI.
-    
-    Args:
-        status_msg: Status message to update
-        file_path: Path to the file
-        content_type: Type of content ('image' or 'document')
-        context: CallbackContext
-        text_content: Extracted text content for documents
-    """
+    """Analyze content with Gemini AI."""
     try:
         await status_msg.edit_text(
             f"Memproses {content_type}... Ini akan memakan waktu beberapa detik.",
             parse_mode=None
         )
-        
-        # Import Gemini analysis functions
-        from core.models import generate_image_analysis, generate_document_analysis
-        
-        if content_type == "image":
-            # Get basic metadata
-            img_data = get_image_data(file_path)
+
+        if content_type == "document":
+            # Get document metadata
+            file_size = os.path.getsize(file_path)
+            file_name = (status_msg.reply_to_message.document.file_name 
+                        if status_msg.reply_to_message and status_msg.reply_to_message.document 
+                        else os.path.basename(file_path))
             
-            # Get color information
+            # Format document metadata
+            doc_info = (
+                "<b>📄 HASIL ANALISIS DOKUMEN</b>\n\n"
+                "<b>Informasi Dokumen:</b>\n"
+                f"• Nama File: {file_name}\n"
+                f"• Tipe: {os.path.splitext(file_name)[1]}\n"
+                f"• Ukuran: {file_size / 1024:.1f} KB"
+            )
+            
+            # Add text statistics if available
+            if text_content:
+                word_count = len(text_content.split())
+                line_count = len(text_content.splitlines())
+                doc_info += (
+                    f"\n• Jumlah Kata: {word_count:,}\n"
+                    f"• Jumlah Baris: {line_count:,}"
+                )
+
+            # Get analysis from Gemini
+            analysis = await generate_document_analysis(text_content)
+            
+            # Format complete response with proper sections
+            response = (
+                f"{doc_info}\n\n"
+                f"<b>Rangkuman:</b>\n\n"
+                f"{analysis}"
+            )
+
+        else:  # Image analysis
+            # Get image metadata
+            img_data = get_image_data(file_path)
             colors = get_dominant_colors(file_path)
             
-            # Extract and format dominant colors
-            color_info = "\n\n<b>Warna Dominan:</b>\n"
-            if colors and len(colors) > 0:
-                for i, color in enumerate(colors[:3], 1):
-                    color_info += f"{i}. RGB: {color}\n"
-            else:
-                color_info += "Tidak dapat mengekstrak warna dominan.\n"
-                
             # Format image metadata
-            img_info = "\n<b>Informasi Gambar:</b>\n"
-            img_info += f"• Dimensi: {img_data.get('width', 0)}x{img_data.get('height', 0)} px\n"
-            img_info += f"• Format: {img_data.get('format', 'unknown')}\n"
-            img_info += f"• Mode: {img_data.get('mode', 'unknown')}\n"
+            img_info = (
+                "<b>📸 HASIL ANALISIS GAMBAR</b>\n\n"
+                "<b>Informasi Gambar:</b>\n"
+                f"• Dimensi: {img_data.get('width', 0)}x{img_data.get('height', 0)} px\n"
+                f"• Format: {img_data.get('format', 'unknown')}\n"
+                f"• Mode: {img_data.get('mode', 'unknown')}"
+            )
             
-            # Get advanced analysis from Gemini
-            try:
-                gemini_analysis = await generate_image_analysis(file_path)
-                
-                # Format the complete response with HTML
-                response = f"<b>Hasil Analisis Gambar:</b>\n\n{gemini_analysis}{color_info}{img_info}"
-            except Exception as gemini_error:
-                logger.error(f"Error with Gemini image analysis: {gemini_error}")
-                
-                # Fall back to basic analysis
-                basic_analysis = await analyze_image(file_path)
-                response = f"<b>Hasil Analisis Gambar:</b>\n\n{basic_analysis}{color_info}{img_info}"
-        else:
-            # Document analysis
-            try:
-                # Get document metadata
-                file_size = os.path.getsize(file_path)
-                
-                # PERBAIKAN: Ambil nama file yang asli dari message, bukan nama temporary
-                if status_msg.reply_to_message and status_msg.reply_to_message.document:
-                    file_name = status_msg.reply_to_message.document.file_name
-                else:
-                    # Fallback ke nama file temporary kalau tidak bisa mendapatkan nama asli
-                    file_name = os.path.basename(file_path)
-                    
-                file_ext = os.path.splitext(file_name)[1].lower()
-                
-                # Format document info with HTML for better presentation
-                doc_info = "\n\n<b>Informasi Dokumen:</b>\n"
-                doc_info += f"<b>• Nama File:</b> {file_name}\n"
-                doc_info += f"<b>• Tipe:</b> {file_ext}\n"
-                doc_info += f"<b>• Ukuran:</b> {file_size / 1024:.1f} KB\n"
-                
-                # Text content stats
-                if text_content:
-                    word_count = len(text_content.split())
-                    line_count = len(text_content.splitlines())
-                    doc_info += f"<b>• Kata:</b> {word_count}\n"
-                    doc_info += f"<b>• Baris:</b> {line_count}\n"
-                    
-                    # Analyzing document with Gemini
-                    await status_msg.edit_text(
-                        "Menganalisis dokumen dengan Gemini AI...",
-                        parse_mode=None
-                    )
-                    
-                    # Process document with cleaned HTML
-                    gemini_analysis = await generate_document_analysis(text_content)
-                    
-                    # Format the complete response with HTML
-                    response = f"<b>📄 HASIL ANALISIS DOKUMEN</b>\n\n{gemini_analysis}{doc_info}"
-                    
-                    # Apply thorough sanitization of HTML to ensure compatibility with Telegram
-                    response = sanitize_html_response(response)
-                else:
-                    response = f"<b>📄 HASIL ANALISIS DOKUMEN</b>\n\nTidak dapat mengekstrak teks untuk dianalisis.{doc_info}"
-            except Exception as doc_error:
-                logger.error(f"Error with document analysis: {doc_error}")
-                response = f"<b>📄 HASIL ANALISIS DOKUMEN</b>\n\nTerjadi kesalahan saat menganalisis dokumen."
-        
-        # Handle response length - telegram has limits
+            # Add color analysis if available
+            if colors and len(colors) > 0:
+                img_info += "\n\n<b>Warna Dominan:</b>\n"
+                for i, color in enumerate(colors[:3], 1):
+                    img_info += f"{i}. RGB: {color}\n"
+
+            # Get image analysis from Gemini
+            analysis = await generate_image_analysis(file_path)
+            
+            # Format complete response with proper sections
+            response = (
+                f"{img_info}\n\n"
+                f"<b>Analisis:</b>\n\n"
+                f"{analysis}"
+            )
+
+        # Clean HTML formatting and handle length limits
+        response = fix_html_formatting(response)
         if len(response) > 4096:
             response = response[:4090] + "..."
             
-        # Try sending with HTML, but fall back to plain text if needed
-        try:
-            await status_msg.edit_text(
-                response,
-                parse_mode=ParseMode.HTML
-            )
-        except BadRequest as e:
-            logger.warning(f"HTML parsing failed: {e}")
-            # Coba lagi dengan menghapus HTML tags
-            try:
-                # Hapus semua HTML tag
-                plain_response = re.sub(r'<[^>]*>', '', response)
-                await status_msg.edit_text(
-                    plain_response,
-                    parse_mode=None
-                )
-            except Exception as final_err:
-                logger.error(f"Final error sending response: {final_err}")
-                # Fallback paling sederhana
-                await status_msg.edit_text(
-                    "Maaf, terjadi error saat menampilkan analisis.",
-                    parse_mode=None
-                )
-                
+        # Send formatted response
+        await status_msg.edit_text(
+            response,
+            parse_mode=ParseMode.HTML
+        )
+
     except Exception as e:
         logger.error(f"Error in analyze_with_gemini: {e}")
         await status_msg.edit_text(
-            f"Terjadi kesalahan saat menganalisis: {str(e)[:100]}...",
+            "Maaf, terjadi kesalahan saat menganalisis konten 😔",
             parse_mode=None
         )
-
-def sanitize_html_response(text: str) -> str:
-    """
-    Sanitize HTML response to ensure compatibility with Telegram HTML parsing.
-    
-    Args:
-        text: Text with HTML formatting
-        
-    Returns:
-        Sanitized text compatible with Telegram HTML parsing
-    """
-    # Telegram hanya mendukung tag <b>, <i>, <u>, <s>, <code>, <pre>, <a>
-
-    # 1. Fix incomplete tags di akhir text (seperti "</u")
-    text = re.sub(r'</?[a-zA-Z0-9]*$', '', text)
-    
-    # 2. Ganti tag-tag yang tidak didukung dengan format yang lebih sederhana
-    text = text.replace('<ul>', '')
-    text = text.replace('</ul>', '')
-    text = text.replace('<li>', '• ')
-    text = text.replace('</li>', '\n')
-    text = text.replace('<p>', '')
-    text = text.replace('</p>', '\n\n')
-    
-    # 3. Hitung berapa banyak tag yang dibuka dan ditutup
-    supported_tags = ['b', 'i', 'u', 's', 'code', 'pre', 'a']
-    for tag in supported_tags:
-        # Hitung tag pembuka
-        open_tags = len(re.findall(f'<{tag}[^>]*>', text))
-        # Hitung tag penutup
-        close_tags = len(re.findall(f'</{tag}>', text))
-        # Tambahkan tag penutup jika kurang
-        if open_tags > close_tags:
-            text += f'</{tag}>' * (open_tags - close_tags)
-        # Hapus tag penutup yang berlebihan (dari belakang)
-        elif close_tags > open_tags:
-            for _ in range(close_tags - open_tags):
-                last_idx = text.rfind(f'</{tag}>')
-                if last_idx >= 0:
-                    text = text[:last_idx] + text[last_idx + len(f'</{tag}>'):]
-    
-    # 4. Hapus semua tag yang tidak didukung
-    all_tags = re.findall(r'</?([a-zA-Z0-9]+)[^>]*>', text)
-    for tag in set(all_tags):
-        if tag.lower() not in supported_tags:
-            text = re.sub(f'<{tag}[^>]*>', '', text, flags=re.IGNORECASE)
-            text = re.sub(f'</{tag}>', '', text, flags=re.IGNORECASE)
-    
-    # 5. Perbaiki masalah umum HTML
-    text = text.replace('&nbsp;', ' ')
-    text = text.replace('\n\n\n\n', '\n\n')
-    text = text.replace('\n\n\n', '\n\n')
-    
-    # 6. Final check: duplikat tag di akhir
-    text = re.sub(r'(</?[a-zA-Z0-9]+>)\1+', r'\1', text)
-    
-    # Jangan pakai HTMLParser - terlalu kompleks dan bisa bikin stripping agresif
-    # Yang penting pastikan semua tag HTML didukung dan seimbang
-    
-    return text
 
 async def handle_sauce_command(message: Message, user: User, context: CallbackContext) -> None:
     """
@@ -814,3 +719,119 @@ async def handle_document_callback(update: Update, context: CallbackContext) -> 
             await callback_query.answer("Error processing request", show_alert=True)
         except Exception:
             pass
+
+"""
+Document and Image Analysis Handlers.
+
+This module handles document analysis, OCR, and image processing
+using Google Gemini API with proper error handling and retries.
+"""
+
+import logging
+import asyncio
+import os
+import re
+from typing import Optional, Dict, Any, Union
+
+from google.generativeai import GenerativeModel
+import PIL.Image
+
+from core.models import convert_safety_settings, get_current_gemini_key
+from config.settings import DEFAULT_MODEL, IMAGE_MODEL
+
+logger = logging.getLogger(__name__)
+
+async def analyze_with_gemini_api(
+    content: Union[str, PIL.Image.Image],
+    prompt: str,
+    image_mode: bool = False,
+    retry_count: int = 0
+) -> str:
+    """
+    Generic analyzer using Gemini API with proper error handling.
+    
+    Args:
+        content: Text content or PIL Image to analyze
+        prompt: Analysis prompt
+        image_mode: Whether to use image model
+        retry_count: Number of retries attempted
+        
+    Returns:
+        Analysis result text
+        
+    Raises:
+        RuntimeError: If analysis fails after retries
+    """
+    try:
+        current_key = get_current_gemini_key()
+        model = genai.GenerativeModel(
+            model_name=IMAGE_MODEL if image_mode else DEFAULT_MODEL,
+            generation_config={
+                "max_output_tokens": 1500,
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "top_k": 40
+            },
+            safety_settings=convert_safety_settings()
+        )
+        
+        response = await asyncio.to_thread(
+            model.generate_content,
+            [prompt, content] if image_mode else prompt
+        )
+        
+        if not response or not response.text:
+            raise RuntimeError("Empty response from Gemini")
+            
+        result = response.text
+        return result[:4000]
+        
+    except Exception as e:
+        if retry_count < 3 and any(x in str(e).lower() for x in ["quota", "rate", "429"]):
+            logger.info(f"Retrying analysis after error: {e}")
+            return await analyze_with_gemini_api(
+                content=content,
+                prompt=prompt,
+                image_mode=image_mode,
+                retry_count=retry_count + 1
+            )
+        raise
+
+async def generate_document_analysis(text_content: str) -> str:
+    """Generate analysis of document text using Gemini."""
+    try:
+        truncated_text = text_content[:8000] + "..." if len(text_content) > 8000 else text_content
+            
+        prompt = """
+        Analisis dokumen berikut dengan detail dan rangkum dengan jelas:
+        
+        ```
+        {text}
+        ```
+        """
+        
+        return await analyze_with_gemini_api(truncated_text, prompt.format(text=truncated_text))
+        
+    except Exception as e:
+        logger.error(f"Document analysis error: {e}")
+        return f"<i>Tidak dapat menganalisis dokumen: {str(e)[:100]}...</i>"
+
+async def generate_image_analysis(image_path: str, custom_prompt: Optional[str] = None) -> str:
+    """Generate analysis of image using Gemini."""
+    try:
+        image = PIL.Image.open(image_path)
+        default_prompt = """
+        Analisis gambar ini dengan detail secara menyeluruh.
+        Jelaskan apa yang kamu lihat, termasuk objek, warna, suasana, dan konteks.
+        Berikan analisis yang lengkap namun ringkas.
+        """
+        
+        return await analyze_with_gemini_api(
+            content=image,
+            prompt=custom_prompt or default_prompt,
+            image_mode=True
+        )
+        
+    except Exception as e:
+        logger.error(f"Image analysis error: {e}")
+        return f"<i>Tidak dapat menganalisis gambar: {str(e)[:100]}...</i>"

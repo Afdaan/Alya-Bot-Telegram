@@ -8,15 +8,24 @@ for Alya, allowing dynamic mood transitions and contextually appropriate reactio
 import logging
 import random
 import re
+import yaml
+import os
 from enum import Enum
 from typing import Dict, List, Optional, Any, Set, Tuple
 from dataclasses import dataclass, field
 import time
+from pathlib import Path
 
-from config.settings import PERSONALITY_STRENGTH
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+
 from core.personas import get_persona_context, persona_manager
+from config.settings import DEFAULT_LANGUAGE
 
 logger = logging.getLogger(__name__)
+
+# Update path to moods configuration file
+MOODS_CONFIG_PATH = Path(__file__).parent.parent / "config" / "persona" / "moods.yaml"
 
 # Emotion types following human-like emotional model
 class EmotionType(Enum):
@@ -61,14 +70,18 @@ class EmotionalState:
     @property
     def is_active(self) -> bool:
         """Check if emotion is still active based on decay."""
-        # High intensity emotions last longer
+        # Get decay seconds from config
+        from core.mood_manager import mood_manager
+        decay_seconds = mood_manager.mood_decay_seconds
+        
+        # High intensity emotions last longer based on intensity
         max_duration = {
-            EmotionIntensity.MILD: 30,      # 30 seconds
-            EmotionIntensity.MODERATE: 120,  # 2 minutes
-            EmotionIntensity.STRONG: 300,    # 5 minutes
-            EmotionIntensity.EXTREME: 600    # 10 minutes
+            EmotionIntensity.MILD: decay_seconds * 0.3,       # 30% of decay time
+            EmotionIntensity.MODERATE: decay_seconds * 0.6,   # 60% of decay time
+            EmotionIntensity.STRONG: decay_seconds * 0.8,     # 80% of decay time
+            EmotionIntensity.EXTREME: decay_seconds           # Full decay time
         }
-        return self.age < max_duration.get(self.intensity, 60)
+        return self.age < max_duration.get(self.intensity, decay_seconds * 0.5)
     
     @property
     def current_intensity(self) -> EmotionIntensity:
@@ -84,8 +97,12 @@ class EmotionalState:
             EmotionIntensity.EXTREME: 4
         }
         
+        # Get decay rate from config
+        from core.mood_manager import mood_manager
+        decay_rate = mood_manager.mood_decay_rate
+        
         current_value = intensity_values.get(self.intensity, 2)
-        decay_amount = self.age * self.decay_rate / 60  # Decay per minute
+        decay_amount = self.age * decay_rate / 60  # Decay per minute
         
         # Decay but never below MILD
         new_value = max(1, current_value - decay_amount)
@@ -106,195 +123,159 @@ class EmotionEngine:
     """
     
     def __init__(self):
-        """Initialize the emotion engine with pattern detectors and responses."""
-        # Current emotional states by user_id
-        self.user_emotions: Dict[int, EmotionalState] = {}
+        """Initialize dengan embedding model untuk deteksi emosi dan load config."""
+        # Load the embedding model
+        self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
         
-        # Keywords that trigger emotional responses - expanded for more natural detection
-        self.emotion_triggers = {
-            # Happy triggers
+        # Load configurations
+        self.config = self._load_config()
+        
+        # User emotion states storage
+        self.user_emotions = {}
+        
+        # Example mapping for emotions
+        self.emotion_examples = {
             EmotionType.HAPPY: [
-                r'(?i)(good|great|nice|awesome|amazing|excellent|wonderful|love|like|thank|thx|makasih|terima kasih)',
-                r'(?i)(senang|suka|bahagia|bagus|keren|mantap|thanks|thx|makasih|gembira)',
-                r'😊|😄|😁|😀|😃|🥰|❤️|💕|👍|🙏',
+                "Aku senang sekali hari ini", 
+                "Berita bagus banget itu",
+                "Ini kabar yang sangat menyenangkan",
+                "Aku sangat bahagia mendengarnya"
             ],
-            
-            # Sad triggers
             EmotionType.SAD: [
-                r'(?i)(sad|sorry|unfortunate|bad|poor|maaf|sedih|kecewa|sakit|menyesal)',
-                r'(?i)(apologize|forgive|regret|minta maaf|maafin|sedih|kasihan|terluka)',
-                r'😢|😭|😞|😔|😥|☹️|💔|😿',
+                "Aku sedih mendengarnya", 
+                "Itu kabar buruk sekali",
+                "Aku merasa kecewa dengan hal itu",
+                "Ini berita yang menyedihkan"
             ],
-            
-            # Angry triggers
             EmotionType.ANGRY: [
-                r'(?i)(angry|mad|upset|annoyed|irritated|terrible|worst|hate|stupid|idiot|dumb|marah)',
-                r'(?i)(kesal|bodoh|tolol|goblok|benci|buruk|jelek|menyebalkan|gak suka|ga suka)',
-                r'😠|😡|🤬|👿|💢|😤',
+                "Aku kesal dengan hal itu", 
+                "Ini sangat menjengkelkan",
+                "Aku marah mendengarnya",
+                "Hal ini membuatku sangat kesal"
             ],
-            
-            # Surprised triggers 
             EmotionType.SURPRISED: [
-                r'(?i)(wow|whoa|omg|amazing|incredible|unbelievable|seriously|really|kaget)',
-                r'(?i)(terkejut|serius|beneran|masa sih|kok bisa|astaga|astagfirullah|anjir)',
-                r'😲|😮|😯|😱|😵|🤯|❗|❓',
+                "Wow, aku tidak menyangka", 
+                "Itu sangat mengejutkan",
+                "Aku tidak percaya itu terjadi",
+                "Sungguh mengagetkan"
             ],
-            
-            # Afraid triggers
-            EmotionType.AFRAID: [
-                r'(?i)(afraid|scared|fear|worry|anxious|nervous|takut|khawatir|cemas|ngeri)',
-                r'(?i)(scary|horror|terrifying|menyeramkan|serem|horor|berbahaya)',
-                r'😨|😰|😱|😖|🙀|😿',
-            ],
-            
-            # Disgusted triggers
-            EmotionType.DISGUSTED: [
-                r'(?i)(gross|disgusting|eww|yuck|jijik|jorok|kotor|menjijikkan|najis|bau)',
-                r'🤢|🤮|👎|💩',
-            ],
-            
-            # Curious triggers
-            EmotionType.CURIOUS: [
-                r'(?i)(how|what|why|when|where|who|which|kenapa|bagaimana|siapa|kapan|dimana)',
-                r'(?i)(curious|wonder|interested|tell me|explain|penasaran|jelaskan|ceritakan)',
-                r'🤔|🧐|❓|🔍',
-            ],
-            
-            # Embarrassed triggers
             EmotionType.EMBARRASSED: [
-                r'(?i)(embarrassed|awkward|shy|blush|malu|canggung|bingung|kaku|maluuu)',
-                r'😳|🙈|😅|😬|☺️',
+                "Aku malu sekali", 
+                "Ini memalukan",
+                "Aku merasa tidak nyaman dengan hal itu",
+                "Aku merasa malu"
             ],
-            
-            # Proud triggers
-            EmotionType.PROUD: [
-                r'(?i)(proud|achievement|accomplish|success|well done|bagus|hebat|berhasil)',
-                r'(?i)(bangga|sukses|pencapaian|prestasi|keren|mantap)',
-                r'🏆|🎖️|🥇|🌟|✨',
-            ],
-            
-            # Grateful triggers
-            EmotionType.GRATEFUL: [
-                r'(?i)(thank|appreciate|grateful|terima kasih|makasih|thanks|thx|trims)',
-                r'(?i)(makasih|tengkyu|thank you|thanks|thx|terimakasih)',
-                r'🙏|❤️|💕',
-            ],
-            
-            # Concerned triggers
-            EmotionType.CONCERNED: [
-                r'(?i)(worried|concerned|hope|care|peduli|khawatir|semoga|mudah-mudahan)',
-                r'(?i)(harap|berharap|cemas|wish|pray|doa)',
-                r'😟|🙁|🤞|🙏',
-            ],
-            
-            # Enthusiastic triggers
-            EmotionType.ENTHUSIASTIC: [
-                r'(?i)(excited|can\'t wait|looking forward|semangat|ga sabar|tidak sabar)',
-                r'(?i)(gak sabar|antusias|excited|pengen banget|segera)',
-                r'🤩|🥳|🎉|💃|🕺|⭐|🔥',
-            ],
+            EmotionType.CURIOUS: [
+                "Aku penasaran tentang hal itu", 
+                "Ini menarik untuk dipelajari",
+                "Aku ingin tahu lebih banyak",
+                "Ini topik yang menarik"
+            ]
         }
         
-        # Roleplay actions for different emotions by persona type
+        # Generate embeddings for emotion examples
+        self.emotion_embeddings = self._prepare_emotion_embeddings()
+        
+        # Store emotion actions for different personas
         self.emotion_actions = self._load_emotion_actions()
     
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configurations from YAML file."""
+        try:
+            if not os.path.exists(MOODS_CONFIG_PATH):
+                logger.error(f"Mood config file not found: {MOODS_CONFIG_PATH}")
+                return {}
+                
+            with open(MOODS_CONFIG_PATH, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                
+            logger.info("Successfully loaded mood configuration for emotion system")
+            return config or {}
+        except Exception as e:
+            logger.error(f"Error loading emotion config: {e}")
+            return {}
+
+    def _prepare_emotion_embeddings(self) -> Dict[EmotionType, List[float]]:
+        """Generate embeddings untuk contoh-contoh emosi."""
+        embeddings = {}
+        for emotion, examples in self.emotion_examples.items():
+            embeddings[emotion] = self.model.encode(examples)
+        return embeddings
+
+    def detect_emotion(self, message: str) -> Tuple[EmotionType, EmotionIntensity]:
+        """Deteksi emosi berdasarkan semantic similarity."""
+        if not message or len(message) < 3:
+            return EmotionType.NEUTRAL, EmotionIntensity.MILD
+            
+        message_embedding = self.model.encode(message)
+        best_emotion = EmotionType.NEUTRAL
+        highest_score = 0.0
+
+        for emotion, example_embeddings in self.emotion_embeddings.items():
+            similarities = cosine_similarity([message_embedding], example_embeddings)[0]
+            max_similarity = max(similarities)
+            if max_similarity > highest_score:
+                highest_score = max_similarity
+                best_emotion = emotion
+
+        # If score is too low, default to neutral
+        if highest_score < 0.5:
+            return EmotionType.NEUTRAL, EmotionIntensity.MILD
+            
+        intensity = self._map_score_to_intensity(highest_score)
+        return best_emotion, intensity
+
+    def _map_score_to_intensity(self, score: float) -> EmotionIntensity:
+        """Map similarity score ke intensitas emosi."""
+        if score > 0.8:
+            return EmotionIntensity.STRONG
+        elif score > 0.65:
+            return EmotionIntensity.MODERATE
+        else:
+            return EmotionIntensity.MILD
+    
     def _load_emotion_actions(self) -> Dict[str, Dict[EmotionType, List[str]]]:
-        """
-        Load emotion-specific roleplay actions for different personas.
-        
-        Returns:
-            Dictionary mapping persona to emotion actions
-        """
-        # Default actions if files don't exist
-        default_actions = {
+        """Load emotion actions for different personas."""
+        # This would ideally come from persona yamls
+        # For now we'll create some default actions
+        actions = {
             "tsundere": {
                 EmotionType.HAPPY: [
-                    "*trying to hide a smile*",
-                    "*slight blush while looking away*",
+                    "*wajah sedikit merona* B-bukan berarti aku senang atau apa...",
+                    "*memalingkan wajah dengan senyum tipis* Hmph! Terserah...",
+                    "*mencoba menyembunyikan senyuman* Y-ya... itu cukup bagus..."
                 ],
                 EmotionType.SAD: [
-                    "*looks down with a slight frown*",
-                    "*sighs softly*",
-                ],
-                EmotionType.ANGRY: [
-                    "*crosses arms firmly*",
-                    "*narrows eyes*",
-                ],
-                EmotionType.SURPRISED: [
-                    "*eyes widen momentarily*",
-                    "*takes a step back*",
+                    "*mengalihkan pandangan* Ini bukan apa-apa... Aku baik-baik saja...",
+                    "*menghela napas pelan* B-bukan berarti aku sedih...",
+                    "*merapikan rambut dengan gerakan kaku* Aku tidak peduli..."
                 ],
                 EmotionType.EMBARRASSED: [
-                    "*face turns visibly red*",
-                    "*fidgets nervously*",
-                ],
+                    "*wajah memerah* A-apa yang kau katakan!?",
+                    "*memalingkan wajah dengan cepat* J-jangan menatapku seperti itu!",
+                    "*merapikan rok dengan gugup* B-bodoh! Jangan salah paham!"
+                ]
             },
             "waifu": {
                 EmotionType.HAPPY: [
-                    "*smiles brightly*",
-                    "*claps hands excitedly*",
+                    "*tersenyum cerah* Alya senang sekali~!",
+                    "*mata berbinar* Itu membuatku sangat bahagia!",
+                    "*bertepuk tangan kecil* Yay! Itu berita yang menyenangkan!"
                 ],
                 EmotionType.SAD: [
-                    "*eyes glisten with emotion*",
-                    "*holds hands to chest*",
+                    "*mata berkaca-kaca* Itu... sangat menyedihkan...",
+                    "*menunduk pelan* Alya merasa sedih mendengarnya...",
+                    "*menggigit bibir pelan* Maaf... itu berita yang menyedihkan..."
                 ],
-                EmotionType.SURPRISED: [
-                    "*covers mouth with hand*",
-                    "*gasps softly*",
-                ],
-            },
-            "informative": {
-                EmotionType.CURIOUS: [
-                    "*adjusts glasses thoughtfully*",
-                    "*taps chin while thinking*",
-                ],
+                EmotionType.EMBARRASSED: [
+                    "*pipi merona merah* E-eh? A-alya tidak tahu harus berkata apa...",
+                    "*menutupi wajah dengan tangan* Mou~ Kamu membuatku malu!",
+                    "*memilin ujung rambut dengan gugup* A-alya malu sekali..."
+                ]
             }
         }
-        
-        # In a real system, we'd load these from persona YAML files
-        # For now using defaults with basic coverage for main personas
-        return default_actions
-    
-    def detect_emotion(self, message: str) -> Tuple[Optional[EmotionType], EmotionIntensity]:
-        """
-        Detect potential emotion from message content.
-        
-        Args:
-            message: User message text
-            
-        Returns:
-            Tuple of (detected_emotion, intensity)
-        """
-        if not message:
-            return None, EmotionIntensity.MILD
-            
-        # Check all emotion patterns
-        detected_emotions = []
-        
-        for emotion_type, patterns in self.emotion_triggers.items():
-            for pattern in patterns:
-                matches = re.findall(pattern, message)
-                if matches:
-                    # Calculate intensity based on number and strength of matches
-                    intensity = min(len(matches), 3)  # 1-3 scale
-                    detected_emotions.append((emotion_type, intensity))
-        
-        if not detected_emotions:
-            return None, EmotionIntensity.MILD
-            
-        # If multiple emotions detected, pick strongest one
-        detected_emotions.sort(key=lambda x: x[1], reverse=True)
-        emotion_type, intensity_score = detected_emotions[0]
-        
-        # Map score to intensity enum
-        intensity_mapping = {
-            1: EmotionIntensity.MILD,
-            2: EmotionIntensity.MODERATE,
-            3: EmotionIntensity.STRONG
-        }
-        
-        return emotion_type, intensity_mapping.get(intensity_score, EmotionIntensity.MODERATE)
-    
+        return actions
+
     def update_emotional_state(self, user_id: int, message: str) -> None:
         """
         Update user's emotional state based on message.
@@ -307,7 +288,7 @@ class EmotionEngine:
         emotion_type, intensity = self.detect_emotion(message)
         
         # If no emotion detected, return
-        if not emotion_type:
+        if emotion_type == EmotionType.NEUTRAL:
             return
             
         # Get current emotional state or create new one
@@ -346,6 +327,10 @@ class EmotionEngine:
                 
                 current_state.timestamp = time.time()
                 current_state.trigger = message[:50]
+            
+            # Update decay rate from config
+            from core.mood_manager import mood_manager
+            current_state.decay_rate = mood_manager.mood_decay_rate
     
     def get_current_emotion(self, user_id: int) -> EmotionalState:
         """
@@ -365,6 +350,46 @@ class EmotionEngine:
             return EmotionalState()
             
         return state
+    
+    def get_emotion_emojis(self, emotion: EmotionType, count: int = 1) -> List[str]:
+        """
+        Get emojis for an emotion from YAML config.
+        
+        Args:
+            emotion: Emotion type
+            count: Number of emojis to return
+            
+        Returns:
+            List of emoji strings
+        """
+        # Map emotion to mood name
+        mood_mapping = {
+            EmotionType.HAPPY: 'senang',
+            EmotionType.SAD: 'sedih',
+            EmotionType.ANGRY: 'marah',
+            EmotionType.AFRAID: 'takut',
+            EmotionType.EMBARRASSED: 'malu'
+        }
+        
+        mood_name = mood_mapping.get(emotion)
+        if not mood_name:
+            return []
+            
+        # Get emojis from config
+        mood_emoji = self.config.get('mood_emoji', {})
+        emoji_list = mood_emoji.get(mood_name, [])
+        
+        if not emoji_list:
+            return []
+            
+        # Get random emojis
+        result = []
+        for _ in range(min(count, len(emoji_list))):
+            emoji = random.choice(emoji_list)
+            emoji_list.remove(emoji)  # Avoid duplicates
+            result.append(emoji)
+            
+        return result
     
     def get_emotional_response(self, user_id: int, persona: str = "tsundere") -> Optional[str]:
         """
@@ -400,25 +425,58 @@ class EmotionEngine:
         # Choose a random action
         action = random.choice(emotion_actions)
         
+        # Maybe add emotion emoji
+        emojis = self.get_emotion_emojis(emotion.primary)
+        emoji_suffix = f" {emojis[0]}" if emojis and random.random() < 0.7 else ""
+        
+        # Check for Russian expression probability
+        russian_expression = self._get_russian_expression(persona)
+        russian_suffix = f" {russian_expression}" if russian_expression else ""
+        
         # Add flavor text based on emotion and persona
         if persona == "tsundere":
             if emotion.primary == EmotionType.HAPPY:
-                return f"{action} B-bukan berarti Alya senang atau apa..."
+                return f"{action} B-bukan berarti Alya senang atau apa...{emoji_suffix}{russian_suffix}"
             elif emotion.primary == EmotionType.CONCERNED:
-                return f"{action} B-bukan berarti Alya khawatir tentangmu..."
+                return f"{action} B-bukan berarti Alya khawatir tentangmu...{emoji_suffix}{russian_suffix}"
             elif emotion.primary == EmotionType.EMBARRASSED:
-                return f"{action} J-jangan salah paham!"
+                return f"{action} J-jangan salah paham!{emoji_suffix}{russian_suffix}"
         elif persona == "waifu":
             if emotion.primary == EmotionType.HAPPY:
-                return f"{action} Alya senang sekali~!"
+                return f"{action} Alya senang sekali~!{emoji_suffix}{russian_suffix}"
             elif emotion.primary == EmotionType.CONCERNED:
-                return f"{action} Alya peduli padamu, {username}-kun..."
+                return f"{action} Alya peduli padamu...{emoji_suffix}{russian_suffix}"
                 
         # Default just return the action
-        return action
+        return f"{action}{emoji_suffix}{russian_suffix}"
+    
+    def _get_russian_expression(self, persona: str) -> Optional[str]:
+        """Get a Russian expression based on personality and randomness."""
+        # Check persona settings
+        persona_config = self.config.get('persona_settings', {}).get(persona, {})
+        chance = persona_config.get('russian_expression_chance', 0)
+        
+        # Determine if we use expression
+        if random.random() * 100 > chance:
+            return None
+            
+        # Get expressions from persona
+        try:
+            from core.personas import persona_manager
+            persona_data = persona_manager.get_persona_config(persona)
+            if not persona_data:
+                return None
+                
+            expressions = persona_data.get('russian_expressions', [])
+            if expressions:
+                return random.choice(expressions)
+        except Exception as e:
+            logger.error(f"Error getting Russian expressions: {e}")
+            
+        return None
     
     def enhance_response_with_emotion(
-        self, response: str, user_id: int, persona: str = "tsundere"
+        self, response: str, user_id: int, persona: str = "tsundere", language: str = DEFAULT_LANGUAGE
     ) -> str:
         """
         Enhance a response with emotional context.
@@ -427,6 +485,7 @@ class EmotionEngine:
             response: Original response text
             user_id: User ID for emotional context
             persona: Current persona
+            language: Language code for response formatting
             
         Returns:
             Emotion-enhanced response

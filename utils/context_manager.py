@@ -859,6 +859,7 @@ class ContextManager:
                 "tables": {},
                 "user_count": 0,
                 "total_messages": 0,
+                "active_users_24h": 0, # Added for new stats
                 "db_size_mb": 0
             }
             
@@ -867,7 +868,7 @@ class ContextManager:
                 cursor.execute(f"SELECT COUNT(*) FROM {table}")
                 stats["tables"][table] = cursor.fetchone()[0] or 0
                 
-            # Get user counts
+            # Get unique user counts (overall)
             cursor.execute(
                 "SELECT COUNT(DISTINCT user_id) FROM chat_history"
             )
@@ -878,6 +879,14 @@ class ContextManager:
                 "SELECT COUNT(*) FROM chat_history"
             )
             stats["total_messages"] = cursor.fetchone()[0] or 0
+
+            # Get active users in the last 24 hours
+            one_day_ago = int(time.time()) - (24 * 60 * 60)
+            cursor.execute(
+                "SELECT COUNT(DISTINCT user_id) FROM chat_history WHERE timestamp >= ?",
+                (one_day_ago,)
+            )
+            stats["active_users_24h"] = cursor.fetchone()[0] or 0
             
             # Calculate database file size
             if os.path.exists(self.db_path):
@@ -919,6 +928,52 @@ class ContextManager:
         except Exception as e:
             logger.error(f"Error clearing chat history: {e}")
             return False
+
+    def get_unique_user_count(self) -> int:
+        """
+        Return the number of unique users in chat history.
+        """
+        def _operation(conn: sqlite3.Connection) -> int:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(DISTINCT user_id) FROM chat_history")
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        return self._safe_execute("get_unique_user_count", _operation)
+
+    def get_active_user_count(self, days: int = 1) -> int:
+        """
+        Return the number of unique active users in the last N days.
+
+        Args:
+            days: Number of past days to consider for activity.
+
+        Returns:
+            Count of active users.
+        """
+        def _operation(conn: sqlite3.Connection, days: int) -> int:
+            cursor = conn.cursor()
+            since_timestamp = int(time.time()) - (days * 24 * 60 * 60)
+            cursor.execute(
+                "SELECT COUNT(DISTINCT user_id) FROM chat_history WHERE timestamp >= ?",
+                (since_timestamp,)
+            )
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        return self._safe_execute("get_active_user_count", _operation, days=days)
+
+    def get_total_message_count(self) -> int:
+        """
+        Return the total number of messages in chat history.
+
+        Returns:
+            Total count of messages.
+        """
+        def _operation(conn: sqlite3.Connection) -> int:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM chat_history")
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        return self._safe_execute("get_total_message_count", _operation)
 
 # Create a singleton instance
 context_manager = ContextManager()

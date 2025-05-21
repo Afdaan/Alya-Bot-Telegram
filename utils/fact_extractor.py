@@ -13,6 +13,7 @@ import sqlite3
 
 # Fix incorrect import path
 from database.database import get_connection
+from transformers import pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -25,72 +26,17 @@ class FactExtractor:
     """
     
     def __init__(self):
-        """Initialize fact extractor with patterns."""
-        # Fact extraction patterns
-        self.fact_patterns = {
-            'name': [
-                r"(?:nama\s+(?:saya|aku|gw|gue|ku))[^\w]+([\w\s]+)",
-                r"(?:my\s+name\s+is|i\s+am|i'm)[^\w]+([\w\s]+)"
-            ],
-            'age': [
-                r"(?:umur\s+(?:saya|aku|gw|gue))[^\w]+(\d+)",
-                r"(?:i\s+am|i'm)\s+(\d+)\s+(?:years|yo|year)"
-            ],
-            'location': [
-                r"(?:(?:saya|aku|gw|gue)\s+(?:dari|tinggal))[^\w]+([\w\s]+)",
-                r"(?:i\s+(?:live\s+in|am\s+from))[^\w]+([\w\s]+)"
-            ],
-            'job': [
-                r"(?:(?:kerja|pekerjaan)\s+(?:saya|aku|gw|gue))[^\w]+([\w\s]+)",
-                r"(?:i\s+work\s+as|my\s+job\s+is)[^\w]+([\w\s]+)"
-            ],
-            'hobby': [
-                r"(?:(?:saya|aku|gw|gue)\s+(?:suka|senang|hobi))[^\w]+([\w\s]+)",
-                r"(?:i\s+(?:like|love|enjoy))[^\w]+([\w\s]+)"
-            ],
-            'education': [
-                r"(?:(?:saya|aku|gw|gue)\s+(?:kuliah|sekolah|belajar))[^\w]+([\w\s]+)",
-                r"(?:i\s+study|i'm\s+studying)[^\w]+([\w\s]+)"
-            ]
-        }
-        
-        # Common words to filter out from extracted facts
-        self.common_words = {
-            'saya', 'aku', 'gw', 'gue', 'kamu', 'dia', 'mereka', 
-            'you', 'me', 'he', 'she', 'they', 'we',
-            'here', 'there', 'sini', 'situ', 'anywhere', 'nowhere'
-        }
-        
+        """Initialize fact extractor dengan NER pipeline."""
+        self.ner_pipeline = pipeline("ner", model="cahya/bert-base-indonesian-NER", aggregation_strategy="simple")
+
     def extract_facts_from_text(self, text: str) -> Dict[str, str]:
-        """
-        Extract facts from a text message.
-        
-        Args:
-            text: Message text
-            
-        Returns:
-            Dictionary of extracted facts (fact_type: fact_value)
-        """
-        if not text or len(text.strip()) < 5:
-            return {}
-            
-        text_lower = text.lower()
-        extracted_facts = {}
-        
-        # Check all patterns for each fact type
-        for fact_type, patterns in self.fact_patterns.items():
-            for pattern in patterns:
-                match = re.search(pattern, text_lower, re.IGNORECASE)
-                if match:
-                    # Extract and clean the fact value
-                    fact_value = match.group(1).strip()
-                    
-                    # Validate extracted fact
-                    if self._validate_fact(fact_type, fact_value):
-                        extracted_facts[fact_type] = fact_value
-                        break  # Take first valid match for this fact type
-                        
-        return extracted_facts
+        """Extract facts menggunakan NER model."""
+        entities = self.ner_pipeline(text)
+        facts = {}
+        for entity in entities:
+            if entity["entity_group"] in ["PER", "LOC", "ORG"]:
+                facts[entity["entity_group"].lower()] = entity["word"]
+        return facts
     
     def _validate_fact(self, fact_type: str, value: str) -> bool:
         """

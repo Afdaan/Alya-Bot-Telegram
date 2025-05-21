@@ -15,14 +15,23 @@ import asyncio
 from typing import Dict, Any, List, Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackContext, CommandHandler
+from telegram.ext import CallbackContext, CommandHandler, Application
+from telegram.constants import ParseMode
 
-from config.settings import DEVELOPER_IDS, DEV_COMMANDS
-from utils.formatters import format_markdown_response, escape_markdown_v2
+from config.settings import (
+    DEVELOPER_IDS, 
+    DEV_COMMANDS, 
+    SUPPORTED_LANGUAGES,
+    DEFAULT_LANGUAGE
+)
+from utils.formatters import format_markdown_response, escape_markdown_v2, format_dev_message
 from utils.context_manager import context_manager
 from config.logging_config import log_command
 
 logger = logging.getLogger(__name__)
+
+# Process start time for uptime calculation
+process_start_time = time.time()
 
 # =========================
 # Developer Commands
@@ -51,7 +60,7 @@ async def update_command(update: Update, context: CallbackContext) -> None:
     # Send updating message
     status_msg = await update.message.reply_text(
         "🔄 *Updating Bot*\n\n"
-        "*Step 1:* Pulling latest changes...",
+        "*Step 1:* Pulling latest changes\\.\\.\\.",
         parse_mode='MarkdownV2'
     )
     
@@ -76,7 +85,7 @@ async def update_command(update: Update, context: CallbackContext) -> None:
         await status_msg.edit_text(
             "🔄 *Updating Bot*\n\n"
             "*Step 1:* ✅ Latest changes pulled\n"
-            "*Step 2:* Restarting bot...",
+            "*Step 2:* Restarting bot\\.\\.\\.",
             parse_mode='MarkdownV2'
         )
         
@@ -87,7 +96,7 @@ async def update_command(update: Update, context: CallbackContext) -> None:
         # Final confirmation and restart
         await status_msg.edit_text(
             "✅ *Update Completed*\n\n"
-            "Bot will restart now. Please wait a moment...",
+            "Bot will restart now\\. Please wait a moment\\.\\.\\.",
             parse_mode='MarkdownV2'
         )
         
@@ -97,90 +106,104 @@ async def update_command(update: Update, context: CallbackContext) -> None:
         
     except Exception as e:
         logger.error(f"Error during update: {e}")
+        safe_error = escape_markdown_v2(str(e))
         await status_msg.edit_text(
             f"❌ *Update Failed*\n\n"
-            f"Error: {escape_markdown_v2(str(e))}",
+            f"Error: {safe_error}",
             parse_mode='MarkdownV2'
         )
 
 @log_command(logger)
 async def stats_command(update: Update, context: CallbackContext) -> None:
     """
-    Get detailed bot statistics.
-    Developer only command.
+    Display bot statistics.
     
     Args:
         update: Telegram update object
         context: Callback context
     """
-    user_id = update.effective_user.id
+    user = update.effective_user
     
-    # Check if user is developer
-    if user_id not in DEVELOPER_IDS:
+    # Check if it's a developer or admin
+    if user.id not in DEVELOPER_IDS:
         await update.message.reply_text(
-            "⛔ *Access Denied*\n\nOnly developers can use this command.",
+            f"*{escape_markdown_v2(user.first_name)}\\-kun\\~* Maaf, command ini hanya untuk developer\\.",
             parse_mode='MarkdownV2'
         )
         return
-    
-    # Start gathering stats
-    await update.message.reply_text(
-        "📊 *Gathering Bot Statistics*\n\nPlease wait...",
-        parse_mode='MarkdownV2'
+        
+    # Show processing status
+    status_msg = await update.message.reply_text(
+        "Mengumpulkan statistik...",
+        parse_mode=None
     )
     
     try:
-        # Get basic system info
-        process = psutil.Process(os.getpid())
-        cpu_percent = process.cpu_percent(interval=1.0)
-        memory_info = process.memory_info()
-        memory_mb = memory_info.rss / (1024 * 1024)
-        uptime = time.time() - process.create_time()
+        # Get system stats
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
         
-        # Format uptime
-        days = int(uptime // (24 * 3600))
-        uptime %= (24 * 3600)
-        hours = int(uptime // 3600)
-        uptime %= 3600
-        minutes = int(uptime // 60)
-        uptime_str = f"{days}d {hours}h {minutes}m"
+        # Get bot stats
+        uptime = time.time() - process_start_time
+        uptime_str = format_uptime(int(uptime))
         
-        # Get user count from context manager
-        user_count = context_manager.get_unique_user_count()
-        active_users = context_manager.get_active_user_count(days=1)
-        total_messages = context_manager.get_total_message_count()
+        # Get database stats
+        db_stats = context_manager.get_db_stats()
         
-        # Get API key stats from rate limiter
-        from utils.rate_limiter import get_api_key_manager
-        key_stats = get_api_key_manager().get_key_stats()
+        # Get memory stats
+        memory_stats = context_manager.get_memory_stats(user.id)
         
-        # Format key usage - using plain text instead of markdown
-        key_usage_str = "\n".join([f"{key}: {count}" for key, count in key_stats.items()])
+        # Get API key stats (if available)
+        try:
+            from utils.rate_limiter import api_key_manager
+            key_stats = api_key_manager.get_key_stats()
+            keys_info = "\n".join([
+                f"• Key {i+1}: {'🟢 ' if s['is_current'] else '🔴 '}"
+                f"{s['key_prefix']} "
+                f"{f'(cooldown until {s['cooldown_ends']})' if s['in_cooldown'] else ''}"
+                for i, s in enumerate(key_stats)
+            ])
+        except Exception as key_err:
+            logger.error(f"Error getting key stats: {key_err}")
+            keys_info = "Error retrieving API key information"
         
-        # Create stats message - USING PLAIN TEXT INSTEAD OF MARKDOWN
-        stats_text = (
-            "📊 Bot Statistics\n\n"
-            f"System Stats:\n"
-            f"CPU Usage: {cpu_percent:.1f}%\n"
-            f"Memory Usage: {memory_mb:.1f} MB\n"
-            f"Uptime: {uptime_str}\n\n"
+        # Format response
+        response = (
+            f"*🤖 ALYA BOT STATISTICS*\n\n"
+            f"*System:*\n"
+            f"• CPU: {psutil.cpu_percent()}%\n"
+            f"• RAM: {memory.percent}% ({memory.used // 1024 // 1024}MB / {memory.total // 1024 // 1024}MB)\n"
+            f"• Disk: {disk.percent}% ({disk.used // 1024 // 1024 // 1024}GB / {disk.total // 1024 // 1024 // 1024}GB)\n"
+            f"• Uptime: {uptime_str}\n\n"
             
-            f"User Stats:\n"
-            f"Total Users: {user_count}\n"
-            f"Active Today: {active_users}\n"
-            f"Total Messages: {total_messages}\n\n"
+            f"*Database:*\n"
+            f"• Total users: {db_stats.get('user_count', 0)}\n"
+            f"• Total messages: {db_stats.get('total_messages', 0)}\n"
+            f"• Active users (24h): {db_stats.get('active_users_24h', 0)}\n"
+            f"• DB size: {db_stats.get('db_size_mb', 0):.1f} MB\n\n"
             
-            f"API Usage:\n"
-            f"{key_usage_str}\n\n"
+            f"*API Keys:*\n{keys_info}\n\n"
+            
+            f"*User Memory:*\n"
+            f"• Messages: {memory_stats.get('total_messages', 0)}\n"
+            f"• Memory usage: {memory_stats.get('memory_usage_percent', 0)}%\n"
+            f"• Personal facts: {memory_stats.get('personal_facts', 0)}\n"
         )
         
-        # Send stats WITHOUT parse_mode to avoid Markdown errors
-        await update.message.reply_text(stats_text)
+        # Format response with markdown
+        formatted_response = format_dev_message(response)
+        
+        # Send response
+        await status_msg.edit_text(
+            formatted_response,
+            parse_mode='MarkdownV2'
+        )
         
     except Exception as e:
         logger.error(f"Error generating stats: {e}")
-        await update.message.reply_text(
-            f"❌ Stats Error\n\nError: {str(e)}"
+        await status_msg.edit_text(
+            f"Error generating stats: {str(e)}",
+            parse_mode=None
         )
 
 @log_command(logger)
@@ -271,7 +294,6 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        
         stdout, stderr = await process.communicate()
         
         # Format output
@@ -293,7 +315,6 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
             f"```\n{escape_markdown_v2(output)}\n```",
             parse_mode='MarkdownV2'
         )
-        
     except Exception as e:
         logger.error(f"Error executing shell command: {e}")
         await update.message.reply_text(
@@ -306,59 +327,91 @@ async def shell_command(update: Update, context: CallbackContext) -> None:
 async def lang_command(update: Update, context: CallbackContext) -> None:
     """
     Change bot language.
-    Developer only command.
     
     Args:
         update: Telegram update object
         context: Callback context
     """
-    from config.settings import SUPPORTED_LANGUAGES
+    user = update.effective_user
+    chat_id = update.effective_chat.id if update.effective_chat else None
     
-    user_id = update.effective_user.id
+    args = context.args
     
-    # Check if user is developer
-    if user_id not in DEVELOPER_IDS:
+    if not args or len(args) != 1:
+        # Show language selection keyboard
+        keyboard = []
+        row = []
+        
+        for code, name in SUPPORTED_LANGUAGES.items():
+            # Escape parentheses in button text for MarkdownV2
+            safe_name = escape_markdown_v2(name)
+            button = InlineKeyboardButton(f"{name}", callback_data=f"lang_{code}")
+            row.append(button)
+            
+            # Two buttons per row
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+                
+        # Add any remaining buttons
+        if row:
+            keyboard.append(row)
+            
+        markup = InlineKeyboardMarkup(keyboard)
+        
         await update.message.reply_text(
-            "⛔ *Access Denied*\n\nOnly developers can use this command.",
+            f"*{escape_markdown_v2(user.first_name)}\\-kun\\~* Silakan pilih bahasa yang ingin kamu gunakan:",
+            reply_markup=markup,
+            parse_mode='MarkdownV2'
+        )
+        return
+        
+    # Get requested language
+    requested_lang = args[0].lower()
+    
+    # Validate language
+    if requested_lang not in SUPPORTED_LANGUAGES:
+        valid_langs = ", ".join(SUPPORTED_LANGUAGES.keys())
+        await update.message.reply_text(
+            f"*{escape_markdown_v2(user.first_name)}\\-kun\\~* Bahasa `{escape_markdown_v2(requested_lang)}` tidak didukung\\.\n\n"
+            f"Bahasa yang didukung: `{escape_markdown_v2(valid_langs)}`",
             parse_mode='MarkdownV2'
         )
         return
     
-    # Get language code from message
-    message_parts = update.message.text.split()
-    if len(message_parts) > 1:
-        lang_code = message_parts[1].lower()
-        
-        # Check if language is supported
-        if lang_code in SUPPORTED_LANGUAGES:
-            # Set language in context
-            context.bot_data['language'] = lang_code
-            
-            # Confirm change
-            lang_name = SUPPORTED_LANGUAGES[lang_code]
-            await update.message.reply_text(
-                f"🌐 Bot language changed to: *{escape_markdown_v2(lang_name)}* ({lang_code})",
-                parse_mode='MarkdownV2'
-            )
-        else:
-            # List supported languages
-            langs = "\n".join([f"• {code} - {name}" for code, name in SUPPORTED_LANGUAGES.items()])
-            await update.message.reply_text(
-                f"❌ Unsupported language code: {lang_code}\n\n"
-                f"Supported languages:\n{langs}",
-                parse_mode=None
-            )
-    else:
-        # Show current language and usage info
-        current_lang = context.bot_data.get('language', 'id')
-        lang_name = SUPPORTED_LANGUAGES.get(current_lang, 'Unknown')
-        
-        await update.message.reply_text(
-            f"🌐 Current language: *{escape_markdown_v2(lang_name)}* ({current_lang})\n\n"
-            f"Usage: `/lang code`\n\n"
-            f"Example: `/lang en`",
-            parse_mode='MarkdownV2'
-        )
+    # Update language preference
+    language_context = {
+        'timestamp': int(time.time()),
+        'language': requested_lang,
+        'set_by_user_id': user.id,
+        'set_by_username': user.username or user.first_name
+    }
+    
+    context_manager.save_context(user.id, chat_id, 'language', language_context)
+    language_name = SUPPORTED_LANGUAGES[requested_lang]
+    
+    await update.message.reply_text(
+        f"*{escape_markdown_v2(user.first_name)}\\-kun\\~* Alya akan menggunakan bahasa "
+        f"{escape_markdown_v2(language_name)} \\({escape_markdown_v2(requested_lang)}\\) sekarang\\.",
+        parse_mode='MarkdownV2'
+    )
+
+def format_uptime(seconds: int) -> str:
+    """Format seconds into days, hours, minutes, seconds string."""
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0 or days > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0 or hours > 0 or days > 0:
+        parts.append(f"{minutes}m")
+    parts.append(f"{seconds}s")
+    
+    return " ".join(parts)
 
 # Map command names to handler functions
 DEV_HANDLERS = {
@@ -366,11 +419,11 @@ DEV_HANDLERS = {
     'stats': stats_command,
     'debug': debug_command,
     'shell': shell_command,
-    'lang': lang_command
+    'lang': lang_command,
 }
 
 # Function to register all developer command handlers
-def register_dev_handlers(app):
+def register_dev_handlers(app: Application) -> None:
     """Register all developer command handlers."""
     for cmd_name, handler_func in DEV_HANDLERS.items():
         cmd_config = DEV_COMMANDS.get(cmd_name, {})

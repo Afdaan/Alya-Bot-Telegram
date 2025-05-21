@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Tuple, Literal, Optional, Set
 from dataclasses import dataclass
 
 from core.models import generate_response
+from transformers import pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,10 @@ class IntentDetector:
     """Natural intent detection without relying on regex patterns."""
     
     def __init__(self):
-        """Initialize intent detector."""
+        """Initialize intent detector dengan zero-shot classification."""
+        self.classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+        self.labels = ["conversation", "information", "assistance", "unknown"]
+        
         # Cache for recent intent detections to reduce LLM calls
         self._cache: Dict[str, IntentResult] = {}
         self._cache_size = 100

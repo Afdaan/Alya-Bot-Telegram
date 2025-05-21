@@ -14,13 +14,13 @@ persona_settings:
     
   # Behavior settings  
   memory_recall: true       # Use memory/context system
-  emoji_limit: 2            # Max number of emoji per response
+  emoji_limit: 5           # Max number of emoji per response
   
 # Persona files location
 persona_path: "config/persona"
 
 # Global response settings
 response_settings:
-  max_length: 4096          # Maximum response length
+  max_length: 8096          # Maximum response length
   fallback_message: "Hmph! Alya lagi bingung nih~ Coba tanya lagi nanti ya! 😳"
   error_message: "M-maaf... Alya lagi error. Coba lagi nanti ya? 😔"

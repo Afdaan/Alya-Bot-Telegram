@@ -16,7 +16,7 @@ from typing import List, Dict, Any, Optional, Tuple
 # Third-party imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode  # Pindahkan ParseMode dari telegram ke telegram.constants
-from telegram.ext import CallbackContext
+from telegram.ext import CallbackContext, ContextTypes, Application, CommandHandler
 
 # Local imports
 from config.settings import (
@@ -52,98 +52,96 @@ process_start_time = time.time()
 # Basic Commands
 # =========================
 
-async def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Handle /start command to initiate conversation with the bot.
+    Handle the /start command.
     
     Args:
         update: Telegram update object
         context: Callback context
     """
-    try:
-        # Get localized response
-        response = get_response("start", context)
+    if not update.effective_user:
+        return
         
-        await update.message.reply_text(
-            response,
-            parse_mode='MarkdownV2'
-        )
-    except Exception as e:
-        logger.error(f"Error in start command: {e}")
-        # Fallback to plain text if markdown parsing fails
-        await update.message.reply_text(
-            f"Konnichiwa! Alya-chan di sini! 🌸",
-            parse_mode=None
-        )
-
-async def help_command(update: Update, context: CallbackContext) -> None:
-    """
-    Handle /help command to show available commands.
+    user = update.effective_user
+    username = user.first_name
     
-    Args:
-        update: Telegram update object
-        context: Callback context
-    """
-    # Comprehensive help text with command categories
-    help_text = (
-        "*Konnichiwa\\!* 🌸 *Alya\\-chan di sini\\~*\n\n"
-        "Ini adalah perintah yang bisa kamu gunakan:\n\n"
-        "*Basic Commands:*\n"
-        "`/start` \\- Mulai berbicara dengan Alya\\-chan\n"
-        "`/help` \\- Bantuan dari Alya\\-chan\n"
-        "`/reset` \\- Hapus history chat\n"
-        "`/ping` \\- Cek status bot\n\n"
-        
-        "*Chat Commands:*\n"
-        "\\- Chat Private: _Langsung kirim pesan ke Alya\\-chan_\n"
-        f"\\- Chat Grup: Gunakan `{CHAT_PREFIX}` di awal pesan\n"
-        f"Contoh: `{CHAT_PREFIX} Ohayou Alya\\-chan\\~`\n\n"
-        
-        "*Image/Document Analysis:*\n"
-        f"\\- Kirim gambar/dokumen dengan caption `{ANALYZE_PREFIX}`\n"
-        f"Contoh: `{ANALYZE_PREFIX} Tolong analisis gambar ini`\n\n"
-        
-        "*Reverse Image Search:*\n"
-        f"\\- Kirim gambar dengan caption `{SAUCE_PREFIX}`\n"
-        f"Contoh: `{SAUCE_PREFIX}` untuk mencari sumber gambar anime/artwork\n\n"
-        
-        "*Smart Search:*\n"
-        "\\- Command: `!search <query>`\n"
-        "\\- Detail search: `!search -d <query>`\n"
-        "\\- Contoh: `!search jadwal KRL lempuyangan jogja`\n"
-        "\\- Alya juga bisa langsung menjawab pertanyaan informasi faktual\n"
-        f"\\- Contoh: `{CHAT_PREFIX} carikan jadwal kereta dari Bandung ke Jakarta`\n\n"
-        
-        "*Roasting Mode:*\n"
-        "1\\. Roast Biasa:\n"
-        f"`{CHAT_PREFIX} roast <username> [keywords]`\n"
-        "2\\. Roast GitHub:\n"
-        f"`{CHAT_PREFIX} roast github <username>`\n"
-        "Contoh: `!ai roast username wibu nolep`\n\n"
-        
-        "_Prefix Commands:_\n"
-        f"`{CHAT_PREFIX}` \\- Untuk chat dengan Alya di grup\n"
-        f"`{ANALYZE_PREFIX}` \\- Analisis gambar/dokumen\n"
-        f"`{SAUCE_PREFIX}` \\- Cari source gambar\n"
-        "`!search` \\- Cari informasi di internet\n"
-        f"`{CHAT_PREFIX} roast` \\- Mode toxic queen\n\n"
-        
-        "_Fitur Smart:_\n"
-        "\\- Alya bisa mencari informasi faktual otomatis\n"
-        "\\- Tanya tentang jadwal, berita, cuaca, atau informasi lainnya\n"
-        "\\- Support pencarian pintar tentang: jadwal kereta, pesawat, bus, dll\n"
-        "\\- Akan otomatis mencari di internet dan merangkum hasilnya\n\n"
-        
-        "_Yoroshiku onegaishimasu\\!_ ✨"
+    # Import here to avoid circular imports
+    from utils.formatters import format_markdown_response
+    from core.personas import persona_manager
+    
+    # Set default persona for new users
+    user_persona = persona_manager.get_current_persona(user.id)
+    if not user_persona:
+        persona_manager.set_persona(user.id, "tsundere")
+    
+    # Get welcome message based on persona
+    persona = persona_manager.get_current_persona(user.id)
+    
+    welcome_message = (
+        f"*Halo, {username}!*\n\n"
+        "Aku Alya, bot Telegram yang bisa mengobrol denganmu dengan kepribadian AI~ ✨\n\n"
+        "Kamu bisa:\n"
+        "• Mengobrol langsung di chat personal\n"
+        "• Di grup, gunakan awalan `!ai` atau mention aku\n"
+        "• Ganti kepribadianku dengan `/persona`\n"
+        "• Analisis gambar dengan `!trace`\n"
+        "• Cari sumber gambar dengan `!sauce`\n\n"
+        "Coba ajak aku bicara sekarang!"
     )
     
+    # Format with Markdown V2 safety
+    safe_message = format_markdown_response(welcome_message, username)
+    
     await update.message.reply_text(
-        help_text,
-        parse_mode='MarkdownV2'
-    );
+        safe_message,
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Handle the /help command.
+    
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
+    if not update.effective_user:
+        return
+        
+    user = update.effective_user
+    username = user.first_name
+    
+    # Import here to avoid circular imports
+    from utils.formatters import format_markdown_response
+    
+    help_text = (
+        f"*Bantuan Alya Bot* ✨\n\n"
+        "🗣️ *Chat Commands*\n"
+        "• Langsung chat (personal): Tulis pesan apa saja\n"
+        "• Dalam grup: Awali dengan `!ai` atau mention (@AlyaBot)\n\n"
+        "🔎 *Utility Commands*\n"
+        "• `/search [query]` - Mencari informasi di web\n"
+        "• `!trace` - Analisis gambar (reply ke gambar)\n"
+        "• `!sauce` - Cari sumber gambar (reply ke gambar)\n\n"
+        "💫 *Other Commands*\n"
+        "• `/persona` - Ganti kepribadian Alya\n"
+        "• `/reset` - Reset konteks percakapan\n"
+        "• `/memory` - Lihat informasi memori\n\n"
+        "Semua perintah yang dimulai dengan `!` bisa juga digunakan dengan `/`.\n\n"
+        "Coba ajak aku bicara sekarang!"
+    )
+    
+    # Format with Markdown V2 safety
+    safe_message = format_markdown_response(help_text, username)
+    
+    await update.message.reply_text(
+        safe_message,
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
 
 @log_command(logger)
-async def reset_command(update: Update, context: CallbackContext) -> None:
+async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle /reset command to clear chat history.
     
@@ -155,73 +153,33 @@ async def reset_command(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
     username = update.effective_user.first_name
     
-    # Clear in-memory chat history
+    # Clear in-memory chat history if exists
     if user_id in user_chats:
-        del user_chats[user_id]
+        user_chats[user_id] = {}
     
     # Clear persistent context
     try:
-        # Clear recent chat history
         context_manager.clear_chat_history(user_id, chat_id)
-        
-        # Add reset marker to context
-        context_data = {
-            'command': 'reset',
-            'timestamp': int(time.time()),
-            'reset_type': 'user_requested'
-        }
-        context_manager.save_context(user_id, chat_id, 'memory_reset', context_data)
-        
-        logger.info(f"Chat history reset for user {user_id}")
-        
-        # Create a safe response message without relying on get_response
-        safe_response = f"*{escape_markdown_v2(username)}\\-kun\\~* Alya berhasil menghapus history chat kamu\\! 🌸\n\n" \
-                       f"Memorinya sudah terhapus\\. Alya sudah lupa percakapan sebelumnya\\."
-        
         await update.message.reply_text(
-            safe_response,
-            parse_mode='MarkdownV2'
+            f"*{escape_markdown_v2(username)}\\-kun*\\~ Riwayat chat sudah dibersihkan\\! 🧹",
+            parse_mode=ParseMode.MARKDOWN_V2
         )
     except Exception as e:
-        logger.error(f"Error clearing persistent context: {e}")
-        # Fallback response when error
+        logger.error(f"Error in reset command: {e}")
         await update.message.reply_text(
-            f"Gomennasai, {username}-kun! Ada error saat menghapus history. 😔",
-            parse_mode=None
+            f"Gomenasai\\! Ada error saat membersihkan riwayat chat\\: {escape_markdown_v2(str(e))}",
+            parse_mode=ParseMode.MARKDOWN_V2
         )
 
-@log_command(logger)
-async def ping_command(update: Update, context: CallbackContext) -> None:
+async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Handle /ping command to check bot status.
+    Simple ping command to check if bot is alive.
     
     Args:
         update: Telegram update object
         context: Callback context
     """
-    start_time = time.time()
-    
-    # Send initial message
-    message = await update.message.reply_text(
-        "Pong! Menghitung latency...",
-        parse_mode=None
-    )
-    
-    # Calculate time elapsed
-    end_time = time.time()
-    elapsed_ms = (end_time - start_time) * 1000
-    
-    # Update message with latency info
-    uptime = int(time.time() - process_start_time)
-    uptime_str = format_uptime(uptime)
-    
-    await message.edit_text(
-        f"*Pong\\!* 🏓\n\n"
-        f"Latency: `{elapsed_ms:.2f}ms`\n"
-        f"Uptime: `{uptime_str}`\n"
-        f"Status: *Online* ✅",
-        parse_mode='MarkdownV2'
-    )
+    await update.message.reply_text("Pong! ✨")
 
 def format_uptime(seconds: int) -> str:
     """Format seconds into days, hours, minutes, seconds string."""
@@ -245,7 +203,7 @@ def format_uptime(seconds: int) -> str:
 # =========================
 
 @log_command(logger)
-async def handle_search(update: Update, context: CallbackContext) -> None:
+async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle search command with semantic understanding.
     
@@ -587,3 +545,22 @@ def clean_search_text(text: str) -> str:
         result = "🔍 Hasil pencarian:\n\n" + result
         
     return result
+
+# Tambahkan fungsi register_command_handlers yang kurang
+def register_command_handlers(app: Application) -> None:
+    """
+    Register all command handlers.
+    
+    Args:
+        app: Telegram application instance
+    """
+    # Basic commands
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("reset", reset_command))
+    app.add_handler(CommandHandler("ping", ping_command))
+    app.add_handler(CommandHandler("search", handle_search))
+    
+    # Additional handlers can be registered here
+    
+    logger.info("Command handlers registered successfully")
