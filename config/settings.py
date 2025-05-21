@@ -88,6 +88,7 @@ CHAT_PREFIX = "!ai"  # Main prefix for group chats
 ANALYZE_PREFIX = "!trace"  # For document/image analysis
 SAUCE_PREFIX = "!sauce"  # For reverse image search
 ROAST_PREFIX = "!roast"  # For roasting mode
+GITHUB_ROAST_PREFIXES = ["!gitroast", "/gitroast", "!github", "/github"]  # For GitHub roasting
 
 # Group chat behavior
 GROUP_CHAT_REQUIRES_PREFIX = True  # Requires prefix in group chats
@@ -317,6 +318,7 @@ CHAT_PREFIX = "!ai"  # Main prefix for group chats
 ANALYZE_PREFIX = "!trace"  # For document/image analysis
 SAUCE_PREFIX = "!sauce"  # For reverse image search
 ROAST_PREFIX = "!roast"  # For roasting mode
+GITHUB_ROAST_PREFIXES = ["!gitroast", "/gitroast", "!github", "/github"]  # For GitHub roasting
 
 # Group chat behavior
 GROUP_CHAT_REQUIRES_PREFIX = True  # Requires prefix in group chats

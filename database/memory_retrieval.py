@@ -20,6 +20,7 @@ from core.personas import get_persona_context, persona_manager
 from utils.natural_parser import detect_intent
 from utils.faq_loader import knowledge_base
 from config.settings import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
+from .context_queue import context_queue
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -111,14 +112,12 @@ class MemoryRetrievalSystem:
         }
         
         try:
-            # Get conversation history
-            history = context_manager.get_conversation_history(user_id, limit=10)
-            if chat_id != user_id:
-                # For group chats, give priority to chat-specific history
-                chat_history = context_manager.get_chat_history(user_id, chat_id, limit=10)
-                if chat_history:
-                    history = chat_history
-                    
+            # Get conversation history using context queue
+            history = context_queue.get_context(
+                user_id=user_id,
+                chat_id=chat_id,
+                window_size=10
+            )
             context["history"] = history
             
             # Get personal facts about the user

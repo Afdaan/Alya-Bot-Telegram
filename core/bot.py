@@ -10,6 +10,7 @@ import os
 import time
 import re
 from typing import Any, Dict, List
+from config.settings import GITHUB_ROAST_PREFIXES
 
 from telegram import Update
 from telegram.ext import (
@@ -107,6 +108,15 @@ def setup_handlers(app: Application) -> None:
         handle_roast_prefix
     ))
     
+    # Add GitHub roast prefix handlers
+    github_roast_prefixes: List[str] = GITHUB_ROAST_PREFIXES
+    pattern = f"^({'|'.join(map(re.escape, github_roast_prefixes))})"
+    
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(pattern),
+        handle_github_roast_prefix 
+    ))
+
     # Media handler with caption commands - Updated pattern
     caption_prefixes = [
         re.escape(ANALYZE_PREFIX), 
@@ -241,6 +251,16 @@ async def handle_roast_prefix(update: Update, context: CallbackContext) -> None:
     roast_args = message_text[len(ROAST_PREFIX):].strip()
     context.args = roast_args.split()
     await handle_roast_command(update, context)
+
+async def handle_github_roast_prefix(update: Update, context: CallbackContext) -> None:
+    """Handle GitHub roast prefixes."""
+    if not update.message or not update.message.text:
+        return
+        
+    message_text = update.message.text.strip()
+    logger.debug(f"GitHub roast prefix detected: '{message_text[:20]}...'")
+    
+    await handle_github_roast(update, context)
 
 async def post_init(app: Application) -> None:
     """Post-initialization setup."""

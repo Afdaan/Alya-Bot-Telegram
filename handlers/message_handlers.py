@@ -63,39 +63,37 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             return
     
     # Process the message
-    await process_chat_message(update, context)
+    await process_chat_message(update, context, message.text)
 
-async def process_chat_message(update: Update, context: CallbackContext, query: Optional[str] = None) -> None:
-    """Process incoming chat message and generate Alya's response."""
+async def process_chat_message(update: Update, context: CallbackContext, query: str) -> None:
+    """Process chat message with AI response."""
     try:
+        # Show typing indicator
+        await update.message.chat.send_action(ChatAction.TYPING)
+        
+        # Get message context
         user = update.effective_user
-        message_text = query if query else update.message.text
-
-        # Get conversation context
-        conversation_context = context_manager.recall_relevant_context(user.id, message_text)
-        username = format_markdown_response(user.first_name)  # Escape the username
-
-        # Generate AI response
-        ai_response = await generate_chat_response(
-            message=message_text,
-            username=username,  # Pass the escaped username
-            user_id=user.id,
-            context_data=conversation_context
+        chat_id = update.effective_chat.id if update.effective_chat else None
+        
+        # Generate response with proper parameters
+        response = await generate_chat_response(
+            message=query,  # Use query text
+            user_id=user.id,  # Only pass user_id
+            language="id"  # Default to Indonesian
         )
-
-        # Format response with MarkdownV2 safety
-        safe_response = format_markdown_response(ai_response, username=username)
-
+        
+        # Format and send response
+        formatted_response = format_markdown_response(response)
         await update.message.reply_text(
-            safe_response,
-            parse_mode=ParseMode.MARKDOWN_V2
+            formatted_response, 
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_to_message_id=update.message.message_id
         )
-
+        
     except Exception as e:
         logger.error(f"Error processing message: {e}")
         await update.message.reply_text(
-            "Gomenasai\\! Ada error saat memproses pesan\\.\\.\\. 😔",
-            parse_mode=ParseMode.MARKDOWN_V2
+            f"Maaf, ada error saat memproses pesan: {str(e)[:100]}... 😔"
         )
 
 async def add_message_to_history(user_id: int, chat_id: int, message: Message) -> None:
