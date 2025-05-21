@@ -33,7 +33,10 @@ from config.logging_config import setup_logging
 from utils.rate_limiter import limiter
 
 # Import handlers
-from handlers.command_handlers import start, help_command, reset_command, handle_search, ping_command # Tambah ping_command disini
+from handlers.command_handlers import (
+    start, help_command, reset_command, handle_search, 
+    ping_command, memory_command
+)
 from handlers.document_handlers import handle_document_image, handle_trace_command, handle_sauce_command
 from handlers.message_handlers import handle_message, process_chat_message
 from handlers.callback_handlers import handle_callback_query
@@ -60,6 +63,7 @@ def setup_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(CommandHandler("search", handle_search))
     app.add_handler(CommandHandler("ping", ping_command, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("memory", memory_command))
     
     # Register developer command handlers
     register_dev_handlers(app)
@@ -117,31 +121,27 @@ def setup_handlers(app: Application) -> None:
         handle_github_roast_prefix 
     ))
 
-    # Media handler with caption commands - Updated pattern
-    caption_prefixes = [
-        re.escape(ANALYZE_PREFIX), 
-        re.escape(SAUCE_PREFIX),
-        "!ocr", "/trace", "/sauce", "/ocr"
-    ]
-    
-    # Only add username pattern if we have a username
-    if bot_username:
-        caption_prefixes.append(f"@{bot_username}")
-        
-    caption_prefixes = [p for p in caption_prefixes if p]  # Remove empty patterns
-    caption_pattern = f"^({('|'.join(caption_prefixes))})"
+    # Simplified media command pattern
+    media_pattern = f"^({re.escape(ANALYZE_PREFIX)}|{re.escape(SAUCE_PREFIX)}|!ocr|/trace|/sauce|/ocr)"
     
     # Add media handlers with proper filtering
     app.add_handler(MessageHandler(
-        (filters.PHOTO | filters.Document.ALL) & 
+        (filters.PHOTO | filters.Document.IMAGE) &  # Only handle images
         (
-            filters.CaptionRegex(caption_pattern) |  # Has command in caption
-            filters.ChatType.PRIVATE |              # Private chat
-            filters.REPLY                          # Reply to any message
+            filters.CaptionRegex(media_pattern) |  # Has command in caption
+            filters.ChatType.PRIVATE |            # Private chat
+            filters.REPLY                         # Reply to message
         ),
         handle_document_image
     ))
     
+    # Add dedicated trace handlers
+    app.add_handler(CommandHandler("trace", handle_trace_command))
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{ANALYZE_PREFIX}'),
+        handle_trace_prefix
+    ))
+
     # Slash command handlers for media operations
     app.add_handler(CommandHandler("trace", _trace_command_handler))
     app.add_handler(CommandHandler("sauce", _sauce_command_handler))
@@ -197,12 +197,12 @@ async def handle_chat_prefix(update: Update, context: CallbackContext) -> None:
     await process_chat_message(update, context, query)
 
 async def handle_trace_prefix(update: Update, context: CallbackContext) -> None:
-    """
-    Handle !trace prefix for image analysis.
-    """
-    # Change log level from INFO to DEBUG
-    logger.debug(f"Trace prefix detected: '{update.message.text[:20]}...'")
-    await handle_trace_command(update.message, update.effective_user, context)
+    """Handle !trace prefix."""
+    if not update.message:
+        return
+        
+    # Pass to trace command handler
+    await handle_trace_command(update, context)
 
 async def handle_sauce_prefix(update: Update, context: CallbackContext) -> None:
     """

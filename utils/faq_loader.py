@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Base paths
 BASE_DIR = Path(__file__).parent.parent
-FAQ_PATH = BASE_DIR / "data" / "faq.yaml"
+FAQ_PATH = BASE_DIR / "config" / "persona" / "faq.yaml"
 KNOWLEDGE_PATH = BASE_DIR / "data" / "knowledge"
 
 class KnowledgeBase:

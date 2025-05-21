@@ -39,6 +39,38 @@ except Exception as e:
     logger.error(f"Error loading roast templates: {e}")
     ROAST_TEMPLATES = {}
 
+def parse_roast_target(text: str) -> Tuple[str, str, str]:
+    """Parse roast command naturally to get target and context."""
+    try:
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            return "", "", ""
+
+        cmd_text = parts[1]
+        
+        # Parse: !roast @user <context>
+        # Or: !roast "name with space" <context>
+        # Or: !roast name <context>
+        
+        if '"' in cmd_text:
+            # Extract quoted name
+            name_end = cmd_text.find('"', 1)
+            if name_end != -1:
+                target_name = cmd_text[1:name_end]
+                context = cmd_text[name_end + 1:].strip()
+                return target_name, context, cmd_text
+                
+        # Check for basic name + context
+        target_parts = cmd_text.split(maxsplit=1)
+        target_name = target_parts[0].strip('@')
+        context = target_parts[1] if len(target_parts) > 1 else ""
+        
+        return target_name, context, cmd_text
+            
+    except Exception as e:
+        logger.error(f"Error parsing roast target: {e}")
+        return "", "", ""
+
 async def handle_roast_command(update: Update, context: CallbackContext) -> None:
     """Handle roast command with enhanced savagery."""
     user = update.effective_user
@@ -61,63 +93,19 @@ async def handle_roast_command(update: Update, context: CallbackContext) -> None
         await handle_github_roast(update, context)
         return
 
-    # Parse target and keywords
-    target = None
-    target_name = None
-    keywords = []
+    # Parse target and context naturally
+    target_name, roast_context, full_text = parse_roast_target(message.text)
     
-    # Get command parts: !roast @user keyword1 keyword2... 
-    # Or: !roast "Custom Name" keyword1 keyword2...
-    parts = message.text.split()
-    if len(parts) > 1:
-        # Check for quoted name first
-        text = message.text
-        quote_match = re.match(r'^!roast\s*"([^"]+)"', text)
-        
-        if quote_match:
-            # Use custom name in quotes
-            target_name = quote_match.group(1)
-            # Get keywords after quoted name
-            keywords = text[text.find('"', text.find('"')+1)+1:].strip().split()
-        
-        # If no quotes, check for mention
-        elif parts[1].startswith('@'):
-            target_username = parts[1][1:]  # Remove @ symbol
-            try:
-                chat_member = await message.chat.get_member(target_username)
-                if chat_member:
-                    target = chat_member.user
-                    target_name = target.first_name
-                keywords = parts[2:] if len(parts) > 2 else []
-            except Exception:
-                # Invalid username, use as literal name
-                target_name = target_username
-                keywords = parts[2:] if len(parts) > 2 else []
-                
-        # Check if replying to someone
-        elif message.reply_to_message:
-            target = message.reply_to_message.from_user
-            target_name = target.first_name
-            keywords = parts[1:] # Use all parts after command as keywords
-
-    # If still no target/name, roast the requester
-    if not target_name:
-        target = user 
-        target_name = user.first_name
-        keywords = parts[1:] if len(parts) > 1 else []
-
     # Show typing indicator
     await message.chat.send_action(ChatAction.TYPING)
 
     try:
-        # Generate roast with keywords
-        template = get_random_personal_roast_template(target_name)
+        # Generate context-aware roast
         roast_text = await generate_roast(
-            template=template,
-            target_name=target_name,
-            target_id=target.id if target else user.id,
-            keywords=keywords,
-            is_technical=False
+            template="", # Template now comes from YAML
+            target_name=target_name,  # Pass target_name instead of accessing undefined target
+            target_id=user_id,  # Use user_id since we're roasting the target
+            roast_context=roast_context
         )
 
         # Format and send
@@ -132,10 +120,10 @@ async def handle_roast_command(update: Update, context: CallbackContext) -> None
         context_data = {
             'command': 'roast',
             'timestamp': int(time.time()),
-            'target_id': target.id if target else None,
+            'target_id': user_id,
             'target_name': target_name,
             'requester_id': user_id,
-            'keywords': keywords,
+            'keywords': roast_context.split(),
             'should_reset_memory_state': True
         }
         
@@ -149,97 +137,71 @@ async def handle_roast_command(update: Update, context: CallbackContext) -> None
         )
 
 async def handle_github_roast(update: Update, context: CallbackContext) -> None:
-    """
-    Handle GitHub-specific roast command that targets repos or coding ability.
-    This is a TECHNICAL roast focused on programming and code quality.
-    
-    Args:
-        update: Telegram update object
-        context: Callback context
-    """
+    """Handle GitHub roast command with repo validation."""
     user = update.effective_user
     message = update.message
     
     # Check rate limiting
     allowed, wait_time = await gemini_limiter.acquire_with_feedback(user.id)
     if not allowed:
-        wait_msg = f"Tunggu {wait_time:.1f} detik sebelum meminta roast lagi."
-        await message.reply_text(wait_msg, parse_mode=None)
+        await message.reply_text(
+            f"SABAR KONTOL! TUNGGU {wait_time:.1f} DETIK LAGI! 🤬",
+            parse_mode=None
+        )
         return
     
-    # Parse context for GitHub repo/user
-    github_repo = None
-    
-    # Check if this is a reply to a message with GitHub link
-    if message.reply_to_message and message.reply_to_message.text:
-        text = message.reply_to_message.text
-        # Simple GitHub URL extraction 
-        if "github.com/" in text:
-            import re
-            github_match = re.search(r'github\.com/([^/\s]+/[^/\s]+)', text)
-            if github_match:
-                github_repo = github_match.group(1)
+    # Parse GitHub username/repo
+    args = message.text.split()[1:] if message.text else []
+    if not args:
+        await message.reply_text(
+            "Format: `/gitroast <username>` atau `/gitroast <username/repo>`\n"
+            "Contoh:\n"
+            "• `/gitroast Afdaan`\n"
+            "• `/gitroast Afdaan/alya-bot-telegram`",
+            parse_mode='MarkdownV2'
+        )
+        return
+        
+    target = args[0]
+    is_repo = '/' in target
     
     # Show typing indicator
     await message.chat.send_action(ChatAction.TYPING)
     
-    # Get a technical roast template from the roast.yaml config
     try:
-        if github_repo:
-            # Get GitHub-specific template from YAML
-            github_templates = ROAST_TEMPLATES.get('github_templates', [])
-            if github_templates:
-                template = random.choice(github_templates)
-                # Replace placeholders
-                template = template.replace("{github_repo}", github_repo)
-                template = template.replace("{name}", user.first_name)
-            else:
-                # Fallback template if none in YAML
-                template = (
-                    f"ANJING REPO {github_repo} INI SAMPAH BANGET! CODE LO LEBIH BERANTAKAN DARI HIDUP GUE KONTOL! "
-                    f"STACK OVERFLOW AJA LEBIH BAGUS DARI REPO LO TOLOL! 🤮"
-                )
-        else:
-            # Get coding roast template from YAML - these are technical but not repo-specific
-            coding_templates = ROAST_TEMPLATES.get('coding_templates', [])
-            if coding_templates:
-                template = random.choice(coding_templates)
-                # Replace placeholders
-                template = template.replace("{name}", user.first_name)
-            else:
-                # Fallback template if none in YAML - TECHNICAL focus
-                template = (
-                    f"NAJIS {user.first_name}! CODING SKILL LO TUH LEBIH SAMPAH DARI LAPTOP BEKAS PASAR LOAK GOBLOK! "
-                    f"GIT MERGE CONFLICT AJA MASIH GOOGLING KAN LO TOLOL! 🤮"
-                )
-    except Exception as e:
-        logger.error(f"Error getting GitHub roast template: {e}")
-        # Fallback template if error - still TECHNICAL focus
-        template = f"ANJING {user.first_name}! SKILL CODING LO LEBIH PARAH DARI BUG DI PRODUCTION YA TOLOL! 💀"
-    
-    # Generate the technical roast with template from YAML
-    try:
+        # Get GitHub data
+        github_data = await get_github_info(target, not is_repo)
+        if not github_data:
+            await message.reply_text(
+                f"NAJIS! USER/REPO `{escape_markdown_v2(target)}` GAK ADA TOLOL! 🤮",
+                parse_mode='MarkdownV2'
+            )
+            return
+            
+        # Generate context-aware roast
+        roast_context = {
+            "type": "github_user" if not is_repo else "github_repo",
+            "target": target,
+            "data": github_data
+        }
+        
         roast_text = await generate_roast(
-            template, 
-            user.first_name, 
-            user.id,
-            is_technical=True,
-            github_repo=github_repo
+            template="", 
+            target_name=target,
+            target_id=user.id,
+            roast_context=roast_context,
+            is_technical=True
         )
-        
-        # Format for Telegram
-        roast_text = format_markdown_response(roast_text)
-        
-        # Send the roast
+
         await message.reply_text(
-            roast_text,
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_to_message_id=message.reply_to_message.message_id if message.reply_to_message else None
+            format_markdown_response(roast_text),
+            parse_mode=ParseMode.MARKDOWN_V2
         )
+
     except Exception as e:
-        logger.error(f"Error generating GitHub roast: {e}")
+        logger.error(f"Error in GitHub roast: {e}")
         await message.reply_text(
-            f"Gomennasai\\~ Alya tidak bisa membuat roast untuk code kamu saat ini\\. Error: {escape_markdown_v2(str(e)[:100])}",
+            f"ANJING ERROR NIH BANGSAT\\! {escape_markdown_v2(str(e)[:100])} 💀",
             parse_mode=ParseMode.MARKDOWN_V2
         )
 
@@ -319,63 +281,36 @@ async def generate_roast(
     template: str,
     target_name: str,
     target_id: int,
-    keywords: Optional[List[str]] = None,
+    roast_context: str = "",
     is_technical: bool = False,
     github_repo: Optional[str] = None
 ) -> str:
     """Generate enhanced savage roast content."""
     try:
-        # Get roast persona and config
-        persona_type = "tech_roast" if is_technical else "personal_roast"
-        persona_context = get_persona_context(persona_type)
-        
-        # Get format settings from YAML
-        format_config = ROAST_TEMPLATES.get('format', {})
-        structure = format_config.get('structure', {})
-        prompt_template = format_config.get('prompt_template', '')
-        
-        # Format keyword prompt if keywords provided
-        keyword_section = ""
-        if keywords:
-            keyword_prompts = format_config.get('keyword_prompts', {})
-            keyword_section = keyword_prompts.get('body', '').format(
-                keywords='\n'.join(f"- {k}" for k in keywords)
-            ) + '\n\n' + keyword_prompts.get('example', '')
+        # Get roast template from YAML
+        with open(ROAST_CONFIG_PATH) as f:
+            config = yaml.safe_load(f)
+            prompt_template = config.get("roast_prompt_template", "")
 
-        # Build prompt with proper format and structure
-        prompt = f"""You are Alya, currently in SUPER TOXIC QUEEN mode. {persona_context}
+        # Format context-aware prompt
+        prompt = prompt_template.format(
+            target_name=target_name,
+            roast_context=roast_context,
+            github_repo=f"\nGitHub Repo: {github_repo}" if github_repo else ""
+        )
 
-TARGET INFO:
-- Name: {target_name}
-{f'- GitHub: {github_repo}' if github_repo else ''}
-
-{keyword_section if keywords else ''}
-
-FORMAT & STRUCTURE:
-{prompt_template.format(
-    min_roleplay=structure.get('roleplay', {}).get('min_actions', 2),
-    max_roleplay=structure.get('roleplay', {}).get('max_actions', 3),
-    min_lines=structure.get('main_roast', {}).get('min_lines', 5),
-    max_lines=structure.get('main_roast', {}).get('max_lines', 6),
-    min_chains=structure.get('chain_roasts', {}).get('min_chains', 2),
-    max_chains=structure.get('chain_roasts', {}).get('max_chains', 3),
-    min_emoji=4,
-    max_emoji=8
-)}
-"""
-
-        # Generate response
+        # Generate response with toxic persona
         response = await generate_chat_response(
             message=prompt,
             user_id=target_id,
-            persona_context=persona_context,
+            persona_context="You are now in SUPER TOXIC MODE! Be extremely savage!",
             language="id"
         )
         
         return response if response else "NAJIS ERROR! GA BISA ROAST SEKARANG KONTOL! 💀"
         
     except Exception as e:
-        logger.error(f"Error in roast generation: {e}")
+        logger.error(f"Error generating roast: {e}")
         return f"BANGSAT! GA BISA ROAST {target_name}! ERROR TOLOL! 🤬"
 
 async def handle_roast_callback(update: Update, context: CallbackContext) -> None:

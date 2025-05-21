@@ -106,31 +106,6 @@ class CommandDetector:
             
         # Check if message starts with any recognized prefix
         return self.detect_prefix(message) is not None
-        
-    def is_roast_command(self, message: str) -> bool:
-        """
-        Check if the message is a roast command.
-        
-        Args:
-            message: Message text
-            
-        Returns:
-            True if it's a roast command
-        """
-        if not message:
-            return False
-            
-        # First check if it has a chat prefix with "roast"
-        message_lower = message.lower().strip()
-        
-        if message_lower.startswith(f"{CHAT_PREFIX} roast ") or message_lower.startswith("!alya roast "):
-            return True
-            
-        # Then check for direct roast prefix
-        if message_lower.startswith(f"{ROAST_PREFIX} ") or message_lower == ROAST_PREFIX:
-            return True
-            
-        return False
 
 # Create singleton instance
 command_detector = CommandDetector()
@@ -154,49 +129,6 @@ def parse_command_args(text: str) -> Tuple[str, List[str]]:
     
     return (command, args)
 
-def get_random_roast(target: str, is_github: bool = False) -> str:
-    """
-    Generate a random roast for the target.
-    
-    Args:
-        target: Person to roast
-        is_github: Whether to use GitHub roasts
-        
-    Returns:
-        Roast message with target name
-    """
-    # Sanitize target name
-    if not target or len(target) > 50:
-        target = "user"
-        
-    # Collection of roasts
-    github_roasts = [
-        "*melihat repository {target}* ANJING CODE APA INI? Mending lu hapus GitHub account sebelum bikin malu komunitas programmer!",
-        "PR dari {target}? *tertawa sinis* Merge conflict parah banget, SAMA KAYAK OTAK LO YANG KONFLIK SAMA LOGIKA! 💩",
-        "Eh {target}, errornya BUKAN di code, tapi di PROGRAMMER-nya! Mending uninstall VSCode lu dah!",
-        "BAJINGAN! {target} masih push ke master branch?! Fix lu amateur yang gak pernah baca Git workflow! 🤬",
-        "Variable naming convention lu KACAU {target}! Sama kacaunya kayak hidup lu yang gak ada struktur! 😤",
-        "Pull request dari {target} auto-reject! Gak hanya karena code-nya sampah, tapi karena otak lu juga sampah! 🚮"
-    ]
-    
-    regular_roasts = [
-        "*menatap {target} dengan jijik* Najis! {target} kok bisa hidup tapi selalu salah langkah gini sih? Gak ada yang bener dari lu!",
-        "ANJIR {target} lagi? Kalo otak lu dijual mungkin harganya murah banget, SOALNYA GAK PERNAH DIPAKE! 🤢",
-        "HAH? {target}? *tertawa histeris* Muka kayak gitu kok berani nongol di public ya! Bikin mata sakit aja! 😤",
-        "Eh {target}, tolong dong berhenti jadi beban tim. Skillnya nol, otak kosong, nyusahin semua orang! 💩",
-        "Goblok lu {target}! Error lu tuh gak bisa di-debug soalnya sumbernya dari existensi lu!",
-        "ANJIRRR MINIMAL useless, MAKSIMAL jadi beban seperti biasa kan {target}? 🙄",
-        "NAJIS BGT SIH {target}! Kalo ada kontes bikin masalah, lu pasti juara beruntun 10 tahun!",
-        "Ya ampun {target}... *memutar mata* Code lu kacau, hidup lu kacau, semua tentang lu bikin muak! 🤮"
-    ]
-    
-    # Select appropriate roast collection
-    roast_collection = github_roasts if is_github else regular_roasts
-    
-    # Select random roast and format
-    roast_template = random.choice(roast_collection)
-    return roast_template.format(target=target)
-
 def is_media_command(message: str) -> bool:
     """
     Check if message is a media command.
@@ -216,31 +148,3 @@ def is_media_command(message: str) -> bool:
             message_lower == ANALYZE_PREFIX or
             message_lower.startswith(f"{SAUCE_PREFIX} ") or
             message_lower == SAUCE_PREFIX)
-
-def extract_roast_target(message: str) -> Optional[str]:
-    """
-    Extract target username from roast command.
-    
-    Args:
-        message: Message text
-        
-    Returns:
-        Target username or None
-    """
-    if not message:
-        return None
-        
-    # Check if it's a roast command
-    message_lower = message.lower().strip()
-    
-    for prefix in [f"{ROAST_PREFIX} ", "!ai roast ", "!alya roast "]:
-        if message_lower.startswith(prefix):
-            args = message_lower[len(prefix):].strip().split()
-            if args:
-                target = args[0]
-                # Remove @ if present
-                if target.startswith("@"):
-                    target = target[1:]
-                return target
-    
-    return None

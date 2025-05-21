@@ -1,6 +1,26 @@
--- Initial Schema Migration for Alya Bot Database
+-- Base Schema Migration for Alya Bot Database
 -- Version: 1.0.0
--- Created: 2024
+
+-- Context Queue Table
+CREATE TABLE IF NOT EXISTS context_queue (
+    user_id INTEGER NOT NULL,
+    chat_id INTEGER NOT NULL,
+    message_id INTEGER NOT NULL,
+    timestamp INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    metadata TEXT,
+    importance REAL NOT NULL DEFAULT 1.0,
+    relevancy REAL DEFAULT 0.0,
+    reference_count INTEGER DEFAULT 0,
+    last_referenced INTEGER,
+    PRIMARY KEY (user_id, chat_id, message_id)
+);
+
+-- Indexes for Context Queue
+CREATE INDEX IF NOT EXISTS idx_context_user_chat ON context_queue(user_id, chat_id);
+CREATE INDEX IF NOT EXISTS idx_context_timestamp ON context_queue(timestamp);
+CREATE INDEX IF NOT EXISTS idx_context_relevancy ON context_queue(relevancy);
 
 -- Context table for general context storage
 CREATE TABLE IF NOT EXISTS contexts (

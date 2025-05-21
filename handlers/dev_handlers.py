@@ -93,10 +93,17 @@ async def update_command(update: Update, context: CallbackContext) -> None:
         logger.info(f"Bot update initiated by developer {user_id}")
         logger.info(f"Git pull output: {stdout}")
         
-        # Final confirmation and restart
+        # Get latest commit info
+        changelog = subprocess.check_output(
+            ["git", "log", "-1", "--pretty=format:%h %s"],
+            text=True
+        )
+        
+        # Send final confirmation with changelog
         await status_msg.edit_text(
-            "✅ *Update Completed*\n\n"
-            "Bot will restart now\\. Please wait a moment\\.\\.\\.",
+            f"✅ *Update Complete*\n\n"
+            f"*Changelog:*\n"
+            f"```\n{escape_markdown_v2(changelog)}\n```",
             parse_mode='MarkdownV2'
         )
         
@@ -196,7 +203,7 @@ async def stats_command(update: Update, context: CallbackContext) -> None:
         # Send response
         await status_msg.edit_text(
             formatted_response,
-            parse_mode='MarkdownV2'
+            parse_mode='MarkDownV2'
         )
         
     except Exception as e:

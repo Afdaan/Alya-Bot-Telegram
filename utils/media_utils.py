@@ -1,14 +1,33 @@
-"""
-Media Utilities for Alya Bot.
+"""Media Utilities for Alya Bot.
 
-This module provides functions for processing media files (non-image types),
-while delegating image processing to image_utils.py to avoid code duplication.
+This module provides utilities for downloading and processing media files
+from Telegram messages, including images and documents.
 """
+
+import logging
 import os
 import re
-import logging
 import tempfile
-from typing import Dict, Any, Optional, Tuple, List, Union
+from typing import Optional, Union, List, Dict, Any
+from pathlib import Path
+
+import pytesseract
+from PIL import Image
+from telegram import Message, Document, PhotoSize
+from telegram.ext import CallbackContext  # Add this import
+from telegram.error import TelegramError
+
+from config.settings import (
+    TEMP_DIR,
+    MAX_IMAGE_SIZE,
+    IMAGE_COMPRESS_QUALITY,
+    MAX_DOCUMENT_SIZE,
+    ALLOWED_DOCUMENT_TYPES,
+    OCR_LANGUAGE
+)
+
+logger = logging.getLogger(__name__)
+
 
 # Try to import optional dependencies
 try:
@@ -417,3 +436,150 @@ async def compress_image(image_path: str, quality: int = 85) -> Optional[str]:
     except Exception as e:
         logger.error(f"Error compressing image: {e}")
         return image_path  # Return original on error
+
+
+async def download_media(
+    message: Message,
+    context: Optional[CallbackContext] = None,  # Make context optional
+    allowed_types: Optional[List[str]] = None,
+    max_size: int = MAX_DOCUMENT_SIZE,
+    temp_dir: Union[str, Path] = TEMP_DIR
+) -> Optional[str]:
+    """Download media from Telegram message safely.
+    
+    Args:
+        message: Telegram message containing media
+        context: Optional callback context
+        allowed_types: List of allowed mime types
+        max_size: Maximum file size in bytes
+        temp_dir: Directory for temporary files
+
+    Returns:
+        Path to downloaded file or None if failed
+    """
+    try:
+        # Get file object
+        if message.document:
+            file = message.document
+            mime_type = file.mime_type
+            if allowed_types and mime_type not in allowed_types:
+                logger.warning(f"Invalid mime type: {mime_type}")
+                return None
+        elif message.photo:
+            file = message.photo[-1]  # Get largest photo
+        else:
+            logger.warning("No media found in message")
+            return None
+
+        # Check file size safely - fix NoneType comparison issue
+        if max_size and hasattr(file, 'file_size') and file.file_size:
+            if int(file.file_size) > int(max_size):
+                logger.warning(f"File too large: {file.file_size} bytes > {max_size} bytes")
+                return None
+
+        # Create temp file path
+        temp_path = Path(temp_dir) / f"media_{message.message_id}"
+        
+        # Get bot instance - try context first, then message
+        bot = context.bot if context else message.bot
+        if not bot:
+            raise ValueError("No bot instance available")
+
+        # Download file
+        file_obj = await bot.get_file(file.file_id)
+        await file_obj.download_to_drive(str(temp_path))
+
+        # Verify download
+        if not os.path.exists(temp_path):
+            raise FileNotFoundError("Downloaded file not found")
+
+        return str(temp_path)
+
+    except TelegramError as e:
+        logger.error(f"Telegram error downloading media: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error downloading media: {e}")
+        return None
+
+async def extract_text_from_document(file_path: str) -> Optional[str]:
+    """
+    Extract text from document using OCR.
+
+    Args:
+        file_path: Path to document file
+
+    Returns:
+        Extracted text or None if failed
+    """
+    try:
+        # Handle image files with OCR
+        if file_path.lower().endswith(('.jpg', '.jpeg', '.png')):
+            image = Image.open(file_path)
+            text = pytesseract.image_to_string(image, lang=OCR_LANGUAGE)
+            return text.strip()
+
+        # Handle PDF files (requires pdf2image)
+        elif file_path.lower().endswith('.pdf'):
+            from pdf2image import convert_from_path
+            
+            pages = convert_from_path(file_path)
+            text_parts = []
+            
+            for page in pages:
+                text = pytesseract.image_to_string(page, lang=OCR_LANGUAGE)
+                text_parts.append(text.strip())
+                
+            return "\n\n".join(text_parts)
+
+        # Handle text files directly
+        elif file_path.lower().endswith('.txt'):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+
+        else:
+            logger.warning(f"Unsupported file type for text extraction: {file_path}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Error extracting text from document: {e}")
+        return None
+
+def get_image_metadata(file_path: str) -> Dict[str, Any]:
+    """
+    Get image metadata like dimensions, format etc.
+
+    Args:
+        file_path: Path to image file
+
+    Returns:
+        Dictionary of image metadata
+    """
+    try:
+        with Image.open(file_path) as img:
+            return {
+                "Dimensi": f"{img.width}x{img.height} px",
+                "Format": img.format or "Unknown",
+                "Mode": img.mode,
+                "Size": os.path.getsize(file_path) // 1024  # KB
+            }
+    except Exception as e:
+        logger.error(f"Error getting image metadata: {e}")
+        return {
+            "Error": "Could not read image metadata"
+        }
+
+def cleanup_temp_file(file_path: Optional[str]) -> None:
+    """
+    Clean up temporary file safely.
+
+    Args:
+        file_path: Path to file to delete
+    """
+    if not file_path:
+        return
+        
+    try:
+        os.unlink(file_path)
+    except Exception as e:
+        logger.warning(f"Error cleaning up temp file {file_path}: {e}")

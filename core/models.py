@@ -21,7 +21,6 @@ from core.models.gemini import (
     generate_image_analysis,
     generate_text_analysis
 )
-from core.models.safety import check_content_safety
 from utils.rate_limiter import gemini_limiter
 
 # Setup logger
@@ -36,8 +35,7 @@ __all__ = [
     'get_current_gemini_key', 
     'convert_safety_settings',
     'generate_image_analysis',
-    'generate_text_analysis',
-    'check_content_safety',
+    'generate_text_analysis'
 ]
 
 # Show deprecation warnings for direct imports

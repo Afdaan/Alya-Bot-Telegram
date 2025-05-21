@@ -12,10 +12,11 @@ import sys
 import os
 import re
 from typing import List, Dict, Any, Optional, Tuple
+from config.help_text import HELP_TEXT
 
 # Third-party imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode  # Pindahkan ParseMode dari telegram ke telegram.constants
+from telegram.constants import ParseMode
 from telegram.ext import CallbackContext, ContextTypes, Application, CommandHandler
 
 # Local imports
@@ -38,6 +39,9 @@ import asyncio
 import subprocess
 import time
 from config.logging_config import log_command
+
+from utils.fact_extractor import fact_extractor
+from core.mood_manager import mood_manager
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -114,23 +118,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     # Import here to avoid circular imports
     from utils.formatters import format_markdown_response
-    
-    help_text = (
-        f"*Bantuan Alya Bot* ✨\n\n"
-        "🗣️ *Chat Commands*\n"
-        "• Langsung chat (personal): Tulis pesan apa saja\n"
-        "• Dalam grup: Awali dengan `!ai` atau mention (@AlyaBot)\n\n"
-        "🔎 *Utility Commands*\n"
-        "• `/search [query]` - Mencari informasi di web\n"
-        "• `!trace` - Analisis gambar (reply ke gambar)\n"
-        "• `!sauce` - Cari sumber gambar (reply ke gambar)\n\n"
-        "💫 *Other Commands*\n"
-        "• `/persona` - Ganti kepribadian Alya\n"
-        "• `/reset` - Reset konteks percakapan\n"
-        "• `/memory` - Lihat informasi memori\n\n"
-        "Semua perintah yang dimulai dengan `!` bisa juga digunakan dengan `/`.\n\n"
-        "Coba ajak aku bicara sekarang!"
-    )
     
     # Format with Markdown V2 safety
     safe_message = format_markdown_response(help_text, username)
@@ -560,7 +547,56 @@ def register_command_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(CommandHandler("ping", ping_command))
     app.add_handler(CommandHandler("search", handle_search))
+    app.add_handler(CommandHandler("memory", memory_command))
     
     # Additional handlers can be registered here
     
     logger.info("Command handlers registered successfully")
+
+@log_command(logger)
+async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /memory command to show memory stats and facts."""
+    user = update.effective_user
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    
+    if not user:
+        return
+        
+    try:
+        # Get stats
+        memory_stats = context_manager.get_memory_stats(user.id)
+        
+        # Get user facts
+        personal_facts = fact_extractor.get_user_facts(user.id)
+        facts_text = "\n".join([
+            f"• {k}: {v}" for k, v in personal_facts.items()
+        ]) if personal_facts else "Belum ada fakta tersimpan"
+        
+        # Get recent topics
+        recent_topics = context_manager.get_recent_topics(user.id, limit=5)
+        topics_text = "\n".join([f"• {topic}" for topic in recent_topics]) if recent_topics else "Belum ada topik tercatat"
+        
+        # Format memory info with Russian expressions for emotional touch
+        memory_info = (
+            f"*память\\!* _{escape_markdown_v2('Informasi memori untuk')}_ *{escape_markdown_v2(user.first_name)}\\-kun*\n\n"
+            f"💭 *Stats:*\n"
+            f"• Messages: {memory_stats.get('total_messages', 0)}\n"
+            f"• Memory age: {memory_stats.get('memory_age', 'N/A')}\n"
+            f"• Usage: {memory_stats.get('memory_usage_percent', 0)}%\n\n"
+            f"📝 *Personal Facts:*\n{escape_markdown_v2(facts_text)}\n\n"
+            f"🗂 *Recent Topics:*\n{escape_markdown_v2(topics_text)}\n\n"
+            f"*хорошо\\!* _{escape_markdown_v2('Ini informasi yang Alya ingat tentangmu~')}_"
+        )
+        
+        await update.message.reply_text(
+            memory_info,
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in memory command: {e}")
+        await update.message.reply_text(
+            f"Maaf {user.first_name}-kun, ada error: {str(e)[:100]}... 😔"
+        )
+
+# IMPORTANT: Don't add handlers here - move to setup_handlers() in core/bot.py

@@ -83,16 +83,16 @@ IMAGE_MODEL = "gemini-2.0-flash-exp"
 # Command Configuration
 # =========================
 
-# Command prefixes
-CHAT_PREFIX = "!ai"  # Main prefix for group chats
-ANALYZE_PREFIX = "!trace"  # For document/image analysis
-SAUCE_PREFIX = "!sauce"  # For reverse image search
-ROAST_PREFIX = "!roast"  # For roasting mode
-GITHUB_ROAST_PREFIXES = ["!gitroast", "/gitroast", "!github", "/github"]  # For GitHub roasting
+# Command Prefixes 
+CHAT_PREFIX = "!ai"
+ANALYZE_PREFIX = "!trace"
+SAUCE_PREFIX = "!sauce"
+ROAST_PREFIX = "!roast"
+GITHUB_ROAST_PREFIXES = ["!gitroast", "/gitroast", "!github", "/github"]
+ADDITIONAL_PREFIXES = ["!alya", "@alya"]
 
-# Group chat behavior
-GROUP_CHAT_REQUIRES_PREFIX = True  # Requires prefix in group chats
-ADDITIONAL_PREFIXES = ["!alya", "@alya"]  # Alternative prefixes
+# Group Chat Settings
+GROUP_CHAT_REQUIRES_PREFIX = True
 
 # =========================
 # Language Settings
@@ -188,17 +188,17 @@ CONTEXT_RELEVANCE_WINDOW = 3600  # Reduced to 1 hour
 
 # Maximum response length
 MAX_RESPONSE_LENGTH = 8192  # Increased from 2048 to allow more detailed responses
-MAX_EMOJI_PER_RESPONSE = 10  # Limit emoji usage
+MAX_EMOJI_PER_RESPONSE = 15  # Limit emoji usage
 
 # =========================
 # Database Purge & Maintenance
 # =========================
 
 # Settings for database purging (in days)
-MAIN_DB_PURGE_DAYS = 30  # Purge main database records after 30 days
-CONTEXT_DB_PURGE_DAYS = 60  # Purge context database records after 60 days
+MAIN_DB_PURGE_DAYS = 7  # Purge main database records after 30 days
+CONTEXT_DB_PURGE_DAYS = 14  # Purge context database records after 60 days
 USER_HISTORY_PURGE_DAYS = 14  # Purge user chat history after 14 days
-INACTIVE_USER_PURGE_DAYS = 90  # Purge inactive users after 90 days of inactivity
+INACTIVE_USER_PURGE_DAYS = 30  # Purge inactive users after 90 days of inactivity
 
 # Settings for database operations (in days)
 DB_BACKUP_INTERVAL_DAYS = 7  # Create automatic backup every (in days)
@@ -313,17 +313,6 @@ DEV_COMMANDS = {
     'lang': {'enabled': True, 'description': 'Change bot language'}
 }
 
-# Command prefixes
-CHAT_PREFIX = "!ai"  # Main prefix for group chats
-ANALYZE_PREFIX = "!trace"  # For document/image analysis
-SAUCE_PREFIX = "!sauce"  # For reverse image search
-ROAST_PREFIX = "!roast"  # For roasting mode
-GITHUB_ROAST_PREFIXES = ["!gitroast", "/gitroast", "!github", "/github"]  # For GitHub roasting
-
-# Group chat behavior
-GROUP_CHAT_REQUIRES_PREFIX = True  # Requires prefix in group chats
-ADDITIONAL_PREFIXES = ["!alya", "@alya"]  # Alternative prefixes
-
 # =========================
 # Logging Configuration
 # =========================
@@ -370,4 +359,76 @@ ALLOWED_DOCUMENT_TYPES = [
 ]
 
 # Roast settings
-MAX_ROAST_LENGTH = 1000
+MAX_ROAST_LENGTH = 1280
+
+# =========================
+# Memory & Context Settings 
+# =========================
+
+# Core Memory Settings
+SLIDING_WINDOW_ENABLED = True
+SLIDING_WINDOW_SIZE = 25
+SLIDING_WINDOW_STORAGE = "permanent"
+
+# Context Management
+CONTEXT_MIN_IMPORTANCE = 0.6
+CONTEXT_RELEVANCE_WINDOW = 3600  # 1 hour
+CONTEXT_OPTIMAL_SIZE = int(SLIDING_WINDOW_SIZE * 0.9)
+CONTEXT_TTL = 604800  # 7 days
+CONTEXT_MAX_HISTORY = 25
+
+# Memory Analysis 
+MEMORY_MAX_TOKENS = 15000
+MEMORY_USE_ELEPHANT = True
+MEMORY_REFERENCE_STYLE = "natural"  # Options: "natural", "exact", "minimal"
+MEMORY_MAX_REFERENCES = 25
+MEMORY_RELATIONSHIP_BOOST = 1.5
+
+# Retrieval Configuration
+MEMORY_RETRIEVAL_CONFIG = {
+    "similarity_threshold": 0.6,
+    "max_relevant_messages": 25,
+    "min_importance_score": 0.6,
+    "time_decay_hours": 24,
+    "recency_boost": 1.2
+}
+
+# Message Type Importance Weights
+MESSAGE_IMPORTANCE_WEIGHTS = {
+    "emotion": 1.5,     # High importance for emotional content
+    "question": 1.3,    # Questions need good context
+    "answer": 1.2,      # Bot's answers are important
+    "personal": 1.4,    # Personal info is valuable
+    "command": 0.8,     # Commands less important for context
+    "greeting": 0.7,    # Greetings least important
+    "system": 1.0,      # Default for system messages
+    "user": 1.2,        # User messages slightly boosted
+    "assistant": 1.1    # Assistant responses slightly boosted
+}
+
+# =========================
+# Response Configuration
+# =========================
+
+# Response Behavior
+PERSONALITY_STRENGTH = 0.8  # Response expressiveness (0.0-1.0)
+RESPONSE_VERBOSITY = 3     # Detail level (1-4)
+MAX_RESPONSE_LENGTH = 8192 # Maximum response length
+MAX_EMOJI_PER_RESPONSE = 25  # Maximum emoji per response
+MIN_EMOJI_PER_RESPONSE = 4   # Minimum emoji per response
+
+# Response Component Ratios
+RESPONSE_CONFIG = {
+    "context_ratio": 0.3,     # Context proportion
+    "detail_ratio": 0.3,      # Detail proportion 
+    "personality_ratio": 0.4   # Personality proportion
+}
+
+# Emoji Categories
+EMOJI_CATEGORIES = {
+    "happy": ["✨", "💫", "💕", "🌸", "💝", "💖", "💗", "🤗", "☺️", "😊"],
+    "tsundere": ["😤", "😳", "💢", "😒", "🙄", "😠", "😑", "😌", "😏", "🤨"],
+    "embarrassed": ["😳", "🙈", "😖", "💓", "😵", "❤️", "🫣", "😅", "😶", "🥺"],
+    "sad": ["😔", "🥺", "💔", "😢", "😭", "😿", "😓", "😥", "😞", "😟"],
+    "angry": ["😠", "😤", "💢", "😑", "😒", "👊", "😡", "🔥", "💥", "⚡"]
+}

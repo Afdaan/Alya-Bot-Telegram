@@ -14,13 +14,14 @@ from pathlib import Path
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Move fact_extractor import inside functions to prevent circular import
-# from utils.fact_extractor import fact_extractor
 from core.personas import get_persona_context, persona_manager
-from utils.natural_parser import detect_intent
-from utils.faq_loader import knowledge_base
 from config.settings import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 from .context_queue import context_queue
+from config.settings import (
+    MEMORY_RETRIEVAL_CONFIG,
+    CONTEXT_MIN_IMPORTANCE,
+    SLIDING_WINDOW_SIZE
+)
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -52,6 +53,13 @@ class MemoryRetrievalSystem:
 
         # Initialize embedding model
         self.embedding_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        
+        # Use centralized settings
+        self.similarity_threshold = MEMORY_RETRIEVAL_CONFIG["similarity_threshold"]
+        self.max_relevant_messages = MEMORY_RETRIEVAL_CONFIG["max_relevant_messages"]
+        self.min_importance = MEMORY_RETRIEVAL_CONFIG["min_importance_score"]
+        self.time_decay_hours = MEMORY_RETRIEVAL_CONFIG["time_decay_hours"]
+        self.recency_boost = MEMORY_RETRIEVAL_CONFIG["recency_boost"]
         
     def load_config(self, config_path: str) -> bool:
         """
@@ -99,6 +107,8 @@ class MemoryRetrievalSystem:
         from utils.context_manager import context_manager
         # Import fact_extractor here to avoid circular dependency
         from utils.fact_extractor import fact_extractor
+        from utils.natural_parser import detect_intent
+        from utils.faq_loader import knowledge_base
         
         # Use chat_id if provided, otherwise use user_id as default
         chat_id = chat_id if chat_id is not None else user_id
@@ -112,21 +122,46 @@ class MemoryRetrievalSystem:
         }
         
         try:
-            # Get conversation history using context queue
+            # Get sliding window context with settings from config
             history = context_queue.get_context(
                 user_id=user_id,
                 chat_id=chat_id,
-                window_size=10
+                window_size=SLIDING_WINDOW_SIZE,
+                min_importance=CONTEXT_MIN_IMPORTANCE
             )
+            
+            # Get semantically relevant messages
+            query_embedding = self.embedding_model.encode(user_query)
+            relevant_messages = []
+            
+            for msg in history:
+                msg_embedding = self.embedding_model.encode(msg['content'])
+                similarity = cosine_similarity([query_embedding], [msg_embedding])[0][0]
+                
+                if similarity > self.similarity_threshold:
+                    # Update relevancy score in database
+                    context_queue.update_message_relevancy(
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        message_id=msg['message_id'],
+                        relevancy_score=similarity
+                    )
+                    
+                    relevant_messages.append({
+                        **msg,
+                        'relevance': similarity
+                    })
+            
+            # Sort by relevance and limit
+            relevant_messages.sort(key=lambda x: x['relevance'], reverse=True)
+            context["relevant_past"] = relevant_messages[:self.max_relevant_messages]
+            
+            # Regular history for conversation flow
             context["history"] = history
             
             # Get personal facts about the user
             facts = fact_extractor.get_user_facts(user_id)
             context["personal_facts"] = facts
-            
-            # Find relevant past messages based on query
-            relevant_messages = await self.retrieve_relevant_memories(user_id, user_query)
-            context["relevant_past"] = relevant_messages
             
             # Detect intent
             detected_intent = await detect_intent(user_query)
@@ -297,7 +332,7 @@ class MemoryRetrievalSystem:
             
             # Log processing time for optimization
             processing_time = time.time() - start_time
-            if processing_time > 2.0:
+            if (processing_time > 2.0):
                 logger.warning(f"Slow response generation: {processing_time:.2f}s for user {user_id}")
             
             return response
