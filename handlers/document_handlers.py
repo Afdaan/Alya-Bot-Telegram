@@ -70,36 +70,51 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
     if not update.message:
         return
         
-    # Check for the !trace or !sauce command
-    command = None
-    command_type = None
-    message_text = update.message.caption or ""
-    
-    # FIX: Lebih fleksibel handlean prefix-nya, gunakan lowercase untuk case-insensitive
-    message_text_lower = message_text.lower().strip()
-    
-    if message_text_lower.startswith("!trace") or message_text_lower.startswith("/trace"):
-        command_type = "trace"
-    elif message_text_lower.startswith("!sauce") or message_text_lower.startswith("/sauce"):
-        command_type = "sauce"
-    elif message_text_lower.startswith("!ocr") or message_text_lower.startswith("/ocr"):
-        command_type = "ocr"
-        
+    # Get chat type and user
+    chat_type = update.message.chat.type
     user = update.effective_user
     
+    # For group chats, only respond if:
+    # 1. Message has valid command prefix in caption
+    # 2. Message is replying to bot
+    # 3. Bot is mentioned in caption
+    if chat_type in ["group", "supergroup"]:
+        caption = update.message.caption or ""
+        is_reply_to_bot = (
+            update.message.reply_to_message and 
+            update.message.reply_to_message.from_user and
+            update.message.reply_to_message.from_user.id == context.bot.id
+        )
+        mentions_bot = f"@{context.bot.username}" in caption if context.bot.username else False
+        has_command = any(caption.lower().startswith(prefix.lower()) for prefix in ALL_VALID_PREFIXES)
+        
+        # If none of the conditions are met, ignore the message
+        if not (has_command or is_reply_to_bot or mentions_bot):
+            return
+
+    # Get command from caption
+    command_type = None
+    message_text = update.message.caption or ""
+    message_text_lower = message_text.lower().strip()
+    
+    # Check for commands in caption
+    if message_text_lower.startswith(("!trace", "/trace")):
+        command_type = "trace"
+    elif message_text_lower.startswith(("!sauce", "/sauce")):
+        command_type = "sauce"
+    elif message_text_lower.startswith(("!ocr", "/ocr")):
+        command_type = "ocr"
+        
     try:
         # Process based on command type
-        if command_type == "trace" or command_type == "ocr":
+        if command_type in ["trace", "ocr"]:
             await handle_trace_command(update.message, user, context)
         elif command_type == "sauce":
             await handle_sauce_command(update.message, user, context)
-        else:
-            # Only process as normal if this is private chat
-            if update.message.chat.type == "private":
-                await process_document_media(update.message, user, context)
-            else:
-                # In group, do nothing - we only respond to explicit commands
-                return
+        elif update.message.chat.type == "private":
+            # Only process as normal chat if in private
+            await process_document_media(update.message, user, context)
+            
     except Exception as e:
         logger.error(f"Error in document/media handling: {e}")
         try:

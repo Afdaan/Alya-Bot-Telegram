@@ -50,6 +50,9 @@ def setup_handlers(app: Application) -> None:
     Args:
         app: Telegram bot application instance
     """
+    # Get bot username after initialization
+    bot_username = app.bot.username if app.bot and app.bot.username else ""
+    
     # Add handlers for basic commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
@@ -104,16 +107,28 @@ def setup_handlers(app: Application) -> None:
         handle_roast_prefix
     ))
     
-    # Media handler with caption commands - FIX: Using regex instead of lambda function
+    # Media handler with caption commands - Updated pattern
     caption_prefixes = [
-        re.escape(ANALYZE_PREFIX), re.escape(SAUCE_PREFIX), "!ocr",
-        "/trace", "/sauce", "/ocr"
+        re.escape(ANALYZE_PREFIX), 
+        re.escape(SAUCE_PREFIX),
+        "!ocr", "/trace", "/sauce", "/ocr"
     ]
+    
+    # Only add username pattern if we have a username
+    if bot_username:
+        caption_prefixes.append(f"@{bot_username}")
+        
+    caption_prefixes = [p for p in caption_prefixes if p]  # Remove empty patterns
     caption_pattern = f"^({('|'.join(caption_prefixes))})"
     
+    # Add media handlers with proper filtering
     app.add_handler(MessageHandler(
         (filters.PHOTO | filters.Document.ALL) & 
-        filters.CaptionRegex(caption_pattern),
+        (
+            filters.CaptionRegex(caption_pattern) |  # Has command in caption
+            filters.ChatType.PRIVATE |              # Private chat
+            filters.REPLY                          # Reply to any message
+        ),
         handle_document_image
     ))
     
@@ -244,11 +259,26 @@ def create_app() -> Application:
     if not TELEGRAM_BOT_TOKEN:
         raise ValueError("No Telegram bot token provided. Set the TELEGRAM_BOT_TOKEN environment variable.")
     
-    # Create application with post_init callback
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
+    # Create application builder
+    builder = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN)
     
-    # Setup handlers
+    # Build application first
+    application = builder.build()
+    
+    # Initialize the bot before setting up handlers
+    async def initialize():
+        await application.bot.initialize()
+        await application.bot.get_me()
+        
+    # Run initialization
+    import asyncio
+    asyncio.get_event_loop().run_until_complete(initialize())
+    
+    # Setup handlers after bot is initialized
     setup_handlers(application)
+    
+    # Set post init callback
+    application.post_init = post_init
     
     return application
 
