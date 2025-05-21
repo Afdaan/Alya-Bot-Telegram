@@ -30,13 +30,16 @@ def format_roleplay_message(message: str, roleplay_action: Optional[str] = None,
         parts.append(f"_\\[{escaped_action}\\]_")
 
     if message:
+        # Clean any Unicode escape sequences and convert to actual emoji
+        clean_msg = message.encode('utf-16', 'surrogatepass').decode('utf-16')
         # Escape all except * and _ for markdown
-        preserved_msg = escape_markdown_v2(message, preserve="*_")
+        preserved_msg = escape_markdown_v2(clean_msg, preserve="*_")
         parts.append(preserved_msg)
 
     if optional_message:
-        # Escape all except * and _ for markdown
-        preserved_optional = escape_markdown_v2(optional_message, preserve="*_")
+        # Clean any Unicode escape sequences here too
+        clean_optional = optional_message.encode('utf-16', 'surrogatepass').decode('utf-16')
+        preserved_optional = escape_markdown_v2(clean_optional, preserve="*_")
         parts.append(preserved_optional)
 
     if mood_action:
