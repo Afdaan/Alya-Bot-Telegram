@@ -158,9 +158,9 @@ async def stats_command(update: Update, context: CallbackContext) -> None:
             from utils.rate_limiter import api_key_manager
             key_stats = api_key_manager.get_key_stats()
             keys_info = "\n".join([
-                f"• Key {i+1}: {'🟢 ' if s['is_current'] else '🔴 '}"
-                f"{s['key_prefix']} "
-                f"{f'(cooldown until {s['cooldown_ends']})' if s['in_cooldown'] else ''}"
+                f"• Key {i+1}: {'🟢 ' if s.get('is_current') else '🔴 '}"
+                f"{s.get('key_prefix', '')} "
+                f"{'(cooldown until ' + str(s.get('cooldown_ends')) + ')' if s.get('in_cooldown') else ''}"
                 for i, s in enumerate(key_stats)
             ])
         except Exception as key_err:
