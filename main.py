@@ -16,7 +16,6 @@ from telegram.ext import Application
 from core.bot import create_app, run_bot
 from core.personas import init_personas
 from handlers.command_handlers import register_command_handlers
-from handlers.media_handlers import register_media_handlers
 from handlers.message_handlers import register_message_handlers
 from handlers.callback_handlers import register_callback_handlers
 from config.logging_config import setup_logging
@@ -47,7 +46,6 @@ def main():
         
         # Register handlers explicitly
         register_command_handlers(app)
-        register_media_handlers(app)
         register_message_handlers(app)
         register_callback_handlers(app)
         

@@ -142,7 +142,7 @@ def setup_handlers(app: Application) -> None:
         filters.CaptionRegex(caption_pattern) |
         # OR be a direct reply to the bot's message 
         (filters.REPLY & filters.ChatType.GROUPS & 
-         filters.Entity("mention") & filters.Entity(mention=bot_username)) |
+         filters.Entity("mention")) |
         # OR be in private chat where all messages are allowed
         filters.ChatType.PRIVATE
     )
