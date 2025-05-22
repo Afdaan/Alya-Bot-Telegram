@@ -1,28 +1,39 @@
 """
 Emotion System for Alya Bot.
 
-This module provides a sophisticated, human-like emotional response system
-for Alya, allowing dynamic mood transitions and contextually appropriate reactions.
+This module provides emotion detection, tracking, and response generation
+based on user interaction patterns and message content.
 """
 
 import logging
+import os
+import json
 import random
+import time
+from typing import Dict, Any, List, Optional, Tuple, Union
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# Try to import optional dependencies with fallback behavior
+try:
+    import torch
+    from sentence_transformers import SentenceTransformer
+    EMBEDDINGS_AVAILABLE = True
+except ImportError:
+    logger.warning("SentenceTransformer and/or PyTorch not available. Emotion analysis will use fallback mode.")
+    EMBEDDINGS_AVAILABLE = False
+
 import re
 import yaml
-import os
 from enum import Enum
-from typing import Dict, List, Optional, Any, Set, Tuple
 from dataclasses import dataclass, field
-import time
 from pathlib import Path
 
-from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from core.personas import get_persona_context, persona_manager
 from config.settings import DEFAULT_LANGUAGE
-
-logger = logging.getLogger(__name__)
 
 # Update path to moods configuration file
 MOODS_CONFIG_PATH = Path(__file__).parent.parent / "config" / "persona" / "moods.yaml"
@@ -125,7 +136,8 @@ class EmotionEngine:
     def __init__(self):
         """Initialize dengan embedding model untuk deteksi emosi dan load config."""
         # Load the embedding model
-        self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        if EMBEDDINGS_AVAILABLE:
+            self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
         
         # Load configurations
         self.config = self._load_config()
@@ -198,13 +210,17 @@ class EmotionEngine:
     def _prepare_emotion_embeddings(self) -> Dict[EmotionType, List[float]]:
         """Generate embeddings untuk contoh-contoh emosi."""
         embeddings = {}
-        for emotion, examples in self.emotion_examples.items():
-            embeddings[emotion] = self.model.encode(examples)
+        if EMBEDDINGS_AVAILABLE:
+            for emotion, examples in self.emotion_examples.items():
+                embeddings[emotion] = self.model.encode(examples)
         return embeddings
 
     def detect_emotion(self, message: str) -> Tuple[EmotionType, EmotionIntensity]:
         """Deteksi emosi berdasarkan semantic similarity."""
         if not message or len(message) < 3:
+            return EmotionType.NEUTRAL, EmotionIntensity.MILD
+            
+        if not EMBEDDINGS_AVAILABLE:
             return EmotionType.NEUTRAL, EmotionIntensity.MILD
             
         message_embedding = self.model.encode(message)

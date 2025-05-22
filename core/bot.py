@@ -41,6 +41,11 @@ from handlers.roast_handlers import handle_roast_command, handle_github_roast
 # Import developer handlers
 from handlers.dev_handlers import register_dev_handlers
 
+# Add to imports section
+import importlib.util
+import subprocess
+import sys
+
 # Setup logging
 logger = logging.getLogger(__name__)
 
@@ -274,10 +279,45 @@ async def post_init(app: Application) -> None:
     limiter.allowance = {"global": limiter.rate}
     limiter.last_check = {"global": time.time()}
 
+# Add this function to check dependencies
+def check_dependencies() -> None:
+    """
+    Check if critical dependencies are available and install them if needed.
+    """
+    required_packages = {
+        "torch": "torch>=2.0.0",
+        "sentence_transformers": "sentence-transformers>=2.2.2"
+    }
+    
+    missing_packages = []
+    
+    for package, requirement in required_packages.items():
+        if importlib.util.find_spec(package) is None:
+            missing_packages.append(requirement)
+    
+    if missing_packages:
+        logger.warning(f"Missing required packages: {', '.join(missing_packages)}")
+        logger.info("Attempting to install missing packages...")
+        
+        try:
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install", 
+                *missing_packages, "--upgrade"
+            ])
+            logger.info("Successfully installed missing packages")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to install packages: {e}")
+            logger.info("Please install the missing packages manually using:")
+            logger.info(f"pip install {' '.join(missing_packages)}")
+
+# Add this call at the beginning of create_app function
 def create_app() -> Application:
     """Create and configure the bot application instance."""
     if not TELEGRAM_BOT_TOKEN:
         raise ValueError("No Telegram bot token provided. Set the TELEGRAM_BOT_TOKEN environment variable.")
+    
+    # Check for critical dependencies
+    check_dependencies()
     
     # Create application builder
     builder = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN)
