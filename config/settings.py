@@ -91,8 +91,9 @@ ROAST_PREFIX = "!roast"
 GITHUB_ROAST_PREFIXES = ["!gitroast", "/gitroast", "!github", "/github"]
 ADDITIONAL_PREFIXES = ["!alya", "@alya"]
 
-# Group Chat Settings
-GROUP_CHAT_REQUIRES_PREFIX = True
+# Group chat behavior
+GROUP_CHAT_REQUIRES_PREFIX = True  # Requires prefix in group chats
+ADDITIONAL_PREFIXES = ["!alya", "@alya"]  # Alternative prefixes
 
 # =========================
 # Language Settings
