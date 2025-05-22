@@ -70,60 +70,84 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
     if not update.message:
         return
         
-    # Get chat type and user
-    chat_type = update.message.chat.type
+    message = update.message
     user = update.effective_user
     
-    # For group chats, only respond if:
-    # 1. Message has valid command prefix in caption
-    # 2. Message is replying to bot
-    # 3. Bot is mentioned in caption
-    if chat_type in ["group", "supergroup"]:
-        caption = update.message.caption or ""
-        is_reply_to_bot = (
-            update.message.reply_to_message and 
-            update.message.reply_to_message.from_user and
-            update.message.reply_to_message.from_user.id == context.bot.id
-        )
-        mentions_bot = f"@{context.bot.username}" in caption if context.bot.username else False
-        has_command = any(caption.lower().startswith(prefix.lower()) for prefix in ALL_VALID_PREFIXES)
-        
-        # If none of the conditions are met, ignore the message
-        if not (has_command or is_reply_to_bot or mentions_bot):
-            return
-
-    # Get command from caption
-    command_type = None
-    message_text = update.message.caption or ""
-    message_text_lower = message_text.lower().strip()
+    # Get chat type - critical for group handling
+    is_group_chat = message.chat.type in ["group", "supergroup"]
     
-    # Check for commands in caption
-    if message_text_lower.startswith(("!trace", "/trace")):
-        command_type = "trace"
-    elif message_text_lower.startswith(("!sauce", "/sauce")):
-        command_type = "sauce"
-    elif message_text_lower.startswith(("!ocr", "/ocr")):
-        command_type = "ocr"
+    # CRITICAL FIX: Properly enforce group chat restrictions
+    if is_group_chat and GROUP_CHAT_REQUIRES_PREFIX:
+        # Check if message has valid prefix in caption
+        caption = message.caption or ""
+        caption_lower = caption.lower().strip()
+        has_valid_prefix = any(caption_lower.startswith(prefix) for prefix in ALL_VALID_PREFIXES)
         
+        # Check if message is a reply to bot's message
+        is_reply_to_bot = (
+            message.reply_to_message and 
+            message.reply_to_message.from_user and
+            message.reply_to_message.from_user.id == context.bot.id
+        )
+        
+        # Check if bot is mentioned
+        mentions_bot = context.bot.username and f"@{context.bot.username.lower()}" in caption_lower
+        
+        # If none of these conditions are met, silently ignore in group chats
+        if not (has_valid_prefix or is_reply_to_bot or mentions_bot):
+            logger.info(
+                f"Ignoring media in group chat from user {user.id}: no valid prefix, reply, or mention"
+            )
+            return
+    
+    # Determine command type from caption
+    command_type = detect_command_type(message)
+    
     try:
         # Process based on command type
-        if command_type in ["trace", "ocr"]:
-            await handle_trace_command(update.message, user, context)
-        elif command_type == "sauce":
-            await handle_sauce_command(update.message, user, context)
-        elif update.message.chat.type == "private":
-            # Only process as normal chat if in private
-            await process_document_media(update.message, user, context)
-            
+        if command_type == ANALYZE_PREFIX.lower() :
+            await handle_trace_command(message, user, context)
+        elif command_type == SAUCE_PREFIX.lower():
+            await handle_sauce_command(message, user, context)
+        elif not is_group_chat or not GROUP_CHAT_REQUIRES_PREFIX:
+            # Only process as normal chat in private chats or groups without prefix requirement
+            await process_document_media(message, user, context)
     except Exception as e:
-        logger.error(f"Error in document/media handling: {e}")
+        logger.error(f"Error in document/media handling: {e}", exc_info=True)
         try:
-            await update.message.reply_text(
+            await message.reply_text(
                 "Maaf, terjadi kesalahan saat memproses dokumen/gambar.",
                 parse_mode=None
             )
         except Exception:
             pass
+
+def detect_command_type(message: Message) -> Optional[str]:
+    """
+    Detect command type from message caption.
+    
+    Args:
+        message: Message to check
+        
+    Returns:
+        Command type or None if no command found
+    """
+    if not message.caption:
+        return None
+        
+    caption_lower = message.caption.lower().strip()
+    
+    # Check for trace/analyze command
+    if caption_lower.startswith(("!trace", "/trace", ANALYZE_PREFIX.lower())):
+        return "trace"
+    # Check for sauce command
+    elif caption_lower.startswith(("!sauce", "/sauce", SAUCE_PREFIX.lower())):
+        return "sauce"
+    # Check for OCR command
+    elif caption_lower.startswith(("!ocr", "/ocr")):
+        return "ocr"
+    
+    return None
 
 async def process_document_media(message: Message, user: User, context: CallbackContext) -> None:
     """

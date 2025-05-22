@@ -93,6 +93,7 @@ GITHUB_ROAST_PREFIXES = ["!gitroast", "/gitroast", "!github", "/github"]  # For 
 # Group chat behavior
 GROUP_CHAT_REQUIRES_PREFIX = True  # Requires prefix in group chats
 ADDITIONAL_PREFIXES = ["!alya", "@alya"]  # Alternative prefixes
+GROUP_DISABLE_IMAGES = False  # If True, will not process any images in groups
 
 # =========================
 # Language Settings

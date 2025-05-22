@@ -136,14 +136,20 @@ def setup_handlers(app: Application) -> None:
     caption_prefixes = [p for p in caption_prefixes if p]  # Remove empty patterns
     caption_pattern = f"^({('|'.join(caption_prefixes))})"
     
+    # Enhanced group chat filtering to require prefixes or replies to the bot
+    group_chat_filter = (
+        # Must have a command prefix in caption
+        filters.CaptionRegex(caption_pattern) |
+        # OR be a direct reply to the bot's message 
+        (filters.REPLY & filters.ChatType.GROUPS & 
+         filters.Entity("mention") & filters.Entity(mention=bot_username)) |
+        # OR be in private chat where all messages are allowed
+        filters.ChatType.PRIVATE
+    )
+    
     # Add media handlers with proper filtering
     app.add_handler(MessageHandler(
-        (filters.PHOTO | filters.Document.ALL) & 
-        (
-            filters.CaptionRegex(caption_pattern) |  # Has command in caption
-            filters.ChatType.PRIVATE |              # Private chat
-            filters.REPLY                          # Reply to any message
-        ),
+        (filters.PHOTO | filters.Document.ALL) & group_chat_filter,
         handle_document_image
     ))
     
