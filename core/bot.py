@@ -1,85 +1,367 @@
 """
-Bot Handler Setup for Alya Telegram Bot.
+Bot Core Setup Module for Alya Telegram Bot.
 
-This module configures all handlers for the Telegram bot,
-organizing them by type and priority.
+This module handles the initialization and setup of the bot,
+including command handlers and middleware.
 """
 
 import logging
+import os
+import time
+import re
+from typing import Any, Dict, List
+from config.settings import GITHUB_ROAST_PREFIXES
+
+from telegram import Update
 from telegram.ext import (
-    CommandHandler, 
-    MessageHandler, 
-    filters, 
-    CallbackQueryHandler,
-    Application
+    ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
+    filters, Application, ContextTypes, ConversationHandler, CallbackContext
 )
 
-# Import all handlers
-from handlers.command_handlers import start, help_command, reset_command, handle_search
-from handlers.message_handlers import handle_message
-from handlers.document_handlers import handle_document_image
-from handlers.callback_handlers import handle_button_callback
-from handlers.ping_handlers import ping_command
-from handlers.dev_handlers import (
-    update_command, stats_command, debug_command, shell_command,
-    set_language_command
+from config.settings import (
+    TELEGRAM_BOT_TOKEN, 
+    DEVELOPER_IDS, 
+    DEFAULT_LANGUAGE,
+    GROUP_CHAT_REQUIRES_PREFIX,
+    CHAT_PREFIX,
+    ADDITIONAL_PREFIXES,
+    ANALYZE_PREFIX,
+    SAUCE_PREFIX,
+    ROAST_PREFIX
 )
+from config.logging_config import setup_logging
+from utils.rate_limiter import limiter
 
+# Import handlers
+from handlers.command_handlers import (
+    start, help_command, reset_command, handle_search, 
+    ping_command, memory_command
+)
+from handlers.document_handlers import handle_document_image, handle_trace_command, handle_sauce_command
+from handlers.message_handlers import handle_message, process_chat_message
+from handlers.callback_handlers import handle_callback_query
+from handlers.roast_handlers import handle_roast_command, handle_github_roast
+# Import developer handlers
+from handlers.dev_handlers import register_dev_handlers
+
+# Add to imports section
+import importlib.util
+import subprocess
+import sys
+
+# Setup logging
 logger = logging.getLogger(__name__)
 
-def setup_handlers(application: Application) -> None:
+def setup_handlers(app: Application) -> None:
     """
-    Setup all handlers for the bot with proper priority.
+    Setup command and message handlers for the bot.
     
     Args:
-        application: The Telegram Application instance
+        app: Telegram bot application instance
     """
-    # =========================
-    # Basic Command Handlers
-    # =========================
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("reset", reset_command))
-    application.add_handler(CommandHandler("ping", ping_command))
-    application.add_handler(CommandHandler("lang", set_language_command))
+    # Get bot username after initialization
+    bot_username = app.bot.username if app.bot and app.bot.username else ""
     
-    # =========================
-    # Special Message Handlers (Higher Priority)
-    # =========================
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(r'^!search'), 
-        handle_search,
-        block=False
+    # Add handlers for basic commands
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("reset", reset_command))
+    app.add_handler(CommandHandler("search", handle_search))
+    app.add_handler(CommandHandler("ping", ping_command, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("memory", memory_command))
+    
+    # Register developer command handlers
+    register_dev_handlers(app)
+
+    # Handle !ai prefix (chat commands)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{CHAT_PREFIX}\\b'),
+        handle_chat_prefix
     ))
     
-    # =========================
-    # Callback Handlers
-    # =========================
-    application.add_handler(CallbackQueryHandler(handle_button_callback))
+    # Handle !alya prefix (alternative chat)
+    for prefix in ADDITIONAL_PREFIXES:
+        if prefix.startswith('!'):  # Only handle text prefixes, not mentions
+            app.add_handler(MessageHandler(
+                filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{prefix}\\b'),
+                handle_chat_prefix
+            ))
     
-    # =========================
-    # General Message Handlers
-    # =========================
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND, 
-        handle_message,
-        block=False  # Non-blocking for better performance
+    # Handle !trace prefix (image analysis)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{ANALYZE_PREFIX}\\b'),
+        handle_trace_prefix
     ))
     
-    # =========================
-    # Media Handlers
-    # =========================
-    application.add_handler(MessageHandler(
-        filters.PHOTO | filters.Document.ALL,
+    # Handle !sauce prefix (reverse image search)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{SAUCE_PREFIX}\\b'),
+        handle_sauce_prefix
+    ))
+    
+    # Handle !search prefix (web search)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex('^!search\\b'),
+        handle_search_prefix
+    ))
+    
+    # Handle !ocr prefix (text extraction)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex('^!ocr\\b'),
+        handle_ocr_prefix
+    ))
+    
+    # Handle !roast prefix (roasting)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{ROAST_PREFIX}\\b'),
+        handle_roast_prefix
+    ))
+    
+    # Add GitHub roast prefix handlers
+    github_roast_prefixes: List[str] = GITHUB_ROAST_PREFIXES
+    pattern = f"^({'|'.join(map(re.escape, github_roast_prefixes))})"
+    
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(pattern),
+        handle_github_roast_prefix 
+    ))
+
+    # Media handler with caption commands - Updated pattern
+    caption_prefixes = [
+        re.escape(ANALYZE_PREFIX), 
+        re.escape(SAUCE_PREFIX),
+        "!ocr", "/trace", "/sauce", "/ocr"
+    ]
+    
+    # Only add username pattern if we have a username
+    if bot_username:
+        caption_prefixes.append(f"@{bot_username}")
+        
+    caption_prefixes = [p for p in caption_prefixes if p]  # Remove empty patterns
+    caption_pattern = f"^({('|'.join(caption_prefixes))})"
+    
+    # Add media handlers with proper filtering
+    app.add_handler(MessageHandler(
+        (filters.PHOTO | filters.Document.ALL) & 
+        (
+            filters.CaptionRegex(caption_pattern) |  # Has command in caption
+            filters.ChatType.PRIVATE |              # Private chat
+            filters.REPLY                          # Reply to any message
+        ),
         handle_document_image
     ))
     
-    # =========================
-    # Developer/Admin Commands
-    # =========================
-    application.add_handler(CommandHandler("update", update_command))
-    application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(CommandHandler("debug", debug_command))
-    application.add_handler(CommandHandler("shell", shell_command))
+    # Add dedicated trace handlers
+    app.add_handler(CommandHandler("trace", handle_trace_command))
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(f'^{ANALYZE_PREFIX}'),
+        handle_trace_prefix
+    ))
+
+    # Slash command handlers for media operations
+    app.add_handler(CommandHandler("trace", _trace_command_handler))
+    app.add_handler(CommandHandler("sauce", _sauce_command_handler))
+    app.add_handler(CommandHandler("ocr", _trace_command_handler))  # OCR uses same handler
     
-    logger.info("All handlers have been set up successfully")
+    # Roast command handlers
+    app.add_handler(CommandHandler("roast", handle_roast_command))
+    app.add_handler(CommandHandler("github_roast", handle_github_roast))
+    
+    # Callback query handler for buttons
+    app.add_handler(CallbackQueryHandler(handle_callback_query))
+    
+    # General message handler (runs after text command handlers)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_message
+    ))
+    
+    logger.info("All handlers have been registered")
+
+# Bridge handlers to avoid circular imports
+async def _trace_command_handler(update: Update, context: CallbackContext) -> None:
+    """Bridge for trace/OCR command."""
+    if not update.message:
+        return
+    await handle_trace_command(update.message, update.effective_user, context)
+
+async def _sauce_command_handler(update: Update, context: CallbackContext) -> None:
+    """Bridge for sauce command."""
+    if not update.message:
+        return
+    await handle_sauce_command(update.message, update.effective_user, context)
+
+# SIMPLIFIED PREFIX HANDLERS - Each handler is dedicated to a specific prefix type
+
+async def handle_chat_prefix(update: Update, context: CallbackContext) -> None:
+    """Handle chat commands with prefix."""
+    if not update.message or not update.message.text:
+        return
+        
+    text = update.message.text.strip()
+    text_lower = text.lower()
+    
+    if text_lower.startswith("!ai"):
+        query = text[3:].strip()  # Extract query after !ai
+    elif text_lower.startswith(f"{CHAT_PREFIX.lower()}"):
+        query = text[len(CHAT_PREFIX):].strip()
+    else:
+        return
+
+    # Import here to avoid circular imports
+    from handlers.message_handlers import process_chat_message
+    await process_chat_message(update, context, query)
+
+async def handle_trace_prefix(update: Update, context: CallbackContext) -> None:
+    """Handle !trace prefix."""
+    if not update.message:
+        return
+        
+    # Pass to trace command handler
+    await handle_trace_command(update, context)
+
+async def handle_sauce_prefix(update: Update, context: CallbackContext) -> None:
+    """
+    Handle !sauce prefix for reverse image search.
+    """
+    # Change log level from INFO to DEBUG
+    logger.debug(f"Sauce prefix detected: '{update.message.text[:20]}...'")
+    await handle_sauce_command(update.message, update.effective_user, context)
+
+async def handle_search_prefix(update: Update, context: CallbackContext) -> None:
+    """
+    Handle !search prefix for web search.
+    """
+    if not update.message or not update.message.text:
+        return
+        
+    message_text = update.message.text.strip()
+    # Change log level from INFO to DEBUG
+    logger.debug(f"Search prefix detected: '{message_text[:20]}...'")
+    
+    # Extract query and process search
+    query = message_text[7:].strip()  # Remove "!search"
+    context.args = query.split()
+    await handle_search(update, context)
+
+async def handle_ocr_prefix(update: Update, context: CallbackContext) -> None:
+    """
+    Handle !ocr prefix for text extraction.
+    """
+    # Change log level from INFO to DEBUG
+    logger.debug(f"OCR prefix detected: '{update.message.text[:20]}...'")
+    await handle_trace_command(update.message, update.effective_user, context)
+
+async def handle_roast_prefix(update: Update, context: CallbackContext) -> None:
+    """
+    Handle !roast prefix for roasting.
+    """
+    if not update.message or not update.message.text:
+        return
+        
+    message_text = update.message.text.strip()
+    # Change log level from INFO to DEBUG
+    logger.debug(f"Roast prefix detected: '{message_text[:20]}...'")
+    
+    # Extract roast args and process
+    roast_args = message_text[len(ROAST_PREFIX):].strip()
+    context.args = roast_args.split()
+    await handle_roast_command(update, context)
+
+async def handle_github_roast_prefix(update: Update, context: CallbackContext) -> None:
+    """Handle GitHub roast prefixes."""
+    if not update.message or not update.message.text:
+        return
+        
+    message_text = update.message.text.strip()
+    logger.debug(f"GitHub roast prefix detected: '{message_text[:20]}...'")
+    
+    await handle_github_roast(update, context)
+
+async def post_init(app: Application) -> None:
+    """Post-initialization setup."""
+    # Set default language for the bot
+    app.bot_data["language"] = DEFAULT_LANGUAGE
+    
+    # Log startup information
+    logger.info("Bot is starting up")
+    
+    # Initialize rate limiter
+    limiter.allowance = {"global": limiter.rate}
+    limiter.last_check = {"global": time.time()}
+
+# Add this function to check dependencies
+def check_dependencies() -> None:
+    """
+    Check if critical dependencies are available and install them if needed.
+    """
+    required_packages = {
+        "torch": "torch>=2.0.0",
+        "sentence_transformers": "sentence-transformers>=2.2.2"
+    }
+    
+    missing_packages = []
+    
+    for package, requirement in required_packages.items():
+        if importlib.util.find_spec(package) is None:
+            missing_packages.append(requirement)
+    
+    if missing_packages:
+        logger.warning(f"Missing required packages: {', '.join(missing_packages)}")
+        logger.info("Attempting to install missing packages...")
+        
+        try:
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install", 
+                *missing_packages, "--upgrade"
+            ])
+            logger.info("Successfully installed missing packages")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to install packages: {e}")
+            logger.info("Please install the missing packages manually using:")
+            logger.info(f"pip install {' '.join(missing_packages)}")
+
+# Add this call at the beginning of create_app function
+def create_app() -> Application:
+    """Create and configure the bot application instance."""
+    if not TELEGRAM_BOT_TOKEN:
+        raise ValueError("No Telegram bot token provided. Set the TELEGRAM_BOT_TOKEN environment variable.")
+    
+    # Check for critical dependencies
+    check_dependencies()
+    
+    # Create application builder
+    builder = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN)
+    
+    # Build application first
+    application = builder.build()
+    
+    # Initialize the bot before setting up handlers
+    async def initialize():
+        await application.bot.initialize()
+        await application.bot.get_me()
+        
+    # Run initialization
+    import asyncio
+    asyncio.get_event_loop().run_until_complete(initialize())
+    
+    # Setup handlers after bot is initialized
+    setup_handlers(application)
+    
+    # Set post init callback
+    application.post_init = post_init
+    
+    return application
+
+def run_bot() -> None:
+    """Run the bot application."""
+    # Setup logging first
+    setup_logging()
+    
+    try:
+        # Create and start the application
+        application = create_app()
+        application.run_polling()
+    except Exception as e:
+        logger.critical(f"Fatal error starting bot: {e}", exc_info=True)
+        raise

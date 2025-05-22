@@ -1,0 +1,77 @@
+# Indonesian (Bahasa Indonesia) language responses
+# Format: key: "response text"
+# Note: All responses should use MarkdownV2 escaping for special characters
+
+# Basic responses
+start: "Kon'nichiwa\\! Alya\\-chan di sini untuk menemanimu\\~ 🌸\n\nKetik /help untuk melihat perintah yang tersedia\\!"
+help: "Ini adalah daftar perintah yang bisa kamu gunakan dengan Alya\\-chan\\:"
+unknown_command: "Hmm\\? Alya tidak mengenali perintah itu\\. Coba /help untuk melihat perintah yang tersedia\\."
+ping: "Pong\\! Alya merespon dalam *{time}ms*\\. Koneksi kamu bagus\\, {username}\\-kun\\! ✨"
+language_changed: "Bahasa telah diubah ke *{language}*\\. Alya akan berbicara dalam bahasa ini mulai sekarang\\."
+
+# Maintenance responses
+error: "Maaf, terjadi kesalahan\\: *{error}*\\. Alya sedang memeriksa masalahnya\\! 🔍"
+rate_limit: "Pelan\\-pelan ya\\~ Tunggu {seconds} detik sebelum mencoba lagi\\. *memutar mata dengan tidak sabar*"
+maintenance: "Alya sedang dalam pemeliharaan\\. Mohon coba lagi nanti\\, {username}\\-kun\\! 🔧"
+unsupported: "Maaf, fitur ini belum didukung\\. *menunduk dengan malu*"
+update_started: "Tunggu sebentar\\! Alya sedang mengupdate sistem\\... ⚙️"
+update_complete: "Yay\\! Alya telah diperbarui ke versi terbaru\\! 🎉"
+update_failed: "Nyet\\! Update gagal\\: *{error}*\\. Coba lagi nanti\\."
+
+# Mode responses
+mode_changed: "Mode berubah menjadi *{mode}*\\! Alya akan bersikap sesuai mode ini sekarang\\. 💫"
+mode_list: "Mode yang tersedia\\: {modes}\\. Mode saat ini\\: *{current_mode}*\\."
+mode_error: "Mode *{mode}* tidak valid\\. Coba salah satu dari\\: {valid_modes}\\."
+
+# Memory responses
+memory_stats: "Statistik memory untuk {username}\\-kun\\:\n\n• Pesan user\\: {user_messages}\n• Pesan Alya\\: {bot_messages}\n• Total pesan\\: {total_messages}\n• Token terpakai\\: {token_usage}\n• Usia memory\\: {memory_age}\n• Fakta personal\\: {personal_facts}\n• Penggunaan memory\\: {memory_usage_percent}%"
+memory_cleared: "Memory untuk {username}\\-kun telah dihapus\\! Alya tidak akan ingat percakapan sebelumnya\\."
+memory_no_data: "Alya belum memiliki memory tentangmu\\. Mari mulai percakapan baru\\!"
+
+# Search responses
+search_no_query: "Hmm\\? Kamu ingin mencari apa\\? Gunakan /search diikuti dengan kata kunci pencarian\\."
+search_results: "Hasil pencarian untuk *{query}*\\:"
+search_no_results: "Maaf\\, Alya tidak menemukan hasil untuk *{query}*\\. Coba kata kunci lain\\."
+search_error: "Error saat pencarian\\: {error}\\. Coba lagi nanti\\."
+search_too_many: "Terlalu banyak hasil\\! Alya membatasi hingga {limit} hasil untuk menghindari spam\\."
+
+# Image analysis responses
+image_analyzing: "Alya sedang menganalisis gambar\\... 🔍"
+image_analysis_complete: "Analisis gambar selesai\\! 📊"
+image_analysis_error: "Maaf\\, Alya tidak dapat menganalisis gambar ini\\: {error}"
+sauce_searching: "Mencari sumber gambar\\... 🔎"
+sauce_not_found: "Hmph\\! Alya tidak menemukan sumber gambar ini\\. 🤔"
+sauce_error: "Ошибка системы\\! Error mencari sumber\\: {error}"
+
+# Roast responses
+roast_no_target: "Siapa yang ingin kamu roast\\? Gunakan /roast @username"
+roast_self: "Hmph\\! Alya tidak akan merendahkan dirinya sendiri\\. Coba roast orang lain\\."
+roast_owner: "Ne\\, ne\\! Alya tidak akan merendahkan masternya\\."
+
+# System status responses
+system_info: "Informasi Sistem Alya\\-chan\\:\n\n• CPU\\: {cpu_usage}%\n• Memory\\: {memory_usage}%\n• Uptime\\: {uptime}\n• Users\\: {user_count}\n• Messages\\: {message_count}\n• Version\\: {version}"
+stats: "Statistik Alya\\-chan\\:\n\n• Uptime\\: {uptime}\n• Processing\\: {processing_time}ms\n• Users\\: {user_count}\n• Chats\\: {chat_count}\n• API calls\\: {api_calls}"
+
+# Multilingual templates
+# These will be used for users with 'en' language preference
+multilingual:
+  # English version of critical responses
+  en:
+    start: "Hello\\! Alya\\-chan is here to accompany you\\~ 🌸\n\nType /help to see available commands\\!"
+    help: "Here's a list of commands you can use with Alya\\-chan\\:"
+    error: "Sorry, an error occurred\\: *{error}*\\. Alya is investigating the issue\\! 🔍"
+    rate_limit: "Please slow down\\~ Wait {seconds} seconds before trying again\\. *rolls eyes impatiently*"
+    search_no_query: "Hmm\\? What do you want to search for\\? Use /search followed by your search keywords\\."
+    system_info: "Alya\\-chan System Information\\:\n\n• CPU\\: {cpu_usage}%\n• Memory\\: {memory_usage}%\n• Uptime\\: {uptime}\n• Users\\: {user_count}\n• Messages\\: {message_count}\n• Version\\: {version}"
+    
+  # Russian expressions for emotional responses
+  ru:
+    error: "Ошибка системы\\! Произошла ошибка\\: *{error}*\\."
+    update_failed: "Нет\\! Обновление не удалось\\: *{error}*\\. Попробуйте позже\\."
+    sauce_not_found: "Нет результатов\\. Alya searched thoroughly\\. Result\\: Nothing\\."
+    
+  # Japanese expressions for cute responses
+  ja:
+    start: "こんにちは\\! アリヤちゃんです\\~ よろしくお願いします\\! 🌸"
+    ping: "ポン\\! アリヤの応答時間は *{time}ms* です\\. {username}\\-くんの接続は素晴らしいです\\! ✨"
+    update_complete: "やった\\! アリヤは最新バージョンに更新されました\\! 🎉"

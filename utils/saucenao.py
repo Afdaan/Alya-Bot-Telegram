@@ -1,5 +1,5 @@
 """
-SauceNAO API Handler for Alya Telegram Bot.
+SauceNAO API Handler for Alya Bot.
 
 This module provides reverse image searching capabilities using SauceNAO API,
 specifically targeted at anime, manga, and related artwork.
@@ -8,274 +8,219 @@ specifically targeted at anime, manga, and related artwork.
 import logging
 import aiohttp
 import re
-import asyncio  # Tambahkan import asyncio yang hilang
-from typing import Dict, List, Any, Optional
+import asyncio
 import traceback
 import random
+from typing import Dict, List, Any, Optional, Tuple, Union
+import time
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from config.settings import SAUCENAO_API_KEY
 
 logger = logging.getLogger(__name__)
 
-def escape_markdown_v2(text: str) -> str:
-    """Escape special characters for Markdown V2."""
-    if not isinstance(text, str):
-        text = str(text)
-    # Escape backslash first
-    text = text.replace('\\', '\\\\')
-    # Escape all special characters (including dot) for MarkdownV2
-    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    for char in special_chars:
-        # Avoid double escaping
-        text = re.sub(rf'(?<!\\){re.escape(char)}', f'\\{char}', text)
-    return text
+# Constants
+MAX_RETRIES = 2
+RETRY_DELAY = 2  # seconds
+MAX_RESULTS = 8
 
-# Tambahkan fungsi HTML formatter untuk mengganti escape_markdown_v2
-def format_html_safe(text):
-    """Convert text to safe HTML format for Telegram."""
-    if not isinstance(text, str):
-        text = str(text)
-    
-    # Replace HTML special chars
-    text = text.replace('&', '&amp;')
-    text = text.replace('<', '&lt;')
-    text = text.replace('>', '&gt;')
-    return text
-
-async def search_with_saucenao(message, image_path):
+class SauceNAOSearcher:
     """
-    Search image source using SauceNAO API directly.
+    Handler for SauceNAO reverse image search API.
     
-    Args:
-        message: Telegram Message object to update with results
-        image_path: Path to the image file to search
+    This class manages communication with the SauceNAO API, handles
+    error cases, and formats the results for Telegram presentation.
     """
-    try:
-        # Define retry settings
-        max_retries = 2
-        retry_delay = 2  # seconds between retries
+    
+    def __init__(self, api_key: Optional[str] = None):
+        """
+        Initialize SauceNAO searcher.
         
-        # Setup API parameters for comprehensive search
+        Args:
+            api_key: SauceNAO API key (defaults to settings)
+        """
+        self.api_key = api_key or SAUCENAO_API_KEY
+        self.base_url = "https://saucenao.com/search.php"
+        
+    async def search_image(self, image_path: str) -> Dict[str, Any]:
+        """
+        Search for an image using SauceNAO API.
+        
+        Args:
+            image_path: Path to image file
+            
+        Returns:
+            Dictionary of SauceNAO API response
+            
+        Raises:
+            aiohttp.ClientError: On network issues
+            ValueError: On API error responses
+        """
+        # Setup API parameters
         params = {
-            'api_key': SAUCENAO_API_KEY,    # SauceNAO API key
-            'output_type': 2,               # JSON output
-            'numres': 8,                    # Increased for more results
-            'dedupe': 1,                    # Remove duplicates
-            'db': 999                       # All databases
+            'api_key': self.api_key,
+            'output_type': 2,        # JSON output
+            'numres': 8,             # More results for better filtering
+            'dedupe': 1,             # Remove duplicates
+            'db': 999                # All databases
         }
         
-        for retry_count in range(max_retries + 1):  # +1 for initial attempt
+        # Send request with retry logic
+        for retry in range(MAX_RETRIES + 1):
             try:
-                # Send request with image file
                 async with aiohttp.ClientSession() as session:
-                    await message.edit_text("Sending request to SauceNAO... ожидание (waiting).")
-                    
                     with open(image_path, 'rb') as img_file:
-                        # Create form data with image
+                        # Create form data
                         form_data = aiohttp.FormData()
                         form_data.add_field('file', img_file, 
                                            filename='image.jpg',
                                            content_type='image/jpeg')
                         
-                        # Add all parameters to form data
+                        # Add parameters to form data
                         for key, value in params.items():
                             form_data.add_field(key, str(value))
                         
-                        # Send POST request
-                        async with session.post('https://saucenao.com/search.php', data=form_data) as response:
-                            # Detailed error handling based on status code
+                        # Send request
+                        async with session.post(self.base_url, data=form_data) as response:
+                            # Handle non-200 responses
                             if response.status != 200:
-                                # If not the final retry, try again
-                                if retry_count < max_retries:
-                                    retry_message = f"SauceNAO API returned status {response.status}, retrying... ({retry_count+1}/{max_retries})"
-                                    await message.edit_text(retry_message)
-                                    await asyncio.sleep(retry_delay)
+                                if retry < MAX_RETRIES:
+                                    # Try again after delay
+                                    await asyncio.sleep(RETRY_DELAY)
                                     continue
-                                    
-                                # Provide specific error messages based on status
-                                if response.status == 502:
-                                    await message.edit_text(
-                                        "📶 *SauceNAO Server Connection Issue*\n\n"
-                                        "SauceNAO servers are currently experiencing technical difficulties (502 Bad Gateway).\n\n"
-                                        "This is a temporary server issue on SauceNAO's side. Please try:\n"
-                                        "• Wait a few minutes and try again\n"
-                                        "• Try using !search as an alternative\n"
-                                        "• Try again during off-peak hours",
-                                        parse_mode='Markdown'
-                                    )
-                                elif response.status == 429:
-                                    await message.edit_text(
-                                        "⚠️ *Rate Limit Reached*\n\n"
-                                        "We've hit SauceNAO's rate limit (429 Too Many Requests).\n\n"
-                                        "Please try again later or use !search as an alternative.",
-                                        parse_mode='Markdown'
-                                    )
-                                else:
-                                    await message.edit_text(
-                                        f"Gomennasai! API SauceNAO error with status {response.status}... 🥺\n"
-                                        "Try again later or use !search as an alternative."
-                                    )
-                                return
+                                
+                                # All retries failed
+                                error_message = f"API returned status code {response.status}"
+                                raise ValueError(error_message)
                             
                             # Parse JSON response
                             data = await response.json()
-                    
-                # Successfully got response, break out of retry loop
-                break
-                    
+                            return data
+                            
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                # Network-related errors
-                if retry_count < max_retries:
-                    # Log the error and retry
-                    logger.warning(f"Network error with SauceNAO, retrying ({retry_count+1}/{max_retries}): {e}")
-                    await message.edit_text(f"Network issue connecting to SauceNAO, retrying... ({retry_count+1}/{max_retries})")
-                    await asyncio.sleep(retry_delay)
+                # Network errors - retry if possible
+                if retry < MAX_RETRIES:
+                    await asyncio.sleep(RETRY_DELAY)
                     continue
+                    
+                # All retries failed
+                raise
                 
-                # If all retries failed
-                logger.error(f"Failed to connect to SauceNAO after {max_retries} retries: {e}")
-                await message.edit_text(
-                    "🌐 *Network Connection Issue*\n\n"
-                    "Alya couldn't connect to SauceNAO servers after multiple attempts.\n\n"
-                    "This could be due to:\n"
-                    "• SauceNAO service being down\n"
-                    "• Internet connectivity issues\n"
-                    "• Firewall blocking the connection\n\n"
-                    "Please try again later or use !search as an alternative.",
-                    parse_mode='Markdown'
-                )
-                return
-            except Exception as e:
-                # Other exceptions
-                logger.error(f"Error connecting to SauceNAO: {e}\n{traceback.format_exc()}")
-                await message.edit_text(
-                    f"Unexpected error with SauceNAO API: {str(e)[:100]}...\n"
-                    "Try again later or use !search as an alternative."
-                )
-                return
-                
-        # Process API response for no results
-        if not data or 'results' not in data or not data['results']:
-            no_results = [
-                "Nyet. No results found. Алья не виновата, понятно? (Alya is not at fault, understand?)",
-                "Нет результатов. Alya searched thoroughly. Result: Nothing.",
-                "Hmph. Source not found. В следующий раз выбери изображение получше. (Choose a better image next time.)"
-            ]
-            await message.edit_text(f"{random.choice(no_results)}\n\nTry using !search as an alternative.")
-            return
+        # This shouldn't happen but just in case
+        raise ValueError("Failed to make request to SauceNAO API after retries")
+    
+    def format_html_safe(self, text: str) -> str:
+        """
+        Convert text to safe HTML format for Telegram.
         
-        # Get user information
-        try:
-            user_mention = message.chat.first_name if hasattr(message.chat, 'first_name') else "Senpai"
-        except:
-            user_mention = "Senpai"
+        Args:
+            text: Text to format
+            
+        Returns:
+            HTML-safe text
+        """
+        if not isinstance(text, str):
+            text = str(text)
         
-        # Get all results and limits info
-        results = data['results']
-        header = data.get('header', {})
+        # Replace HTML special chars
+        text = text.replace('&', '&amp;')
+        text = text.replace('<', '&lt;')
+        text = text.replace('>', '&gt;')
+        return text
         
-        # Format limits info
-        short_remaining = header.get('short_remaining', 'N/A')
-        long_remaining = header.get('long_remaining', 'N/A')
+    def create_result_message(self, results: List[Dict[str, Any]], 
+                             header: Dict[str, Any], user_mention: str) -> Tuple[str, List[List[InlineKeyboardButton]]]:
+        """
+        Create formatted message and buttons from results.
         
-        # --- DETERMINE RESULTS TO DISPLAY ---
-        # Maximum results to show - increased from 3 to 4 for more comprehensive results
-        max_results = min(4, len(results))
+        Args:
+            results: SauceNAO result list
+            header: SauceNAO response header
+            user_mention: User's name for personalization
+            
+        Returns:
+            Tuple of (formatted message text, keyboard button rows)
+        """
+        # Limit results to display
+        max_results = min(MAX_RESULTS, len(results))
         display_results = results[:max_results]
         
-        # Get first result for initial similarity-based intro
+        # Get first result for similarity-based intro
         first_result = display_results[0]
         similarity = float(first_result.get('header', {}).get('similarity', 0))
         
-        # Format message dengan HTML yang lebih baik
+        # Format main message
         message_text = "<b>🔎 SOURCE ANALYSIS RESULTS 🔍</b>\n\n"
         
-        # Intro berdasarkan similarity dengan format yang lebih baik
-        if similarity >= 80:
-            message_text += f"<b>✅ Found!</b> <i>{similarity:.1f}%</i> accurate. Alya found {max_results} results.\n\n"
-        elif similarity >= 50:
-            message_text += f"<b>🤔 Perhaps!</b> <i>{similarity:.1f}%</i> similar. Alya found {max_results} possible matches.\n\n"
+        # Add confidence description based on similarity
+        if similarity < 50:
+            message_text += f"❓ <b>Doubtful!</b> Only {similarity:.1f}% match. Alya will show {max_results} results.\n\n"
         else:
-            message_text += f"<b>❓ Doubtful!</b> Only <i>{similarity:.1f}%</i> match. Alya will show {max_results} results.\n\n"
+            message_text += f"✅ <b>Found!</b> {similarity:.1f}% match. Alya will show {max_results} results.\n\n"
         
-        # Loop untuk menampilkan hasil dengan formatting yang lebih baik
+        # Process each result to match the screenshot format
         for i, result in enumerate(display_results):
             result_sim = float(result.get('header', {}).get('similarity', 0))
             result_data = result.get('data', {})
             
-            # Add result header dengan styling yang lebih rapi
-            message_text += f"<b>⟨ Result #{i+1} • {result_sim:.1f}% ⟩</b>\n"
+            # Add result header with index and similarity
+            message_text += f"⟨ <b>Result #{i+1}</b> • {result_sim:.1f}% ⟩\n"
             
-            # Add title if available
-            title = result_data.get('title', 'Unknown')
-            if title and title != "Unknown":
-                safe_title = format_html_safe(title)
-                message_text += f"📄 <b>Title:</b> {safe_title}\n"
-            
-            # Add author if available
-            author = None
+            # Add creator/author info with emoji
+            creator = None
             if 'member_name' in result_data:
-                author = format_html_safe(result_data.get('member_name', ''))
+                creator = result_data.get('member_name')
             elif 'author_name' in result_data:
-                author = format_html_safe(result_data.get('author_name', ''))
+                creator = result_data.get('author_name')
             elif 'creator' in result_data:
-                author = format_html_safe(result_data.get('creator', ''))
+                creator = result_data.get('creator')
                 
-            if author:
-                message_text += f"👤 <b>Creator:</b> {author}\n"
+            if creator:
+                creator = self.format_html_safe(creator)
+                message_text += f"👤 <b>Creator:</b> {creator}\n"
             
-            # Add source info
+            # Add source info with emoji
             if 'source' in result_data and result_data['source']:
-                source = format_html_safe(str(result_data['source']))
+                source = self.format_html_safe(str(result_data['source']))
                 message_text += f"📚 <b>Source:</b> {source}\n"
-                
-            # Add other relevant info
-            for field, emoji, label in [
-                ('part', '📖', 'Chapter/Part'), 
-                ('year', '📅', 'Year'),
-                ('material', '🎭', 'From'),
-                ('est_time', '⏰', 'Est. Time'),
-                ('characters', '👪', 'Characters'),
-                ('artist', '🎨', 'Artist')
-            ]:
-                if field in result_data and result_data[field]:
-                    value = format_html_safe(str(result_data[field]))
-                    message_text += f"{emoji} <b>{label}:</b> {value}\n"
             
-            # Add separator between results - membuat lebih rapi
+            # Add separator between results
             message_text += "\n"
         
-        # Add API status info dengan format yang lebih baik
+        # Add API status info
+        short_remaining = header.get('short_remaining', 'N/A')
+        long_remaining = header.get('long_remaining', 'N/A')
         message_text += f"📊 <b>API Status:</b> Short: {short_remaining}/30sec • Long: {long_remaining}/day\n"
         
-        # Warning for low similarity
+        # Add warning for low similarity
         if similarity < 50:
             message_text += "\n⚠️ <b>Warning!</b> Low similarity. Alya is not responsible for accuracy."
         
-        # Add ending
-        endings = [
-            "~Alya has provided the information. Not because {user_mention} is special or anything~",
-            "к сведению... this information may not be 100% accurate.",
-            "(That's all) Alya has completed the analysis. No thanks necessary.",
-            "Don't forget, efficiency is priority. Just like this search.",
-            "Alya always completes her work. Whether you appreciate it or not."
-        ]
-        ending = random.choice(endings).replace("{user_mention}", format_html_safe(user_mention))
-        message_text += f"\n\n<i>{ending}</i>"
+        # Add flavorful ending matching screenshot style
+        message_text += "\n\n<i>~Alya has provided the information. Not because {user} is special or anything~</i>".format(
+            user=self.format_html_safe(user_mention))
 
-        # --- IMPROVED URL BUTTON CREATION ---
-        # Prioritize popular sites and show more sources
+        # Create URL buttons for results
+        keyboard = self._create_url_buttons(display_results)
+        
+        # Add alternative search button - no need to duplicate Pixiv button
+        keyboard.append([InlineKeyboardButton("🔄 Try with !search", callback_data="try_search")])
+        
+        return message_text, keyboard
+        
+    def _create_url_buttons(self, results: List[Dict[str, Any]]) -> List[List[InlineKeyboardButton]]:
+        """
+        Create URL buttons from results.
+        
+        Args:
+            results: SauceNAO result list
+            
+        Returns:
+            List of button rows
+        """
         keyboard = []
         
-        # Collect all URLs from all results
-        all_urls = []
-        for result in display_results:
-            result_data = result.get('data', {})
-            if 'ext_urls' in result_data and result_data['ext_urls']:
-                all_urls.extend(result_data['ext_urls'])
-        
-        # Define priority domains for better organization
+        # Priority domains for better organization
         priority_domains = {
             'pixiv': 'Pixiv', 
             'twitter': 'Twitter',
@@ -294,86 +239,229 @@ async def search_with_saucenao(message, image_path):
             'artstation': 'ArtStation'
         }
         
-        # Create buttons for unique URLs, prioritizing popular sites
-        unique_urls = []
+        # Collect all URLs from all results
+        unique_urls = set()
         priority_url_buttons = []
         other_url_buttons = []
         
-        for url in all_urls:
-            if url not in unique_urls:
-                unique_urls.append(url)
-                
-                # Create button with domain name
-                try:
-                    domain = re.search(r"^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?]+)", url).group(1)
-                    
-                    # Check if this is a priority domain
-                    priority_match = False
-                    for key, label in priority_domains.items():
-                        if key in domain:
-                            priority_url_buttons.append(InlineKeyboardButton(f"🔗 {label}", url=url))
-                            priority_match = True
-                            break
-                            
-                    # If not a priority domain, add to other buttons
-                    if not priority_match:
-                        # Extract a meaningful name from domain
-                        domain_parts = domain.split('.')
-                        if len(domain_parts) >= 2:
-                            if domain_parts[-2] in ['co', 'com', 'net', 'org'] and len(domain_parts) >= 3:
-                                domain_name = domain_parts[-3].capitalize()
-                            else:
-                                domain_name = domain_parts[-2].capitalize()
-                        else:
-                            domain_name = domain
+        # Track domains we've already added to avoid duplicates
+        added_domains = set()
+        
+        for result in results:
+            result_data = result.get('data', {})
+            if 'ext_urls' in result_data and result_data['ext_urls']:
+                for url in result_data['ext_urls']:
+                    if url in unique_urls:
+                        continue
                         
-                        other_url_buttons.append(InlineKeyboardButton(f"🔗 {domain_name}", url=url))
-                except:
-                    other_url_buttons.append(InlineKeyboardButton(f"🔗 Source", url=url))
+                    unique_urls.add(url)
+                    
+                    # Extract domain and create appropriate button
+                    try:
+                        domain = re.search(r"^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?]+)", url).group(1)
+                        
+                        # Check for priority domains
+                        priority_match = False
+                        for key, label in priority_domains.items():
+                            if key in domain:
+                                priority_url_buttons.append(InlineKeyboardButton(f"🔗 {label}", url=url))
+                                priority_match = True
+                                break
+                                
+                        # If not priority, add to other buttons
+                        if not priority_match:
+                            # Extract name from domain
+                            domain_parts = domain.split('.')
+                            if len(domain_parts) >= 2:
+                                if domain_parts[-2] in ['co', 'com', 'net', 'org'] and len(domain_parts) >= 3:
+                                    domain_name = domain_parts[-3].capitalize()
+                                else:
+                                    domain_name = domain_parts[-2].capitalize()
+                            else:
+                                domain_name = domain
+                            
+                            other_url_buttons.append(InlineKeyboardButton(f"🔗 {domain_name}", url=url))
+                    except Exception:
+                        other_url_buttons.append(InlineKeyboardButton("🔗 Source", url=url))
         
-        # First add priority buttons
-        if priority_url_buttons:
-            # Group into rows of two
-            for i in range(0, len(priority_url_buttons), 2):
-                if i + 1 < len(priority_url_buttons):
-                    keyboard.append([priority_url_buttons[i], priority_url_buttons[i+1]])
-                else:
-                    keyboard.append([priority_url_buttons[i]])
+        # Add priority buttons first (in rows of two)
+        for i in range(0, len(priority_url_buttons), 2):
+            current_row = []
+            
+            # First button in row
+            button = priority_url_buttons[i]
+            # Extract domain from button text to check for duplicates
+            domain_name = button.text.split(' ', 1)[1] if ' ' in button.text else 'Unknown'
+            if domain_name not in added_domains:
+                added_domains.add(domain_name)
+                current_row.append(button)
+                
+            # Second button in row (if available)
+            if i + 1 < len(priority_url_buttons):
+                button = priority_url_buttons[i+1]
+                domain_name = button.text.split(' ', 1)[1] if ' ' in button.text else 'Unknown'
+                if domain_name not in added_domains:
+                    added_domains.add(domain_name)
+                    current_row.append(button)
+                    
+            # Only add row if it has buttons
+            if current_row:
+                keyboard.append(current_row)
         
-        # Then add other buttons
-        if other_url_buttons:
-            # Group into rows of two
-            for i in range(0, len(other_url_buttons), 2):
-                if i + 1 < len(other_url_buttons):
-                    keyboard.append([other_url_buttons[i], other_url_buttons[i+1]])
-                else:
-                    keyboard.append([other_url_buttons[i]])
+        # Then add other buttons (in rows of two)
+        for i in range(0, len(other_url_buttons), 2):
+            current_row = []
+            
+            # First button in row
+            button = other_url_buttons[i]
+            domain_name = button.text.split(' ', 1)[1] if ' ' in button.text else 'Unknown'
+            if domain_name not in added_domains:
+                added_domains.add(domain_name)
+                current_row.append(button)
+                
+            # Second button in row (if available)
+            if i + 1 < len(other_url_buttons):
+                button = other_url_buttons[i+1]
+                domain_name = button.text.split(' ', 1)[1] if ' ' in button.text else 'Unknown'
+                if domain_name not in added_domains:
+                    added_domains.add(domain_name)
+                    current_row.append(button)
+                    
+            # Only add row if it has buttons
+            if current_row:
+                keyboard.append(current_row)
+                
+        return keyboard
+    
+    def get_error_message(self, error_type: str, status_code: Optional[int] = None) -> str:
+        """
+        Get appropriate error message for different error conditions.
         
-        # Tambahkan tombol untuk mencari dengan !search sebagai alternatif
-        keyboard.append([InlineKeyboardButton("🔄 Try with !search", callback_data="try_search")])
+        Args:
+            error_type: Type of error (network, rate_limit, api, general)
+            status_code: Optional HTTP status code
+            
+        Returns:
+            Formatted error message
+        """
+        if error_type == "network":
+            messages = [
+                "🌐 <b>Network Connection Issue</b>\n\n"
+                "Alya couldn't connect to SauceNAO servers after multiple attempts.\n\n"
+                "This could be due to:\n"
+                "• SauceNAO service being down\n"
+                "• Internet connectivity issues\n"
+                "• Firewall blocking the connection\n\n"
+                "Please try again later or use !search as an alternative."
+            ]
+        elif error_type == "rate_limit":
+            messages = [
+                "⚠️ <b>Rate Limit Reached</b>\n\n"
+                "We've hit SauceNAO's rate limit.\n\n"
+                "Please try again later or use !search as an alternative."
+            ]
+        elif error_type == "no_results":
+            messages = [
+                "Nyet. No results found. Алья не виновата, понятно? (Alya is not at fault, understand?)",
+                "Нет результатов. Alya searched thoroughly. Result: Nothing.",
+                "Hmph. Source not found. В следующий раз выбери изображение получше. (Choose a better image next time.)"
+            ]
+        else:
+            # General error
+            status_info = f" (Status: {status_code})" if status_code else ""
+            messages = [
+                f"Ошибка системы{status_info}. (System error.) SauceNAO failed. Not Alya's responsibility.",
+                f"Search interrupted by technical error{status_info}. Hmph, technology is always imperfect.",
+                f"неудача{status_info}. Alya cannot continue the search due to server issues. Try again later."
+            ]
+            
+        # Select a random message
+        message = random.choice(messages)
         
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Semua bagian message_text sudah di-escape per field, tapi gabungan string bisa saja masih ada karakter spesial
-        # Solusi: Escape seluruh message_text sebelum dikirim ke Telegram
+        # Add alternative suggestion
+        if "!search" not in message:
+            message += "\n\nTry using !search as an alternative."
+            
+        return message
 
-        # --- setelah message_text selesai dibangun ---
+# Create singleton instance
+sauce_searcher = SauceNAOSearcher()
+
+async def search_with_saucenao(message: Message, image_path: str) -> None:
+    """
+    Search image source using SauceNAO API and update message with results.
+    
+    Args:
+        message: Telegram Message object to update with results
+        image_path: Path to the image file to search
+    """
+    try:
+        # Send intermediate status - use plain text without escaping
+        await message.edit_text(
+            "Sending image to SauceNAO for analysis...\n",
+            parse_mode=None
+        )
+        
+        # Get user information for personalization 
+        user_mention = message.chat.first_name if hasattr(message.chat, 'first_name') else "Senpai"
+        
+        # Get search results
+        try:
+            data = await sauce_searcher.search_image(image_path)
+        except aiohttp.ClientError:
+            # Network errors
+            error_message = sauce_searcher.get_error_message("network")
+            await message.edit_text(error_message, parse_mode='HTML')
+            return
+        except ValueError as e:
+            # API errors
+            error_type = "general"
+            status_code = None
+            
+            # Check for specific error types
+            error_str = str(e).lower()
+            if "429" in error_str or "rate" in error_str:
+                error_type = "rate_limit"
+            elif "status code" in error_str:
+                # Extract status code
+                status_match = re.search(r"status code (\d+)", error_str)
+                if status_match:
+                    status_code = int(status_match.group(1))
+            
+            # Get appropriate error message
+            error_message = sauce_searcher.get_error_message(error_type, status_code)
+            await message.edit_text(error_message, parse_mode='HTML')
+            return
+        
+        # Check for results
+        if not data or 'results' not in data or not data['results']:
+            error_message = sauce_searcher.get_error_message("no_results")
+            await message.edit_text(error_message, parse_mode='HTML')
+            return
+        
+        # Format results
+        message_text, keyboard = sauce_searcher.create_result_message(
+            data['results'], 
+            data.get('header', {}), 
+            user_mention
+        )
+        
+        # Send the formatted results - use HTML parse mode instead of Markdown for simpler formatting
         await message.edit_text(
             message_text,
             parse_mode='HTML',
-            reply_markup=reply_markup,
+            reply_markup=InlineKeyboardMarkup(keyboard),
             disable_web_page_preview=True
         )
         
     except Exception as e:
         logger.error(f"SauceNAO error: {e}\n{traceback.format_exc()}")
         
-        error_responses = [
-            "Ошибка системы. (System error.) SauceNAO failed. Not Alya's responsibility.",
-            "Search interrupted by technical error. Hmph, technology is always imperfect.",
-            "неудача. Alya cannot continue the search due to server issues. Try again later."
-        ]
-        
-        await message.edit_text(
-            f"{random.choice(error_responses)}\n\nUse !search as an alternative."
-        )
+        # Generic error handling - clean text without markdown
+        try:
+            error_message = sauce_searcher.get_error_message("general")
+            await message.edit_text(error_message, parse_mode='HTML')
+        except Exception as final_error:
+            # Last resort fallback
+            logger.error(f"Final error in sauce: {final_error}")
+            await message.edit_text("Error searching for image source. Please try again later.")

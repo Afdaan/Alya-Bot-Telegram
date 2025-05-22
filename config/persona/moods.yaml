@@ -1,0 +1,376 @@
+# Mood Configuration for Alya Bot
+
+# Mood decay settings
+mood_decay:
+  seconds: 1800  # 30 minutes - how long moods persist
+  rate: 0.2      # Decay rate per minute
+
+# Default mood settings (range from -1.0 to 1.0)
+default_mood:
+  senang: 0.3    # Slightly happy as default
+  sedih: 0.0
+  marah: -0.1    # Slightly tsundere by default
+  takut: 0.0
+  malu: 0.2      # Slightly shy by default
+
+# Words that trigger mood changes
+mood_triggers:
+  senang:
+    - "suka"
+    - "sayang" 
+    - "baik"
+    - "cantik"
+    - "pintar"
+    - "hebat"
+    - "keren"
+    - "semangat"
+    - "gembira"
+    - "bahagia"
+    - "senang"
+    - "lucu"
+    - "tertawa"
+  sedih:
+    - "sedih"
+    - "kecewa"
+    - "maaf"
+    - "gagal"
+    - "salah"
+    - "menangis"
+    - "putus asa"
+    - "depresi"
+    - "hampa"
+    - "kesepian"
+    - "menyesal"
+  marah:
+    - "bodoh"
+    - "jelek"
+    - "baka"
+    - "payah"
+    - "lemah"
+    - "lambat"
+    - "kesal"
+    - "dongkol"
+    - "jengkel"
+    - "marah"
+    - "geram"
+    - "emosi"
+    - "frustasi"
+  takut:
+    - "takut"
+    - "bahaya"
+    - "seram"
+    - "horror"
+    - "hantu"
+    - "khawatir"
+    - "cemas"
+    - "panik"
+    - "ngeri"
+    - "tegang"
+    - "waspada"
+  malu:
+    - "cinta"
+    - "suka"
+    - "peluk"
+    - "cium"
+    - "gombal"
+    - "genit"
+    - "malu"
+    - "tersipu"
+    - "terpesona"
+    - "kagum"
+    - "terkejut"
+    - "terkagum"
+
+# Expanded emoji pools based on mood - dengan lebih banyak emoji yang ekspresif!
+mood_emoji:
+  senang:
+    - "✨"
+    - "💫"
+    - "☺️"
+    - "😊"
+    - "🌸"
+    - "💕"
+    - "🥰"
+    - "😄"
+    - "😁"
+    - "🎉"
+    - "🌟"
+    - "⭐"
+    - "🌈"
+    - "💖"
+    - "💓"
+    - "💗"
+    - "🤗"
+    - "😸"
+    - "😺"
+    - "🌺"
+  sedih:
+    - "😔"
+    - "🥺"
+    - "💔"
+    - "😢"
+    - "😭"
+    - "😿"
+    - "😓"
+    - "😥"
+    - "😞"
+    - "😟"
+    - "😦"
+    - "🥀"
+    - "🌧️"
+    - "☁️"
+    - "💧"
+    - "🤧"
+    - "😪"
+  marah:
+    - "😠"
+    - "😤"
+    - "💢"
+    - "😑"
+    - "😒"
+    - "👊"
+    - "😡"
+    - "🔥"
+    - "💥"
+    - "⚡"
+    - "🗯️"
+    - "🙄"
+    - "😩"
+    - "😫"
+    - "🤨"
+    - "🤦‍♀️"
+    - "🤬"
+    - "👿"
+  takut:
+    - "😨"
+    - "😱"
+    - "🙀"
+    - "😰"
+    - "😳"
+    - "😧"
+    - "😮"
+    - "😯"
+    - "😲"
+    - "🥶"
+    - "⚠️"
+    - "🚨"
+    - "💫"
+    - "🌀"
+    - "😵‍💫"
+    - "😵"
+    - "😶"
+  malu:
+    - "😳"
+    - "🙈"
+    - "😖"
+    - "💓"
+    - "😵"
+    - "❤️"
+    - "💘"
+    - "💝"
+    - "💞"
+    - "💌"
+    - "💟"
+    - "💕"
+    - "🥹"
+    - "🫣"
+    - "😚"
+    - "😻"
+    - "🧠"
+    - "💭"
+    - "🦄"
+    - "🌷"
+
+# Persona-specific settings
+persona_settings:
+  tsundere:
+    intensity: 0.7  # 0.0 = not tsundere, 1.0 = very tsundere
+    russian_expression_chance: 20  # % chance to use Russian expressions
+  waifu:
+    intensity: 0.3
+    russian_expression_chance: 10
+  informative:
+    intensity: 0.2
+    russian_expression_chance: 5
+
+# Important topics for memory
+memory_important_topics:
+  - "senang"
+  - "happy"
+  - "glad"
+  - "excited"
+  - "sedih"
+  - "sad" 
+  - "upset"
+  - "down"
+  - "marah"
+  - "angry"
+  - "upset"
+  - "mad"
+  - "karakter"
+  - "character"
+  - "role"
+  - "peran"
+  - "cerita"
+  - "story"
+  - "plot"
+  - "setting"
+  - "universe"
+  - "hubungan"
+  - "relationship"
+  - "develop"
+  - "progress"
+  - "teman"
+  - "friend"
+  - "sahabat"
+  - "bestie"
+  - "cinta"
+  - "love"
+  - "suka"
+  - "crush"
+  - "perasaan"
+  - "feelings"
+
+# Memory settings
+memory_relationship_boost: 1.5  # Boost for relationship memories
+# Mood Configuration for Alya Bot
+
+# Mood decay settings
+mood_decay:
+  seconds: 1800  # 30 minutes - how long moods persist
+  rate: 0.2      # Decay rate per minute
+
+# Default mood settings (range from -1.0 to 1.0)
+default_mood:
+  senang: 0.3    # Slightly happy as default
+  sedih: 0.0
+  marah: -0.1    # Slightly tsundere by default
+  takut: 0.0
+  malu: 0.2      # Slightly shy by default
+
+# Words that trigger mood changes
+mood_triggers:
+  senang:
+    - "suka"
+    - "sayang" 
+    - "baik"
+    - "cantik"
+    - "pintar"
+    - "hebat"
+    - "keren"
+  sedih:
+    - "sedih"
+    - "kecewa"
+    - "maaf"
+    - "gagal"
+    - "salah"
+  marah:
+    - "bodoh"
+    - "jelek"
+    - "baka"
+    - "payah"
+    - "lemah"
+    - "lambat"
+  takut:
+    - "takut"
+    - "bahaya"
+    - "seram"
+    - "horror"
+    - "hantu"
+  malu:
+    - "cinta"
+    - "suka"
+    - "peluk"
+    - "cium"
+    - "gombal"
+    - "genit"
+
+# Emoji pools based on mood
+mood_emoji:
+  senang:
+    - "✨"
+    - "💫"
+    - "☺️"
+    - "😊"
+    - "🌸"
+    - "💕"
+    - "🥰"
+  sedih:
+    - "😔"
+    - "🥺"
+    - "💔"
+    - "😢"
+    - "😭"
+  marah:
+    - "😠"
+    - "😤"
+    - "💢"
+    - "😑"
+    - "😒"
+    - "👊"
+  takut:
+    - "😨"
+    - "😱"
+    - "🙀"
+    - "😰"
+    - "😳"
+  malu:
+    - "😳"
+    - "🙈"
+    - "😖"
+    - "💓"
+    - "😵"
+    - "❤️"
+
+# Persona-specific settings
+persona_settings:
+  tsundere:
+    intensity: 0.7  # 0.0 = not tsundere, 1.0 = very tsundere
+    russian_expression_chance: 20  # % chance to use Russian expressions
+  waifu:
+    intensity: 0.3
+    russian_expression_chance: 10
+  informative:
+    intensity: 0.2
+    russian_expression_chance: 5
+
+# Important topics for memory
+memory_important_topics:
+  - "senang"
+  - "happy"
+  - "glad"
+  - "excited"
+  - "sedih"
+  - "sad" 
+  - "upset"
+  - "down"
+  - "marah"
+  - "angry"
+  - "upset"
+  - "mad"
+  - "karakter"
+  - "character"
+  - "role"
+  - "peran"
+  - "cerita"
+  - "story"
+  - "plot"
+  - "setting"
+  - "universe"
+  - "hubungan"
+  - "relationship"
+  - "develop"
+  - "progress"
+  - "teman"
+  - "friend"
+  - "sahabat"
+  - "bestie"
+  - "cinta"
+  - "love"
+  - "suka"
+  - "crush"
+  - "perasaan"
+  - "feelings"
+
+# Memory settings
+memory_relationship_boost: 1.5  # Boost for relationship memories

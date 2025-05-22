@@ -1,115 +1,150 @@
 """
-Command Parsing Utilities for Alya Telegram Bot.
+Command Understanding for Alya Telegram Bot.
 
-This module provides pattern matching and parsing for special commands,
-particularly focused on roast commands and @mentions.
+This module provides simplified prefix detection and command parsing
+utilities focused on reliability rather than complex NLU.
 """
 
+import logging
+import random
 import re
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, Optional, Tuple, Any, List, Set
 
-# =========================
-# Command Patterns
-# =========================
+from config.settings import (
+    CHAT_PREFIX, 
+    ADDITIONAL_PREFIXES, 
+    GROUP_CHAT_REQUIRES_PREFIX,
+    ANALYZE_PREFIX,
+    SAUCE_PREFIX,
+    ROAST_PREFIX
+)
 
-# Main roast command patterns with username/mention support
-GITHUB_ROAST_PATTERN = r'(?:!ai\s+)?roast\s+github\s+(?:@)?(\w+)(?:\s+(.+))?'  # Support @username
-PERSONAL_ROAST_PATTERN = r'(?:!ai\s+)?roast\s+(?:@)?(\w+)(?:\s+(.+))?'         # Support @username
+logger = logging.getLogger(__name__)
 
-# Natural language variations of roast commands
-NATURAL_ROAST_PATTERNS = [
-    r'(?:!ai\s+)?roasting\s+si\s+@?(\w+)(?:\s+(.+))?',      # roasting si username [keywords]
-    r'(?:!ai\s+)?roasting\s+@?(\w+)(?:\s+(.+))?',           # roasting username [keywords]
-    r'(?:!ai\s+)?roast\s+@?(\w+)(?:\s+(.+))?',              # roast username [keywords]
-    r'(?:!ai\s+)?roast(?:ing)?\s+@?(\w+)(?:\s+(.+))?',      # roasting username [keywords]
-    r'(?:!ai\s+)?roast(?:ing)?\s+si\s+@?(\w+)(?:\s+(.+))?', # roasting si username [keywords]
-    r'(?:!ai\s+)?roast(?:ing)?\s+(.+)',                     # roast/roasting <free text>
-    r'(?:!ai\s+)?roast(?:ing)?\b',                          # roast/roasting (catch-all)
-]
-
-# =========================
-# Mention Detection
-# =========================
-
-def get_user_info_from_mention(message, username: str) -> Optional[Dict[str, Any]]:
-    """
-    Extract user information from message mentions.
+class CommandDetector:
+    """Simplified command detector focusing on prefix detection."""
     
-    Args:
-        message: Telegram message object
-        username: Username to look for in mentions
+    def __init__(self):
+        """Initialize command detector."""
+        # All command prefixes from settings
+        self.all_prefixes = [
+            CHAT_PREFIX, ANALYZE_PREFIX, SAUCE_PREFIX, ROAST_PREFIX
+        ] + ADDITIONAL_PREFIXES
         
-    Returns:
-        Dictionary with user info or None if not found
-    """
-    # No entities to check
-    if not message.entities:
-        return None
+        # Recognized prefixes without duplicates
+        self.recognized_prefixes = list(set(self.all_prefixes))
         
-    # Look for mention entities
-    for entity in message.entities:
-        if entity.type == 'mention':  # @username mention
-            mention_text = message.text[entity.offset:entity.offset + entity.length]
+        # Lowercase all prefixes for case-insensitive matching
+        self.recognized_prefixes = [prefix.lower() for prefix in self.recognized_prefixes]
+    
+    def detect_prefix(self, message: str) -> Optional[str]:
+        """
+        Detect if the message starts with a recognized prefix.
+        
+        Args:
+            message: User message to analyze
             
-            # Check if the mention matches the target username
-            if mention_text.lower() == f"@{username.lower()}":
-                return {
-                    'username': username,
-                    'mention': mention_text,
-                    'is_mention': True
-                }
+        Returns:
+            The detected prefix or None if no prefix found
+        """
+        if not message:
+            return None
+            
+        clean_message = message.lower().strip()
+        
+        # Skip empty messages
+        if not clean_message:
+            return None
+        
+        # Check for exact prefix matches
+        for prefix in self.recognized_prefixes:
+            if clean_message.startswith(f"{prefix} ") or clean_message == prefix:
+                return prefix
                 
-    # No matching mention found
-    return None
+        return None
+    
+    def extract_message_after_prefix(self, message: str, prefix: str) -> str:
+        """
+        Extract the actual message content after removing the prefix.
+        
+        Args:
+            message: Original message text
+            prefix: Detected prefix
+            
+        Returns:
+            Message without prefix
+        """
+        if not message or not prefix:
+            return ""
+            
+        clean_message = message.strip()
+        
+        # Remove prefix if present (case-insensitive)
+        if clean_message.lower().startswith(f"{prefix.lower()} "):
+            return clean_message[len(prefix)+1:].strip()
+            
+        if clean_message.lower() == prefix.lower():
+            return ""
+                
+        return clean_message
+    
+    def should_respond_in_group(self, message: str) -> bool:
+        """
+        Determine if the bot should respond in a group chat.
+        
+        Args:
+            message: Message text
+            
+        Returns:
+            True if the bot should respond
+        """
+        if not GROUP_CHAT_REQUIRES_PREFIX:
+            return True
+            
+        if not message:
+            return False
+            
+        # Check if message starts with any recognized prefix
+        return self.detect_prefix(message) is not None
 
-# =========================
-# Command Detection
-# =========================
+# Create singleton instance
+command_detector = CommandDetector()
 
-def is_roast_command(message) -> Tuple[bool, Optional[str], bool, str, Optional[Dict]]:
+def parse_command_args(text: str) -> Tuple[str, List[str]]:
     """
-    Enhanced roast command detection with mention & natural language support.
+    Parse command and arguments from a text message.
     
     Args:
-        message: Telegram message object
+        text: Message text
         
     Returns:
-        Tuple containing:
-        - is_roast: Whether this is a roast command
-        - target: Username of roast target
-        - is_github: Whether this is a GitHub roast
-        - keywords: Additional roast keywords
-        - user_info: Dictionary with user information if available
+        Tuple of (command, args)
     """
-    text = message.text.lower().strip()
+    if not text or not text.startswith('/'):
+        return ('', [])
     
-    # First check for GitHub roast (highest specificity)
-    github_match = re.search(GITHUB_ROAST_PATTERN, text)
-    if github_match:
-        username = github_match.group(1)
-        keywords = github_match.group(2) or ''
-        user_info = get_user_info_from_mention(message, username)
-        return (True, username, True, keywords, user_info)
+    parts = text.split()
+    command = parts[0].lower().lstrip('/')
+    args = parts[1:]
     
-    # Then check for personal roast (explicit format)
-    personal_match = re.search(PERSONAL_ROAST_PATTERN, text)
-    if personal_match:
-        username = personal_match.group(1)
-        keywords = personal_match.group(2) or ''
-        user_info = get_user_info_from_mention(message, username)
-        return (True, username, False, keywords, user_info)
+    return (command, args)
+
+def is_media_command(message: str) -> bool:
+    """
+    Check if message is a media command.
     
-    # Finally check for natural language roast patterns
-    for pattern in NATURAL_ROAST_PATTERNS:
-        match = re.search(pattern, text)
-        if match:
-            # Extract username if available
-            username = match.group(1) if match.lastindex and match.lastindex >= 1 else None
-            # Extract keywords if available
-            keywords = match.group(2) if match.lastindex and match.lastindex >= 2 else ''
-            # Get user info if username is found
-            user_info = get_user_info_from_mention(message, username) if username else None
-            return (True, username or '', False, keywords, user_info)
+    Args:
+        message: Message text
+        
+    Returns:
+        True if it's a media command
+    """
+    if not message:
+        return False
+        
+    message_lower = message.lower().strip()
     
-    # Not a roast command
-    return (False, None, False, '', None)
+    return (message_lower.startswith(f"{ANALYZE_PREFIX} ") or 
+            message_lower == ANALYZE_PREFIX or
+            message_lower.startswith(f"{SAUCE_PREFIX} ") or
+            message_lower == SAUCE_PREFIX)

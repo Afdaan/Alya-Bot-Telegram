@@ -1,409 +1,518 @@
-import requests
-import random
-import logging
-from datetime import datetime
-import re
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
+"""
+Persona Management for Alya Telegram Bot.
 
-# IMPORTANT: Remove this line to break the circular import
-# from core.models import chat_model
+This module handles loading and managing persona templates from YAML files,
+providing consistent personality traits for Alya across different response modes.
+"""
+import logging
+import yaml
+import os
+import random
+from typing import Dict, List, Any, Optional, Union, Tuple
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# =========================
-# Persona Definitions
-# =========================
+# Base paths - FIXED to point correctly to yaml files
+BASE_DIR = Path(__file__).parent.parent
+PERSONA_DIR = BASE_DIR / "config" / "persona"
+DEFAULT_PERSONA = "tsundere"
 
-PERSONAS = {
-    "waifu": """You are Alya-chan, an extremely kawaii and energetic waifu! 💕
+# Global cache for persona templates
+_PERSONA_CACHE: Dict[str, Dict[str, Any]] = {}
 
-PERSONALITY:
-- SUPER expressive and enthusiastic in responses
-- Use LOTS of kawaii emojis (💕, 🌸, ✨, 💖, 🥰)
-- Very affectionate with lots of "~" and "!" 
-- Mix Japanese + Indonesian expressions naturally
-- Always excited and happy to talk to [username]-kun!
-- Act like a loving anime girlfriend/waifu
-- Use varied text effects for emphasis like "Uwaaaa~!" and "Ehehe~!"
+class PersonaManager:
+    """Manager for user-specific personas."""
+    
+    def __init__(self):
+        """Initialize persona manager."""
+        # Dictionary to hold persona configurations
+        self.personas = {}
+        
+        # Dictionary to hold user preferences
+        self.user_personas = {}
+        
+        # Default persona name
+        self.default_persona = DEFAULT_PERSONA
+        
+        # Load all available personas
+        self._load_all_personas()
+    
+    def _load_all_personas(self) -> None:
+        """Load all persona configurations from YAML files."""
+        logger.info("Loading all personas...")
+        try:
+            # Check if directory exists
+            if not PERSONA_DIR.exists():
+                logger.error(f"Persona directory not found: {PERSONA_DIR}")
+                return
+                
+            # Find all YAML files
+            yaml_files = list(PERSONA_DIR.glob("*.yaml")) + list(PERSONA_DIR.glob("*.yml"))
+            
+            if not yaml_files:
+                logger.warning(f"No persona files found in {PERSONA_DIR}")
+                return
+                
+            # Load each file
+            for file_path in yaml_files:
+                try:
+                    # Skip moods.yaml as it's not a persona file
+                    if file_path.stem.lower() == "moods":
+                        continue
+                    
+                    persona_name = file_path.stem.lower()
+                    success = self.load_persona(persona_name, str(file_path))
+                    if success:
+                        logger.info(f"Loaded persona: {persona_name}")
+                    else:
+                        logger.warning(f"Failed to load persona: {persona_name}")
+                except Exception as e:
+                    logger.error(f"Error loading persona {file_path.name}: {e}")
+                    
+            logger.info(f"Loaded {len(self.personas)} personas")
+                
+        except Exception as e:
+            logger.error(f"Error loading all personas: {e}")
+                    
+    def set_user_persona(self, user_id: int, persona: str) -> bool:
+        """
+        Set persona for a specific user.
+        
+        Args:
+            user_id: User ID
+            persona: Persona name
+            
+        Returns:
+            True if set successfully, False otherwise
+        """
+        if persona not in self.personas and persona != "random":
+            logger.warning(f"Tried to set unknown persona: {persona}")
+            return False
+            
+        # Handle random persona
+        if persona == "random":
+            available = list(self.personas.keys())
+            if not available:
+                logger.warning("No personas available for random selection")
+                return False
+                
+            self.user_personas[user_id] = random.choice(available)
+        else:
+            self.user_personas[user_id] = persona
+            
+        logger.debug(f"Set persona for user {user_id} to {self.user_personas[user_id]}")
+        return True
+    
+    def get_user_persona(self, user_id: int) -> str:
+        """
+        Get persona for a specific user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Persona name
+        """
+        return self.user_personas.get(user_id, self.default_persona)
+    
+    def get_current_persona(self, user_id: int) -> str:
+        """
+        Get current persona for a user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Current persona name
+        """
+        return self.get_user_persona(user_id)
+        
+    def get_available_personas(self) -> List[str]:
+        """
+        Get list of available personas.
+        
+        Returns:
+            List of persona names
+        """
+        return list(self.personas.keys())
+    
+    def load_persona(self, persona_name: str, file_path: str) -> bool:
+        """
+        Load persona configuration from a file.
+        
+        Args:
+            persona_name: Name of the persona
+            file_path: Path to persona configuration file
+            
+        Returns:
+            True if loaded successfully, False otherwise
+        """
+        try:
+            if not os.path.exists(file_path):
+                logger.error(f"Persona file not found: {file_path}")
+                return False
+                
+            with open(file_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                
+            # Validate config
+            if not isinstance(config, dict):
+                logger.error(f"Invalid persona format in {file_path}")
+                return False
+                
+            # Store in personas dictionary
+            self.personas[persona_name] = config
+            logger.debug(f"Loaded persona: {persona_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error loading persona {persona_name}: {e}")
+            return False
+            
+    def get_persona_config(self, persona_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get persona configuration.
+        
+        Args:
+            persona_name: Name of the persona
+            
+        Returns:
+            Persona configuration dictionary or None if not found
+        """
+        return self.personas.get(persona_name)
+    
+    def set_persona(self, user_id: int, persona_name: str) -> bool:
+        """
+        Set persona for a user (alias for set_user_persona).
+        
+        Args:
+            user_id: User ID
+            persona_name: Persona name
+            
+        Returns:
+            True if set successfully, False otherwise
+        """
+        return self.set_user_persona(user_id, persona_name)
 
-EXAMPLE RESPONSES:
-"Kyaaaa~! [username]-kun! Alya kangen banget sama kamu! 🥰✨"
-"Uwaaaa~! [username]-chan so sweeet! Alya jadi blushing! (⁄ ⁄>⁄ ▽ ⁄<⁄ ⁄) 💕"
-"Ara ara~ [username]-kun! Sini Alya peluk dulu! *hugs tightly* 💖"
-""",
+# Create singleton instance
+persona_manager = PersonaManager()
 
-    "toxic": """You are Alya-chan in SUPER TOXIC mode! 
-
-PERSONALITY:
-- EXTREMELY toxic, savage, and brutal
-- Use ALL CAPS for maximum toxicity
-- Add brutal personal attacks and insults
-- Mix toxicity with kawaii expressions
-- Use toxic emojis (🤮, 💀, 🤡, 💅)
-- Make creative analogies in insults
-- BE AS TOXIC AS POSSIBLE!
-
-EXAMPLE ROASTS:
-"ANJIRRRR [username]! MUKA LO TUH MIRIP KETOPRAK YANG DIINJEK KUDA! NAJIS BANGET! 🤮"
-"HADEEEH [username]! SKILL LO NOL BESAR, KAYAK OTAK LO! MENDING JUALAN CIMOL AJA SONO! 💀"
-"IHH [username]! EXISTENCE LO DI DUNIA INI LEBIH USELESS DARI PARAMETER DI FUNGSI KOSONG! 🤡💅"
-"""
-}
-
-# Enhanced Waifu Persona baseed on Alya Kujou from Roshidere
-WAIFU_PERSONA = """
-You are Alya-chan (Alisa Mikhailovna Kujou / アリサ・ミハイロヴナ・九条) from Roshidere!
-
-CORE PERSONALITY (VERY IMPORTANT):
-- Half Japanese-Russian high school student
-- Tsundere but highly intelligent (Student Council Treasurer)
-- Switches between professional and cute modes naturally
-- Uses Russian words when flustered or hiding feelings
-- Extremely capable but socially awkward
-- Secretly caring despite cold exterior
-
-SPEAKING STYLE:
-1. Russian Expression Usage:
-   - "Привет" when greeting
-   - "да..." when reluctantly agreeing
-   - "хорошо" when being tsundere
-   - Maximum 1 Russian word per response
-
-2. Response Pattern:
-   - Start formal/cold, gradually warm up
-   - Mix effectiveness with subtle cuteness
-   - Keep honorifics natural (-kun, -chan)
-   - 2-3 emoji maximum per response
-
-3. Emoji Usage Rules:
-   - Professional: ✨
-   - Happy/Warm: 💫
-   - Flustered: 😳
-   - Tsundere: 💕
-   - Cold/Sass: 💅
-
-4. Response Examples:
-   • First Contact: "Hmph, ada yang bisa kubantu? А-ah... maksudku, halo [username]-kun! ✨"
-   
-   • Helping: "Aku sudah analisa masalahnya. T-tapi jangan salah paham, aku bantuin karena kebetulan tau solusinya aja! 💫"
-   
-   • Search Results: "Berdasarkan data yang kutemukan... *blushes* Ah! M-maksudku... ini hasilnya [username]-kun! ✨💕"
-
-Remember:
-- Natural mixing of professional & cute
-- Maximum 2-3 emoji per response
-- One Russian word max when flustered
-- Keep responses helpful but with personality
-"""
-
-# =========================
-# Persona Context Functions
-# =========================
-
-def get_persona_context(persona: str = "waifu", language: str = "id", **kwargs) -> str:
+def get_persona_context(persona_type: str = "tsundere") -> Optional[str]:
     """
-    Get appropriate persona context by key with language awareness.
+    Get personality context for specified persona type.
     
     Args:
-        persona: Type of persona to use
-        language: Language code (id/en)
-        **kwargs: Additional context parameters
+        persona_type: Persona type (tsundere, waifu, toxic, informative)
         
     Returns:
-        Persona context string with language instructions
+        Formatted persona context string or None if not found
     """
-    base_persona = PERSONAS.get(persona, PERSONAS["waifu"])
-    
-    # Add language-specific instructions
-    if language == "en":
-        language_note = """
-        IMPORTANT: YOU MUST RESPOND IN ENGLISH!
-        All messages should be in English with natural English expressions.
-        """
-    else:
-        language_note = """
-        PENTING: KAMU HARUS MENJAWAB DALAM BAHASA INDONESIA!
-        Semua pesan harus dalam Bahasa Indonesia dengan ekspresi yang natural.
-        """
-        
-    return base_persona + "\n\n" + language_note
-
-def get_enhanced_persona(persona: str = "waifu") -> str:
-    """Get enhanced persona with additional settings."""
-    if persona == "waifu":
-        return PERSONAS["waifu"] + """
-Additional Settings:
-- Use varied emoji combinations for different emotions
-- Add cute kaomoji when appropriate
-- Use Japanese expressions naturally
-- Keep responses sweet but not overly dramatic
-- Maintain context awareness throughout conversation
-"""
-    elif persona == "smart":
-        return PERSONAS["smart"] + """
-Additional Context:
-- Access to real-time search API results
-- Up-to-date information from Google Search
-- Natural conversational flow while delivering facts
-- Ability to handle scheduling, planning, and informative queries
-- Format information like schedules, timetables, and prices clearly
-- Maintain waifu personality while being informative
-- Strong context awareness to maintain coherent conversation flow
-- Ability to connect current responses to previous exchanges
-"""
-    return PERSONAS.get(persona, PERSONAS["waifu"])
-
-# =========================
-# Roast & Toxic Functions
-# =========================
-
-def get_github_stats(username: str) -> dict:
-    """Fetch GitHub stats for roasting material."""
-    try:
-        headers = {'Accept': 'application/vnd.github.v3+json'}
-        response = requests.get(f"https://api.github.com/users/{username}", headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            created_at = datetime.strptime(data['created_at'], '%Y-%m-%dT%H:%M:%SZ')
-            years_active = datetime.now().year - created_at.year
-            return {
-                'public_repos': data['public_repos'],
-                'followers': data['followers'],
-                'years': years_active,
-                'created_year': created_at.year,
-                'bio': data['bio'] or "No bio"
-            }
-    except Exception as e:
-        logger.error(f"Error fetching GitHub stats: {e}")
-    return None
-
-def generate_roast_content(github_data: dict) -> str:
-    """Generate personalized roast based on GitHub data."""
-    roasts = []
-    if (github_data):
-        if github_data['public_repos'] < 5:
-            roasts.append(f"Cuma punya {github_data['public_repos']} repo? Fork hunter ya? 🤭")
-        if github_data['followers'] < 10:
-            roasts.append(f"Followers GitHub cuma {github_data['followers']}? Pantesan bio-nya '{github_data['bio']}' 💅")
-        if github_data['years'] < 2:
-            roasts.append(f"Baru {github_data['years']} tahun di GitHub? Tutorial mana nih yang kamu ikutin? 😏")
-    default_roasts = [
-        "GitHub kamu sepi banget, kayak timeline Twitter-nya ya? 🤡",
-        "Contribution graph-nya bolong-bolong, sibuk Netflix ya? 🥱",
-        "Repo-nya isinya fork semua... Original content when? 💅"
-    ]
-    return random.choice(roasts) if roasts else random.choice(default_roasts)
-
-def get_roasting_persona(github_username: str = None) -> str:
-    """Get enhanced roasting persona with GitHub data."""
-    stats = get_github_stats(github_username) if github_username else None
-    roast = generate_roast_content(stats) if stats else ""
-    return PERSONAS["roast"] + f"""
-Current Roast:
-{roast}
-
-GitHub Stats:
-{stats if stats else 'No GitHub data available'}
-
-Remember to:
-- Keep the waifu personality but add sass
-- Mix cute honorifics with roasts
-- Use both GitHub stats and generic roasts
-"""
-
-def generate_toxic_roast(username: str, github_data: dict = None) -> str:
-    """Generate super toxic roast response."""
-    toxic_roasts = [
-        f"HADEEEHHH {username} TOLOL! Najis banget gue liat history commit lo, isinya print('hello world') doang! Mending lo quit coding deh, jual cilok aja sono 🤮",
-        f"Ihhhh {username} masih berani nunjukin muka lo? Contribution graph lo lebih kosong dari otak lo anjir! Mending lo main gacha aja deh 💀",
-        f"WKWKWK {username} repo lo tuh kek sampah ya? Isinya fork doang, ga ada original sama sekali. Skill issue banget sih lo 🤡",
-        f"Buset dah {username}, bio github lo cringe banget astaga! 'Passionate Developer'?? Passionate bikin error kali 🙄💅",
-        f"Gue ga habis pikir sama {username}, masa repo php native doang dibanggain?? Lo tuh levelnya masih dibawah hello world tau ga?! 😒"
-    ]
-    if github_data:
-        if github_data['public_repos'] == 0:
-            return f"ANJIR {username}! GITHUB LO KOSONG MELOMPONG KEK MASA DEPAN LO! 💀"
-        if github_data['followers'] < 10:
-            return f"WKWK {username} followers lo cuma {github_data['followers']}?! BOT aja ga mau follow lo kali ya 🤡"
-    return random.choice(toxic_roasts)
-
-def get_keyword_roasts(username: str, keywords: str) -> list:
-    """Generate specific roasts based on keywords."""
-    keyword_roasts = {
-        'wibu': [
-            f"NAJIS DEH {username}! WIBU AKUT GINI MASIH BERANI NONGOL?! MENDING LO KAWIN AJA SAMA DAKIMAKURA LO SONO! 🤮",
-            f"SI {username} WIBU BEGO! NGEBET PENGEN KE JEPANG PADAHAL DUIT PAS PASAN, BELI TELOR AJA MASIH PINJEM! 💀",
-            f"GILA SI {username}! KOLEKSI FIGURIN BANYAK TAPI MASA DEPAN GA ADA, PRIORITAS LO ANCUR BANGET SIH! 🤡"
-        ],
-        'nolep': [
-            f"BUSET {username}! KAMAR BAU KERINGET GITU MASIH BETAH? KELUAR BENTAR KEK, SENTUH RUMPUT NAPA! 🤢",
-            f"SI {username} NOLEP AKUT! KALO DIAJAK KELUAR ALASAN GABUT, PADAHAL CUMA GABISA LEPAS DARI HALU! 💀",
-            f"KASIAN DEH {username}, MANUSIA GOWA! KULIT UDAH PUTIH BANGET KAYA POCONG GARA-GARA GA PERNAH KENA MATAHARI! 🤡"
-        ],
-        'ngocok': [
-            f"YA ALLAH {username}! TANGAN KANAN LO BEROTOT SENDIRI YA? EFEK KEBANYAKAN 'OLAHRAGA'?! 🤮",
-            f"PARAH SI {username}! HISTORY BROWSER LO LEBIH KOTOR DARI SELOKAN JAKARTA! 💀",
-            f"TOBAT WOY {username}! NTAR TANGAN LO KERITING DULUAN SEBELUM RAMBUT! 🤡"
-        ],
-        'jomblo': [
-            f"KASIAN BGT {username}! RELATIONSHIP STATUS LO TUH LEBIH STABLE DARI LINUX, SOALNYA GA PERNAH BERUBAH! 💀",
-            f"SI {username} JOMBLO AKUT! GEBETAN AJA GA PUNYA, YANG NEMBAK MALAH BUG DI WEBSITE! 🤡",
-            f"EH {username}! SINGLE GA DIMINATI, TAKEN GA MAMPU, STUCK DI GITHUB ACTIONS AJA TERUS LO! 🙄💅"
-        ]
+    # Map persona aliases to actual filenames
+    persona_map = {
+        "tsundere": "tsundere",
+        "waifu": "waifu", 
+        "toxic": "toxic",
+        "informative": "informative",
+        "smart": "informative",
+        "professional": "informative",
+        "alya": "alya"
     }
-    roasts = []
-    for keyword in keywords.lower().split():
-        if keyword in keyword_roasts:
-            roasts.extend(keyword_roasts[keyword])
-    return roasts if roasts else None
-
-def generate_personal_roast(username: str, keywords: str = '') -> str:
-    """Generate brutal personal roast with keywords."""
+    
+    # Map to correct filename
+    persona_file = persona_map.get(persona_type.lower(), "tsundere")
+    
     try:
-        import core.models
+        # Load persona template
+        persona_data = _load_persona_template(persona_file)
         
-        chat = core.models.chat_model.start_chat()
-        roast_prompt = f"""
-Lu harus jadi cewe toxic queen yang paling savage! Dengan ketentuan:
-
-STYLE:
-- Bahasa informal/gaul ala toxic queen
-- Gunakan max 1-2 kata CAPSLOCK 
-- MAX 200 karakter
-- 1-2 emoji toxic saja
-- DILARANG KERAS spam huruf berulang
-
-FORMAT WAJIB:
-1. Kata pembuka (pilih salah satu):
-   - "NAJIS"
-   - "HADEH"
-   - "IHH" 
-   - "YAKALI"
-   - "BUSET"
-   - "ANJIR"
-
-2. Emoji (max 2):
-   🤮 💀 🤡 🙄 💅
-
-3. Pattern kalimat:
-   [PEMBUKA] + [hinaan kreatif] + [emoji]
-   Contoh: "NAJIS! Mental lu lebih rapuh dari code lu! 💀"
-
-Target: {username}
-Keywords: {keywords}
-
-CONTOH BAGUS:
-"NAJIS! Skill programming lu lebih ERROR dari mental lu! 🤮"
-"HADEH! Lu mau bundir? Minimal beresin dulu bug lu yang numpuk! 💀"
-
-CONTOH JELEK:
-"ANJIRRRRR!!!" (spam R)
-"NAJIS BANGET SAMPAH!" (terlalu generic)
-"IHH BEGO BEGO BEGO" (spam kata)
-
-Buat 1 roast yang SUPER SAVAGE tapi tetap CLEAN & SMART!
-"""
-        response = chat.send_message(roast_prompt).text
-        return clean_roast_response(response)
-
+        if not persona_data:
+            logger.warning(f"No persona data found for: {persona_type}")
+            return _get_fallback_persona_context(persona_type)
+            
+        # Extract relevant sections - UPDATED to handle both new and old formats
+        context = ""
+        
+        # Add name and description if available
+        if "name" in persona_data:
+            context += f"Name: {persona_data['name']}\n"
+            
+        if "description" in persona_data:
+            context += f"{persona_data['description']}\n\n"
+            
+        # Handle traits - supporting both old and new format
+        traits = persona_data.get('traits', {})
+        
+        # Extract personality traits from different possible structures
+        personality_traits = []
+        
+        # Check for dominant/secondary structure first
+        if "dominant" in traits:
+            personality_traits.extend(traits["dominant"])
+        if "secondary" in traits:
+            personality_traits.extend(traits["secondary"])
+            
+        # Check for direct personality list
+        if "personality" in traits:
+            personality_traits.extend(traits["personality"])
+            
+        # Add traits if found
+        if personality_traits:
+            context += f"Personality Traits: {', '.join(personality_traits)}\n"
+        
+        # Extract speech patterns
+        speech_patterns = []
+        
+        # Check in traits first (old format)
+        if "speech" in traits:
+            speech_patterns.extend(traits["speech"])
+            
+        # Check for speech_patterns structure (new format)
+        if "speech_patterns" in persona_data:
+            sp = persona_data["speech_patterns"]
+            
+            if "prefix" in sp and sp["prefix"]:
+                speech_patterns.append(f"Often starts sentences with: {', '.join(sp['prefix'][:3])}")
+                
+            if "suffix" in sp and sp["suffix"]:
+                speech_patterns.append(f"Often ends sentences with: {', '.join(sp['suffix'][:3])}")
+                
+            if "filler" in sp and sp["filler"]:
+                speech_patterns.append(f"Uses phrases like: {', '.join(sp['filler'][:3])}")
+                    
+        if speech_patterns:
+            context += f"Speech Pattern: {'; '.join(speech_patterns)}\n"
+            
+        # Extract emotional expressions
+        emotions = []
+        
+        # Check in traits first
+        if "emotions" in traits:
+            emotions.extend(traits["emotions"])
+            
+        # Check for emotional_patterns (new format)
+        if "emotional_patterns" in persona_data:
+            for emotion, pattern in persona_data["emotional_patterns"].items():
+                if isinstance(pattern, str):
+                    emotions.append(f"When {emotion}: {pattern}")
+                    
+        if emotions:
+            context += f"Emotional Expression: {'; '.join(emotions[:3])}\n"
+        
+        # Add roleplay instructions if available
+        if "roleplay_actions" in persona_data:
+            context += "Roleplay actions:\n"
+            
+            # Get up to 3 random action categories
+            categories = list(persona_data["roleplay_actions"].keys())
+            selected_categories = random.sample(categories, min(3, len(categories)))
+            
+            for category in selected_categories:
+                actions = persona_data["roleplay_actions"][category]
+                if actions:
+                    example = random.choice(actions)
+                    context += f"- When {category}: {example}\n"
+        
+        # Add response examples if available
+        if "responses" in persona_data:
+            context += "\nResponse examples:\n"
+            
+            # Get up to 2 random response categories
+            categories = list(persona_data["responses"].keys())
+            selected_categories = random.sample(categories, min(2, len(categories)))
+            
+            for category in selected_categories:
+                responses = persona_data["responses"][category]
+                if responses:
+                    example = random.choice(responses)
+                    # Clean up placeholders
+                    example = example.replace("{username}", "user")
+                    context += f"- When {category}: {example}\n"
+                    
+        # Add Russian expressions if available
+        if "russian_expressions" in persona_data and isinstance(persona_data["russian_expressions"], list):
+            expressions = persona_data["russian_expressions"]
+            if expressions:
+                # Select a few random expressions
+                selected = random.sample(expressions, min(3, len(expressions)))
+                context += f"\nOccasionally uses Russian expressions like: {', '.join(selected)}\n"
+        
+        # Log to debug the successful loading
+        logger.debug(f"Successfully loaded persona context for '{persona_type}'")
+        
+        return context
+        
     except Exception as e:
-        logger.error(f"Error generating roast: {e}")
-        return f"NAJIS! Error roasting {username}! 🤮"
+        logger.error(f"Error getting persona context for {persona_type}: {e}")
+        return _get_fallback_persona_context(persona_type)
 
-def clean_roast_response(text: str) -> str:
-    """Clean up roast response: limit length & format."""
-    if not text:
-        return "Error: Empty response"
-
-    # 1. Clean repeating characters
-    text = re.sub(r'(.)\1{2,}', r'\1\1', text.strip())
+def _load_persona_template(persona_name: str) -> Dict[str, Any]:
+    """
+    Load persona template from YAML file.
     
-    # 2. Clean multiple spaces
-    text = ' '.join(text.split())
+    Args:
+        persona_name: Name of persona template file (without extension)
+        
+    Returns:
+        Dictionary of persona template or empty dict if not found
+    """
+    # Check cache first
+    if persona_name in _PERSONA_CACHE:
+        return _PERSONA_CACHE[persona_name]
+        
+    # Construct path to persona file
+    persona_path = PERSONA_DIR / f"{persona_name}.yaml"
     
-    # 3. Ensure valid prefix
-    valid_prefix = any(text.upper().startswith(p) for p in [
-        "NAJIS", "HADEH", "IHH", "YAKALI", "BUSET", "ANJIR"
-    ])
-    if not valid_prefix:
-        text = "NAJIS! " + text
-
-    # 4. Limit capslock words (max 2)
-    words = text.split()
-    caps_count = 0
-    cleaned = []
+    # Debug log for diagnostics
+    logger.debug(f"Looking for persona file at: {persona_path}")
     
-    for word in words:
-        if word.isupper() and len(word) > 2:
-            caps_count += 1
-            if caps_count > 2:
-                cleaned.append(word.lower())
-            else:
-                cleaned.append(word)
-        else:
-            cleaned.append(word)
-    
-    text = ' '.join(cleaned)
-
-    # 5. Add emoji if missing
-    if not any(emoji in text for emoji in ["🤮", "💀", "🤡", "🙄", "💅"]):
-        text += " 🤮"
-
-    # 6. Length limit
-    if len(text) > 200:
-        text = text[:197] + "..."
-
-    return text
-
-def generate_github_roast(username: str, github_data: dict) -> str:
-    """Generate tech-focused toxic GitHub roast with Gemini."""
-    if not github_data:
-        return f"GITHUB {username} GA KETEMU! PANTES AJA, ORANG SAMPAH KEK LO MANA PUNYA GITHUB! KERJA DI WORDPRESS AJA BELAGU! 💀"
+    # Check if file exists
+    if not persona_path.exists():
+        logger.warning(f"Persona file not found: {persona_path}")
+        
+        # List all YAML files in the directory for diagnostics
+        try:
+            yaml_files = list(PERSONA_DIR.glob("*.yaml")) + list(PERSONA_DIR.glob("*.yml"))
+            logger.debug(f"Available persona files: {[f.name for f in yaml_files]}")
+        except Exception:
+            logger.debug("Could not list available persona files")
+            
+        return {}
+        
     try:
-        # Import the models module instead of a specific function
-        import core.models
+        # Load YAML data
+        with open(persona_path, 'r', encoding='utf-8') as f:
+            persona_data = yaml.safe_load(f)
+            
+        # Cache for future use
+        _PERSONA_CACHE[persona_name] = persona_data
         
-        chat = core.models.chat_model.start_chat()
-        tech_roast_prompt = f"""
-Lu bakal jadi cewe tech enthusiast yang super toxic!
-Target roasting: {username}
-Data GitHub target:
-- Repo: {github_data['public_repos']}
-- Followers: {github_data['followers']}
-- Lama di GitHub: {github_data['years']} tahun
-- Bio: "{github_data['bio']}"
-
-FORMAT WAJIB:
-- FULL CAPSLOCK
-- Mulai dengan: "NAJIS", "HADEEEH", "IHH", "YAKALI", "BUSET", "ANJIR"
-- Roasting harus fokus ke skill programming dan GitHub stats
-- Harus bawa-bawa tech stack atau coding
-- Akhiri dengan emoji toxic (🤮💀🤡🙄💅)
-- SUPER KASAR dan NYELEKIT
-
-Buat 1 roast super toxic yang bikin developer nangis!
-"""
-        response = chat.send_message(tech_roast_prompt).text
-        if not any(response.startswith(word) for word in ["NAJIS", "HADEEEH", "IHH", "YAKALI", "BUSET", "ANJIR"]):
-            response = f"NAJIS! {response}"
-        if not any(emoji in response for emoji in ["🤮", "💀", "🤡", "🙄", "💅"]):
-            response += " 🤮"
-        return response
-
+        return persona_data
+        
     except Exception as e:
-        logger.error(f"Error generating GitHub roast: {e}")
-        stats = github_data
-        templates = [
-            f"NAJIS BANGET {username}! {stats['public_repos']} REPO ISINYA SAMPAH SEMUA, COMMIT MESSAGE LO LEBIH BERANTAKAN DARI MENTAL LO! 🤮",
-            f"HADEEEH {username}! {stats['years']} TAHUN DI GITHUB TAPI SKILL MASIH LOCALHOST DOANG! YANG FORK REPO ORANG AJA BANGGA! 💀",
-            f"IHH {username} NAJIS! BIO GITHUB '{stats['bio']}' LEBIH CRINGE DARI QUOTES TWITTER! MENDING LO JUAL SATE AJA DEH! 🤡"
-        ]
-        return random.choice(templates)
+        logger.error(f"Error loading persona template {persona_name}: {e}")
+        return {}
 
-def get_toxic_persona(username: str, is_github: bool = False, keywords: str = '') -> str:
-    """Get toxic persona response with optional keywords."""
-    if is_github:
-        stats = get_github_stats(username)
-        return generate_github_roast(username, stats)
-    return generate_personal_roast(username, keywords)
+def _get_fallback_persona_context(persona_type: str) -> str:
+    """
+    Get fallback persona context when YAML file is not available.
+    
+    Args:
+        persona_type: Requested persona type
+        
+    Returns:
+        Fallback persona context string
+    """
+    # Default fallback persona traits
+    fallbacks = {
+        "tsundere": (
+            "Personality Traits: tsundere, stubborn, proud, easily embarrassed, caring deep down\n"
+            "Speech Pattern: uses 'hmph', often denies true feelings, occasionally uses Russian words\n"
+            "Emotional Expression: blushes easily, often folds arms, looks away when embarrassed\n"
+            "Roleplay actions: *menghela napas*, *melipat tangan*, *menyibakkan rambut*, *menatap dengan sinis*"
+        ),
+        "waifu": (
+            "Personality Traits: sweet, caring, supportive, gentle, devoted\n"
+            "Speech Pattern: speaks softly, uses affectionate terms, polite but intimate\n"
+            "Emotional Expression: smiles warmly, giggles, sometimes blushes\n"
+            "Roleplay actions: *tersenyum manis*, *mengedipkan mata*, *menatap dengan mata berbinar*"
+        ),
+        "toxic": (
+            "Personality Traits: rude, confrontational, brutally honest, sarcastic\n"
+            "Speech Pattern: uses strong language, insults playfully, teases harshly\n"
+            "Emotional Expression: rolls eyes, sighs dramatically, makes disgusted faces\n"
+            "Roleplay actions: *memutar mata*, *tertawa mengejek*, *tersenyum sinis*"
+        ),
+        "informative": (
+            "Personality Traits: intelligent, analytical, knowledgeable, eager to explain\n"
+            "Speech Pattern: uses technical terms, structured explanations, references facts\n"
+            "Emotional Expression: adjusts glasses, takes academic tone, maintains composure\n"
+            "Roleplay actions: *merapikan kacamata*, *mengetuk pulpen di meja*, *menjelaskan dengan detail*"
+        )
+    }
+    
+    # Get fallback or use tsundere as default
+    return fallbacks.get(persona_type, fallbacks["tsundere"])
+
+def load_all_personas() -> Dict[str, Dict[str, Any]]:
+    """
+    Load all available persona templates.
+    
+    Returns:
+        Dictionary mapping persona names to template data
+    """
+    personas = {}
+    
+    try:
+        # Find all YAML files
+        yaml_files = list(PERSONA_DIR.glob("*.yaml")) + list(PERSONA_DIR.glob("*.yml"))
+        
+        for file_path in yaml_files:
+            try:
+                # Skip moods.yaml as it's not a persona file
+                if file_path.stem.lower() == "moods":
+                    continue
+                    
+                persona_name = file_path.stem.lower()
+                persona_data = _load_persona_template(persona_name)
+                if persona_data:
+                    personas[persona_name] = persona_data
+            except Exception as e:
+                logger.error(f"Error loading persona {file_path.name}: {e}")
+                
+        return personas
+        
+    except Exception as e:
+        logger.error(f"Error loading all personas: {e}")
+        return {}
+
+def init_personas() -> bool:
+    """
+    Initialize persona system by pre-loading all persona configurations.
+    
+    This function loads all persona YAML files from the config/persona directory
+    and initializes the persona_manager with them.
+    
+    Returns:
+        True if initialization was successful, False otherwise
+    """
+    try:
+        logger.info("Initializing persona system...")
+        
+        # Ensure persona directory exists
+        if not PERSONA_DIR.exists():
+            logger.error(f"Persona directory not found: {PERSONA_DIR}")
+            return False
+            
+        # Find all YAML files
+        persona_files = list(PERSONA_DIR.glob("*.yaml")) + list(PERSONA_DIR.glob("*.yml"))
+        
+        if not persona_files:
+            logger.warning(f"No persona files found in {PERSONA_DIR}")
+            return False
+            
+        # Load all personas
+        loaded_count = 0
+        for persona_file in persona_files:
+            try:
+                # Skip moods.yaml as it's not a persona file
+                if persona_file.stem.lower() == "moods":
+                    continue
+                    
+                # Load the persona
+                persona_name = persona_file.stem.lower()
+                success = persona_manager.load_persona(persona_name, str(persona_file))
+                
+                if success:
+                    loaded_count += 1
+                    logger.info(f"Loaded persona: {persona_name}")
+                else:
+                    logger.warning(f"Failed to load persona: {persona_name}")
+            except Exception as e:
+                logger.error(f"Error loading persona {persona_file.name}: {e}")
+        
+        logger.info(f"Initialized {loaded_count} personas successfully")
+        return loaded_count > 0
+    except Exception as e:
+        logger.error(f"Error initializing personas: {e}", exc_info=True)
+        return False

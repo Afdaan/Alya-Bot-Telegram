@@ -1,14 +1,16 @@
-"""Utils package initialization."""
+"""Utility modules for Alya Bot."""
 
+# Import commonly used utility functions for easier access
 from .formatters import format_markdown_response
-from .cache_manager import response_cache
-from .language_handler import get_response, get_language
-from .image_utils import download_image
+from .language_handler import get_text, get_language, get_response
+from .rate_limiter import rate_limited
+from .context_manager import context_manager
 
 __all__ = [
     'format_markdown_response',
-    'response_cache',
-    'get_response',
+    'get_text',
     'get_language',
-    'download_image'
+    'get_response',
+    'rate_limited',
+    'context_manager'
 ]

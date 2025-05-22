@@ -1,214 +1,439 @@
 """
 Developer Command Handlers for Alya Telegram Bot.
 
-This module provides handlers for administrative commands restricted to developers,
-including system management, debugging, statistics, and language settings.
+This module contains handlers for developer-only commands that provide
+administrative functionality for bot management.
 """
 
 import logging
 import os
-import psutil
 import subprocess
-import json
-import shlex
-import re
-from datetime import datetime
-from telegram import Update
-from telegram.ext import CallbackContext
-from config.settings import DEVELOPER_IDS, DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
-from core.models import get_user_history
-from utils.language_handler import get_response
-from utils.cache_manager import response_cache
+import sys
+import time
+import psutil
+import asyncio
+from typing import Dict, Any, List, Optional
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CallbackContext, CommandHandler, Application
+from telegram.constants import ParseMode
+
+from config.settings import (
+    DEVELOPER_IDS, 
+    DEV_COMMANDS, 
+    SUPPORTED_LANGUAGES,
+    DEFAULT_LANGUAGE
+)
+from utils.formatters import format_markdown_response, escape_markdown_v2, format_dev_message
+from utils.context_manager import context_manager
 from config.logging_config import log_command
 
 logger = logging.getLogger(__name__)
 
+# Process start time for uptime calculation
+process_start_time = time.time()
+
 # =========================
-# Developer Authorization
+# Developer Commands
 # =========================
 
-def is_developer(user_id: int) -> bool:
+@log_command(logger)
+async def update_command(update: Update, context: CallbackContext) -> None:
     """
-    Check if user is authorized as a developer.
+    Pull latest changes and restart the bot.
+    Developer only command.
     
     Args:
-        user_id: Telegram user ID to check
-        
-    Returns:
-        True if user is a developer, False otherwise
+        update: Telegram update object
+        context: Callback context
     """
-    return user_id in DEVELOPER_IDS
-
-async def dev_command_wrapper(update: Update, context: CallbackContext, handler):
-    """
-    Security wrapper for developer commands.
+    user_id = update.effective_user.id
     
-    Ensures only authorized developers can execute restricted commands.
-    
-    Args:
-        update: Telegram Update object
-        context: CallbackContext object
-        handler: Async handler function to execute if authorized
-        
-    Returns:
-        Result of handler if authorized, or unauthorized message
-    """
-    if not is_developer(update.effective_user.id):
+    # Check if user is developer
+    if user_id not in DEVELOPER_IDS:
         await update.message.reply_text(
-            get_response("dev_only", context),
+            "⛔ *Access Denied*\n\nOnly developers can use this command.",
             parse_mode='MarkdownV2'
         )
         return
-    return await handler(update, context)
-
-# =========================
-# System Management Commands
-# =========================
-
-async def update_command(update: Update, context: CallbackContext) -> None:
-    """Git pull and restart bot. Usage: /update [branch]"""
-    async def handler(update: Update, context: CallbackContext):
-        # Get target branch
-        branch = context.args[0] if context.args else 'main'
+    
+    # Send updating message
+    status_msg = await update.message.reply_text(
+        "🔄 *Updating Bot*\n\n"
+        "*Step 1:* Pulling latest changes\\.\\.\\.",
+        parse_mode='MarkdownV2'
+    )
+    
+    try:
+        # Pull latest changes
+        process = subprocess.Popen(
+            ["git", "pull"], 
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        stdout, stderr = process.communicate()
         
-        # Send initial message
-        msg = await update.message.reply_text(
-            f"*Updating Bot System*\n_Switching to branch:_ `{branch}` 🔄",
+        if process.returncode != 0:
+            # Error during git pull
+            error_output = stderr or "Unknown error"
+            error_msg = f"❌ *Git Pull Failed*\n\n```\n{escape_markdown_v2(error_output)}\n```"
+            await status_msg.edit_text(error_msg, parse_mode='MarkdownV2')
+            return
+            
+        # Update status message
+        await status_msg.edit_text(
+            "🔄 *Updating Bot*\n\n"
+            "*Step 1:* ✅ Latest changes pulled\n"
+            "*Step 2:* Restarting bot\\.\\.\\.",
             parse_mode='MarkdownV2'
         )
         
-        try:
-            # Stash any changes
-            subprocess.run(['git', 'stash'], check=True)
-            
-            # Switch branch and pull
-            old_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
-            subprocess.run(['git', 'checkout', branch], check=True)
-            git_output = subprocess.check_output(['git', 'pull', 'origin', branch]).decode()
-            new_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()
-            
-            # Get commit messages & escape special chars
-            if old_hash != new_hash:
-                commit_log = subprocess.check_output(
-                    ['git', 'log', '--pretty=format:• %s', f'{old_hash}..{new_hash}']
-                ).decode()
-                # Escape special characters for MarkdownV2
-                commit_log = re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', commit_log)
-            else:
-                commit_log = "No changes detected"
-
-            # Update deps & restart
-            subprocess.check_output(['pip', 'install', '-r', 'requirements.txt'])
-            
-            # Format update message with proper escaping
-            update_message = (
-                f"*Update Complete* ✨\n\n"
-                f"*Branch:* `{branch}`\n"
-                f"*Changes:*\n"
-                f"{commit_log}\n\n"
-                f"*Status:* Bot restarting\n\n"
-                f"_Alya\\-chan will be back online shortly\\!_ 🌸"
-            )
-            
-            await msg.edit_text(
-                update_message,
-                parse_mode='MarkdownV2'
-            )
-            
-            # Restart bot via tmux
-            try:
-                subprocess.run(['tmux', 'send-keys', '-t', 'alya-bot', 'C-c'], check=True)
-                subprocess.run(['sleep', '2'])
-                subprocess.run(['tmux', 'send-keys', '-t', 'alya-bot', 'python main.py', 'Enter'], check=True)
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to restart bot in tmux: {e}")
-                raise Exception("Failed to restart bot - check tmux session")
-            
-        except Exception as e:
-            error_msg = str(e)
-            safe_error = re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', error_msg[:200])
-            await msg.edit_text(
-                f"*Update Failed*\n\n{safe_error}",
-                parse_mode='MarkdownV2'
-            )
-            
-    return await dev_command_wrapper(update, context, handler)
-
-# =========================
-# Monitoring Commands
-# =========================
+        # Log the update
+        logger.info(f"Bot update initiated by developer {user_id}")
+        logger.info(f"Git pull output: {stdout}")
+        
+        # Get latest commit info
+        changelog = subprocess.check_output(
+            ["git", "log", "-1", "--pretty=format:%h %s"],
+            text=True
+        )
+        
+        # Send final confirmation with changelog
+        await status_msg.edit_text(
+            f"✅ *Update Complete*\n\n"
+            f"*Changelog:*\n"
+            f"```\n{escape_markdown_v2(changelog)}\n```",
+            parse_mode='MarkdownV2'
+        )
+        
+        # Schedule restart after a short delay
+        await asyncio.sleep(2)
+        os.execl(sys.executable, sys.executable, *sys.argv)
+        
+    except Exception as e:
+        logger.error(f"Error during update: {e}")
+        safe_error = escape_markdown_v2(str(e))
+        await status_msg.edit_text(
+            f"❌ *Update Failed*\n\n"
+            f"Error: {safe_error}",
+            parse_mode='MarkdownV2'
+        )
 
 @log_command(logger)
 async def stats_command(update: Update, context: CallbackContext) -> None:
-    """Show bot statistics. Usage: /stats"""
-    if not is_developer(update.effective_user.id):
-        return
-
-    stats = {
-        "Memory": f"{psutil.Process().memory_info().rss / 1024 / 1024:.1f} MB",
-        "CPU": f"{psutil.cpu_percent()}%",
-        "Users": len(context.bot_data.get('users', [])),
-        "Chats": len(context.bot_data.get('chats', [])),
-        "Commands": context.bot_data.get('command_count', 0)
-    }
+    """
+    Display bot statistics.
     
-    text = "📊 *Bot Statistics*:\n" + "\n".join(f"• {k}: {v}" for k, v in stats.items())
-    await update.message.reply_text(text, parse_mode='MarkdownV2')
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
+    user = update.effective_user
+    
+    # Check if it's a developer or admin
+    if user.id not in DEVELOPER_IDS:
+        await update.message.reply_text(
+            f"*{escape_markdown_v2(user.first_name)}\\-kun\\~* Maaf, command ini hanya untuk developer\\.",
+            parse_mode='MarkdownV2'
+        )
+        return
+        
+    # Show processing status
+    status_msg = await update.message.reply_text(
+        "Mengumpulkan statistik...",
+        parse_mode=None
+    )
+    
+    try:
+        # Get system stats
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        # Get bot stats
+        uptime = time.time() - process_start_time
+        uptime_str = format_uptime(int(uptime))
+        
+        # Get database stats
+        db_stats = context_manager.get_db_stats()
+        
+        # Get memory stats
+        memory_stats = context_manager.get_memory_stats(user.id)
+        
+        # Get API key stats (if available)
+        try:
+            from utils.rate_limiter import api_key_manager
+            key_stats = api_key_manager.get_key_stats()
+            keys_info = "\n".join([
+                f"• Key {i+1}: {'🟢 ' if s.get('is_current') else '🔴 '}"
+                f"{s.get('key_prefix', '')} "
+                f"{'(cooldown until ' + str(s.get('cooldown_ends')) + ')' if s.get('in_cooldown') else ''}"
+                for i, s in enumerate(key_stats)
+            ])
+        except Exception as key_err:
+            logger.error(f"Error getting key stats: {key_err}")
+            keys_info = "Error retrieving API key information"
+        
+        # Format response
+        response = (
+            f"*🤖 ALYA BOT STATISTICS*\n\n"
+            f"*System:*\n"
+            f"• CPU: {psutil.cpu_percent()}%\n"
+            f"• RAM: {memory.percent}% ({memory.used // 1024 // 1024}MB / {memory.total // 1024 // 1024}MB)\n"
+            f"• Disk: {disk.percent}% ({disk.used // 1024 // 1024 // 1024}GB / {disk.total // 1024 // 1024 // 1024}GB)\n"
+            f"• Uptime: {uptime_str}\n\n"
+            
+            f"*Database:*\n"
+            f"• Total users: {db_stats.get('user_count', 0)}\n"
+            f"• Total messages: {db_stats.get('total_messages', 0)}\n"
+            f"• Active users (24h): {db_stats.get('active_users_24h', 0)}\n"
+            f"• DB size: {db_stats.get('db_size_mb', 0):.1f} MB\n\n"
+            
+            f"*API Keys:*\n{keys_info}\n\n"
+            
+            f"*User Memory:*\n"
+            f"• Messages: {memory_stats.get('total_messages', 0)}\n"
+            f"• Memory usage: {memory_stats.get('memory_usage_percent', 0)}%\n"
+            f"• Personal facts: {memory_stats.get('personal_facts', 0)}\n"
+        )
+        
+        # Format response with markdown
+        formatted_response = format_dev_message(response)
+        
+        # Send response
+        await status_msg.edit_text(
+            formatted_response,
+            parse_mode='MarkDownV2'
+        )
+        
+    except Exception as e:
+        logger.error(f"Error generating stats: {e}")
+        await status_msg.edit_text(
+            f"Error generating stats: {str(e)}",
+            parse_mode=None
+        )
 
 @log_command(logger)
 async def debug_command(update: Update, context: CallbackContext) -> None:
-    """Toggle debug mode. Usage: /debug"""
-    if not is_developer(update.effective_user.id):
+    """
+    Toggle debug mode.
+    Developer only command.
+    
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
+    user_id = update.effective_user.id
+    
+    # Check if user is developer
+    if user_id not in DEVELOPER_IDS:
+        await update.message.reply_text(
+            "⛔ *Access Denied*\n\nOnly developers can use this command.",
+            parse_mode='MarkdownV2'
+        )
         return
-        
-    context.bot_data['debug_mode'] = not context.bot_data.get('debug_mode', False)
-    mode = "ON" if context.bot_data['debug_mode'] else "OFF"
-    await update.message.reply_text(f"🔧 Debug Mode: {mode}")
+    
+    # Toggle debug mode in context
+    current_mode = context.bot_data.get('debug_mode', False)
+    new_mode = not current_mode
+    context.bot_data['debug_mode'] = new_mode
+    
+    # Set logger level based on debug mode
+    if new_mode:
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+    
+    # Confirm mode change
+    mode_str = "ON" if new_mode else "OFF"
+    await update.message.reply_text(
+        f"🐞 Debug mode: *{mode_str}*\n\n"
+        f"Logger level: {'DEBUG' if new_mode else 'INFO'}",
+        parse_mode='MarkdownV2'
+    )
 
 @log_command(logger)
 async def shell_command(update: Update, context: CallbackContext) -> None:
-    """Execute shell command. Usage: /shell [command]"""
-    if not is_developer(update.effective_user.id):
-        await update.message.reply_text("Command ini khusus developer! 🚫")
-        return
-        
-    if not context.args:
-        await update.message.reply_text("Usage: /shell [command]")
-        return
-        
-    cmd = " ".join(context.args)
+    """
+    Execute shell commands.
+    Developer only command.
     
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        output = result.stdout or result.stderr or "No output"
-        # Escape markdown v2 special chars
-        output = output.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
-        await update.message.reply_text(f"Command Output:\n```\n{output}\n```", parse_mode='MarkdownV2')
-    except Exception as e:
-        await update.message.reply_text(f"Error: {str(e)}")
-
-@log_command(logger) 
-async def clear_cache_command(update: Update, context: CallbackContext) -> None:
-    """Clear response cache. Usage: /clearcache"""
-    if not is_developer(update.effective_user.id):
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
+    user_id = update.effective_user.id
+    
+    # Check if user is developer
+    if user_id not in DEVELOPER_IDS:
+        await update.message.reply_text(
+            "⛔ *Access Denied*\n\nOnly developers can use this command.",
+            parse_mode='MarkdownV2'
+        )
         return
+    
+    # Get command from message
+    message_text = update.message.text
+    if message_text.startswith("/shell "):
+        cmd = message_text[7:].strip()
+    else:
+        await update.message.reply_text(
+            "Usage: `/shell command`\n\n"
+            "Example: `/shell ls -la`",
+            parse_mode='MarkdownV2'
+        )
+        return
+    
+    # Safety check - don't allow dangerous commands
+    dangerous_commands = ["rm", "mkfs", "dd", ">", "sudo"]
+    if any(dc in cmd.split() for dc in dangerous_commands):
+        await update.message.reply_text(
+            "⚠️ *Dangerous Command Blocked*\n\n"
+            "For safety reasons, potentially harmful commands are blocked.",
+            parse_mode='MarkdownV2'
+        )
+        return
+    
+    # Execute command
+    try:
+        process = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
         
-    count = response_cache.clear_all()
-    await update.message.reply_text(f"Cache cleared: {count} entries removed")
-
-# =========================
-# Language Settings
-# =========================
+        # Format output
+        if stdout:
+            output = stdout.decode()
+        elif stderr:
+            output = f"ERROR: {stderr.decode()}"
+        else:
+            output = "Command executed successfully with no output."
+        
+        # Limit output length
+        if len(output) > 3900:
+            output = output[:3900] + "...\n[Output truncated]"
+        
+        # Send result
+        await update.message.reply_text(
+            f"📝 *Shell Command Result*\n\n"
+            f"Command: `{escape_markdown_v2(cmd)}`\n\n"
+            f"```\n{escape_markdown_v2(output)}\n```",
+            parse_mode='MarkdownV2'
+        )
+    except Exception as e:
+        logger.error(f"Error executing shell command: {e}")
+        await update.message.reply_text(
+            f"❌ *Execution Error*\n\n"
+            f"Error: {escape_markdown_v2(str(e))}",
+            parse_mode='MarkdownV2'
+        )
 
 @log_command(logger)
-async def set_language_command(update: Update, context: CallbackContext) -> None:
-    """Set bot language. Usage: /setlang [id/en]"""
-    if not is_developer(update.effective_user.id):
+async def lang_command(update: Update, context: CallbackContext) -> None:
+    """
+    Change bot language.
+    
+    Args:
+        update: Telegram update object
+        context: Callback context
+    """
+    user = update.effective_user
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    
+    args = context.args
+    
+    if not args or len(args) != 1:
+        # Show language selection keyboard
+        keyboard = []
+        row = []
+        
+        for code, name in SUPPORTED_LANGUAGES.items():
+            # Escape parentheses in button text for MarkdownV2
+            safe_name = escape_markdown_v2(name)
+            button = InlineKeyboardButton(f"{name}", callback_data=f"lang_{code}")
+            row.append(button)
+            
+            # Two buttons per row
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+                
+        # Add any remaining buttons
+        if row:
+            keyboard.append(row)
+            
+        markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            f"*{escape_markdown_v2(user.first_name)}\\-kun\\~* Silakan pilih bahasa yang ingin kamu gunakan:",
+            reply_markup=markup,
+            parse_mode='MarkdownV2'
+        )
         return
         
-    if not context.args or context.args[0] not in ['id', 'en']:
-        await update.message.reply_text("Usage: /setlang [id/en]")
+    # Get requested language
+    requested_lang = args[0].lower()
+    
+    # Validate language
+    if requested_lang not in SUPPORTED_LANGUAGES:
+        valid_langs = ", ".join(SUPPORTED_LANGUAGES.keys())
+        await update.message.reply_text(
+            f"*{escape_markdown_v2(user.first_name)}\\-kun\\~* Bahasa `{escape_markdown_v2(requested_lang)}` tidak didukung\\.\n\n"
+            f"Bahasa yang didukung: `{escape_markdown_v2(valid_langs)}`",
+            parse_mode='MarkdownV2'
+        )
         return
-        
-    context.bot_data['language'] = context.args[0]
-    await update.message.reply_text(f"Language set to: {context.args[0]}")
+    
+    # Update language preference
+    language_context = {
+        'timestamp': int(time.time()),
+        'language': requested_lang,
+        'set_by_user_id': user.id,
+        'set_by_username': user.username or user.first_name
+    }
+    
+    context_manager.save_context(user.id, chat_id, 'language', language_context)
+    language_name = SUPPORTED_LANGUAGES[requested_lang]
+    
+    await update.message.reply_text(
+        f"*{escape_markdown_v2(user.first_name)}\\-kun\\~* Alya akan menggunakan bahasa "
+        f"{escape_markdown_v2(language_name)} \\({escape_markdown_v2(requested_lang)}\\) sekarang\\.",
+        parse_mode='MarkdownV2'
+    )
+
+def format_uptime(seconds: int) -> str:
+    """Format seconds into days, hours, minutes, seconds string."""
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0 or days > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0 or hours > 0 or days > 0:
+        parts.append(f"{minutes}m")
+    parts.append(f"{seconds}s")
+    
+    return " ".join(parts)
+
+# Map command names to handler functions
+DEV_HANDLERS = {
+    'update': update_command,
+    'stats': stats_command,
+    'debug': debug_command,
+    'shell': shell_command,
+    'lang': lang_command,
+}
+
+# Function to register all developer command handlers
+def register_dev_handlers(app: Application) -> None:
+    """Register all developer command handlers."""
+    for cmd_name, handler_func in DEV_HANDLERS.items():
+        cmd_config = DEV_COMMANDS.get(cmd_name, {})
+        if cmd_config.get('enabled', True):
+            logger.info(f"Registering developer command: /{cmd_name}")
+            app.add_handler(CommandHandler(cmd_name, handler_func))

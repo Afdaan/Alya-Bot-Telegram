@@ -6,9 +6,7 @@ including query optimization, structured data extraction, and response formattin
 """
 
 import os
-import aiohttp
 import logging
-import asyncio
 import re
 import random
 from typing import Dict, List, Tuple, Optional
@@ -35,35 +33,29 @@ class SearchEngine:
         self.search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
         self.base_url = "https://www.googleapis.com/customsearch/v1"
         
+        # Define platform-specific patterns once and reuse them
+        self._init_search_patterns()
+        
+        # Initialize service with memory cache
+        self._init_search_service()
+        
+    def _init_search_patterns(self):
+        """Initialize search patterns for different types of searches."""
+        # Common pattern parts to avoid duplication
+        profile_prefix = r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)'
+        username_suffix = r'(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?'
+        
         # Enhanced intent patterns with more natural language variations for profile searches
         self.profile_patterns = {
-            # More natural language variations for GitHub profile searches
-            'github': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:github|gh|git)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?(@?\w+)["\']?',
-            
-            # Enhanced Instagram profile searches
-            'instagram': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan|stalking)\s+(?:instagram|ig|insta|instagramnya|ignya)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id|punya)?\s*["\']?(@?\w+)["\']?',
-            
-            # Enhanced Twitter/X profile searches
-            'twitter': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:twitter|x|tweet|tw|twt|tweets)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?(@?\w+)["\']?',
-            
-            # Enhanced Facebook profile searches
-            'facebook': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:facebook|fb|meta|facebooknya|fbnya)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?(@?\w+)["\']?',
-            
-            # Enhanced TikTok profile searches
-            'tiktok': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:tiktok|tt|tik tok|tiktoknya|ttnya)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?(@?\w+)["\']?',
-            
-            # Enhanced LinkedIn profile searches
-            'linkedin': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:linkedin|linked in|li|linkedinnya)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?([\w\.-]+)["\']?',
-            
-            # Enhanced YouTube channel searches
-            'youtube': r'(?:channel|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:youtube|yt|youtubenya|ytnya)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id|channel)?\s*["\']?([\w\s\.-]+)["\']?',
-            
-            # Add new platforms
-            'reddit': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:reddit|rddt|redd|subreddit|r/)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id|u/|user)?\s*["\']?([\w\.-]+)["\']?',
-            
-            'pinterest': r'(?:profile|profil|akun|user|username|cari|search|lihat|show|find|temukan)\s+(?:pinterest|pin|pins)\s+(?:dengan username|dengan nama|username|nama|user|akun|untuk|dari|of|for|called|named|yang bernama|dengan id|id)?\s*["\']?([\w\.-]+)["\']?',
-            
-            # Generic username search pattern that will be used as fallback
+            'github': f"{profile_prefix}\\s+(?:github|gh|git)\\s+{username_suffix}\\s*[\"']?(@?\\w+)[\"']?",
+            'instagram': f"{profile_prefix}|stalking\\s+(?:instagram|ig|insta|instagramnya|ignya)\\s+{username_suffix}|punya\\s*[\"']?(@?\\w+)[\"']?",
+            'twitter': f"{profile_prefix}\\s+(?:twitter|x|tweet|tw|twt|tweets)\\s+{username_suffix}\\s*[\"']?(@?\\w+)[\"']?",
+            'facebook': f"{profile_prefix}\\s+(?:facebook|fb|meta|facebooknya|fbnya)\\s+{username_suffix}\\s*[\"']?(@?\\w+)[\"']?",
+            'tiktok': f"{profile_prefix}\\s+(?:tiktok|tt|tik tok|tiktoknya|ttnya)\\s+{username_suffix}\\s*[\"']?(@?\\w+)[\"']?",
+            'linkedin': f"{profile_prefix}\\s+(?:linkedin|linked in|li|linkedinnya)\\s+{username_suffix}\\s*[\"']?([\\w\\.-]+)[\"']?",
+            'youtube': f"(?:channel|{profile_prefix})\\s+(?:youtube|yt|youtubenya|ytnya)\\s+{username_suffix}|channel\\s*[\"']?([\\w\\s\\.-]+)[\"']?",
+            'reddit': f"{profile_prefix}\\s+(?:reddit|rddt|redd|subreddit|r/)\\s+{username_suffix}|u/|user\\s*[\"']?([\\w\\.-]+)[\"']?",
+            'pinterest': f"{profile_prefix}\\s+(?:pinterest|pin|pins)\\s+{username_suffix}\\s*[\"']?([\\w\\.-]+)[\"']?",
             'generic': r'(?:username|user|profile|akun|profil|cari|search)\s+(?:di|on|at|in|untuk|untuk platform|platform)?\s*([a-zA-Z0-9_]+)\s+(?:username|user|nama|name|id|dengan username|dengan nama|dengan id)?\s*["\']?(@?[\w\.-]+)["\']?'
         }
         
@@ -89,18 +81,19 @@ class SearchEngine:
             'news_search': r'(?:berita|kabar|news|artikel)\s+(?:terbaru|latest|tentang|mengenai|about|)\s*(.*?)(?:\s|$)'
         }
         
-        # Initialize service with memory cache
-        self._init_search_service()
-        
     def _init_search_service(self):
         """Initialize search service with memory cache."""
-        # Use memory cache instead of file cache
-        self.service = build(
-            "customsearch", 
-            "v1", 
-            developerKey=self._get_next_api_key(),
-            cache_discovery=False  # Disable file caching
-        )
+        try:
+            # Use memory cache instead of file cache
+            self.service = build(
+                "customsearch", 
+                "v1", 
+                developerKey=self._get_next_api_key(),
+                cache_discovery=False  # Disable file caching
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize search service: {str(e)}")
+            self.service = None
 
     def _load_api_keys(self):
         """Load multiple API keys from environment variables."""
@@ -113,13 +106,18 @@ class SearchEngine:
             key = os.getenv(f'GOOGLE_SEARCH_API_KEY_{i}')
             if key:
                 api_keys.append(key)
-                
-        logger.info(f"Loaded {len(api_keys)} Google Search API keys")
+        
+        if not api_keys:
+            logger.warning("No Google Search API keys found in environment variables")
+        else:        
+            logger.info(f"Loaded {len(api_keys)} Google Search API keys")
+        
         return api_keys
 
     def _get_next_api_key(self):
         """Get the next available API key using round-robin selection."""
         if not self.api_keys:
+            logger.error("No API keys available")
             return None
             
         # Round-robin selection
@@ -142,9 +140,11 @@ class SearchEngine:
             # Process query with natural language understanding and intent detection
             intent_data = self._detect_intent(query)
             
-            # Use detected intent to optimize search
+            # Extract the reformulated query 
+            reformulated_query = intent_data.get('reformulated_query', query)
+            
+            # Check if this is a profile search
             if intent_data['intent'] == 'profile_search' and 'entities' in intent_data:
-                # Handle profile search specifically
                 platform = intent_data['entities'].get('platform')
                 username = intent_data['entities'].get('username')
                 
@@ -156,15 +156,15 @@ class SearchEngine:
                     if platform in self.platform_urls:
                         profile_url = self.platform_urls[platform].format(username=username)
                         formatted_text += f"Direct link: {profile_url}\n\n"
-                    
-                    # Also do a web search for more information
-                    reformulated_query = f"{platform} {username} profile account"
-                else:
-                    # Use original query if incomplete intent detection
-                    reformulated_query = query
             else:
-                # Regular search with the original query
-                reformulated_query = query
+                formatted_text = ""  # Will be populated with search results
+            
+            # Check if our service is properly initialized
+            if not self.service:
+                # Try to reinitialize
+                self._init_search_service()
+                if not self.service:
+                    return "Search service unavailable. Please try again later.", None
             
             # Get API key using rotation mechanism
             api_key = self._get_next_api_key()
@@ -173,22 +173,20 @@ class SearchEngine:
                 
             if not self.search_engine_id:
                 return "Search engine ID not configured.", None
-                
-            # Build the search service
-            import googleapiclient.discovery
-            service = googleapiclient.discovery.build(
-                "customsearch", "v1", developerKey=api_key
-            )
             
-            # Execute search
-            search_results = service.cse().list(
+            # Execute search using our pre-initialized service
+            search_results = self.service.cse().list(
                 q=reformulated_query,
                 cx=self.search_engine_id,
                 num=10 if detailed else 5
             ).execute()
             
             # Format results as text
-            formatted_text = self._format_search_results(search_results, query, detailed)
+            if not formatted_text:  # Only generate formatted text for non-profile searches
+                formatted_text = self._format_search_results(search_results, query, detailed)
+            else:
+                # For profile searches, append the standard search results
+                formatted_text += self._format_search_results(search_results, query, detailed)
             
             # Extract image data if available
             image_results = self._extract_image_data(search_results)
@@ -249,9 +247,9 @@ class SearchEngine:
                                 
                                 # Try to get multiple image sizes/sources for fallback
                                 if 'pagemap' in item and 'cse_thumbnail' in item['pagemap']:
-                                    if item['pagemap']['cse_thumbnail'] and len(item['pagemap']['cse_thumbnail']) > 0:
-                                        if 'src' in item['pagemap']['cse_thumbnail'][0]:
-                                            image_data['thumbnail'] = item['pagemap']['cse_thumbnail'][0]['src']
+                                    thumbnails = item['pagemap']['cse_thumbnail']
+                                    if thumbnails and len(thumbnails) > 0 and 'src' in thumbnails[0]:
+                                        image_data['thumbnail'] = thumbnails[0]['src']
                                             
                                 # Try to extract image URLs from other potential locations
                                 if 'pagemap' in item and 'metatags' in item['pagemap']:
@@ -298,9 +296,14 @@ class SearchEngine:
         ]
         
         query_lower = query.lower()
-        for filler in fillers:
-            if f" {filler} " in f" {query_lower} ":
-                query_lower = query_lower.replace(f" {filler} ", " ")
+        
+        # Use a more efficient approach for filtering words
+        cleaned_words = []
+        for word in query_lower.split():
+            if word not in fillers:
+                cleaned_words.append(word)
+        
+        query_lower = " ".join(cleaned_words)
         
         # Add relevant keywords based on topic detection
         if "jadwal" in query_lower and "kereta" in query_lower:
@@ -346,7 +349,7 @@ class SearchEngine:
             result['reformulated_query'] = f"{username} profile social media account"
             return result
         
-        # Cek profile search patterns
+        # Check profile search patterns
         for platform, pattern in self.profile_patterns.items():
             match = re.search(pattern, query_lower)
             if match:
@@ -377,7 +380,7 @@ class SearchEngine:
                     # For specific platform patterns
                     username = match.group(1)
                 
-                # Hapus @ jika ada di depan username
+                # Remove @ if present at the beginning of username
                 if username and username.startswith('@'):
                     username = username[1:]
                 
@@ -389,7 +392,7 @@ class SearchEngine:
                 
                 # Reformulate query based on platform
                 if platform in self.platform_urls:
-                    # Langsung target URL profil
+                    # Direct target profile URL
                     result['reformulated_query'] = f"{platform} {username} profile account"
                     result['direct_url'] = self.platform_urls[platform].format(username=username)
                 else:
@@ -398,17 +401,17 @@ class SearchEngine:
                 
                 return result
         
-        # Cek search intent khusus
+        # Check search intent patterns
         for intent_name, pattern in self.search_intents.items():
             match = re.search(pattern, query_lower)
             if match:
-                # Extract entity (topic/subject pencarian)
+                # Extract entity (topic/subject of search)
                 subject = match.group(1).strip()
                 
                 result['intent'] = intent_name
                 result['entities'] = {'subject': subject}
                 
-                # Reformulasi query berdasarkan intent
+                # Reformulate query based on intent
                 if intent_name == 'image_search':
                     result['reformulated_query'] = f"{subject} images pictures"
                 elif intent_name == 'location_search':
@@ -466,6 +469,66 @@ class SearchEngine:
             logger.error(f"Error extracting structured data: {e}")
             return None
 
+    async def format_search_results(results: List[Dict[str, any]], query: str, detailed: bool = False) -> str:
+        """
+        Format search results into a readable text.
+        
+        Args:
+            results: List of search result dictionaries
+            query: Original search query
+            detailed: Whether to include detailed information
+            
+        Returns:
+            Formatted search results text
+        """
+        if not results:
+            return "Tidak ada hasil yang ditemukan untuk pencarian ini."
+        
+        # Start with search query
+        output = [f"Results for '{query}':", ""]
+        
+        # Add snippets
+        for result in results:
+            title = result.get('title', 'No title')
+            source = result.get('source', 'Unknown source')
+            snippet = result.get('snippet', '')
+            url = result.get('link', '')
+            
+            # Format title differently based on source
+            if "wikipedia" in source.lower():
+                output.append(f"📚 {title}")
+            elif "github" in source.lower():
+                output.append(f"💻 {title}")
+            elif "news" in source.lower() or "berita" in source.lower():
+                output.append(f"📰 {title}")
+            else:
+                output.append(f"🌐 {title}")
+                
+            # Add source info if available
+            if source and source != title and not source.startswith('http'):
+                output.append(f"   {source}")
+                
+            # Add detailed snippet if requested
+            if detailed and snippet:
+                # Clean up snippet
+                snippet = snippet.replace("\n", " ").strip()
+                if len(snippet) > 150:
+                    snippet = snippet[:150] + "..."
+                output.append(f"   {snippet}")
+                
+            # Add URL only in detailed mode (to avoid clutter)
+            if detailed and url:
+                output.append(f"   {url}")
+                
+            # Add separator between results
+            output.append("")
+        
+        # Add footer with info about image results if available
+        if any('image_url' in result or 'thumbnail' in result for result in results):
+            output.append("📷 Hasil gambar akan ditampilkan secara terpisah.")
+        
+        return "\n".join(output)
+
     def _format_search_results(self, result, query, detailed):
         """
         Format search results into a readable response.
@@ -483,6 +546,9 @@ class SearchEngine:
         
         if "items" not in result:
             return f"No results found for '{query}'."
+        
+        # Track URLs for button creation
+        response_urls = []
                     
         for item in result["items"]:
             # Get values directly without escaping
@@ -495,7 +561,23 @@ class SearchEngine:
             
             response_text += f"📌 {title}\n"
             response_text += f"💡 {snippet}\n"
-            response_text += f"🔗 {link}\n\n"
+            
+            # Store URLs for buttons instead of showing raw links
+            if link and link != "#":
+                # Add reference number
+                link_num = len(response_urls) + 1
+                response_text += f"🔗 Link #{link_num}\n\n"
+                
+                # PERBAIKAN: Sanitasi title untuk URL, hapus karakter yang bisa menyebabkan error
+                safe_title = ''.join(c for c in title[:15] if c.isalnum() or c.isspace())
+                
+                # PERBAIKAN: Pastikan URL selalu diawali dengan protokol
+                if not link.startswith(('http://', 'https://')):
+                    link = 'https://' + link
+                    
+                response_urls.append((safe_title, link))
+            else:
+                response_text += "\n"  # Still add spacing
 
             # Add additional info if detailed
             if detailed and "pagemap" in item:
@@ -505,14 +587,14 @@ class SearchEngine:
                         extra_details = meta["og:description"]
                         response_text += f"📝 Detail:\n{extra_details}\n\n"
         
-        return response_text
-
-    def _escape_markdown(self, text):
-        """
-        Legacy method - kept for compatibility.
-        We're now using plain text mode instead of MarkdownV2.
-        """
-        if not isinstance(text, str):
-            text = str(text)
+        # Add special marker to indicate we have URLs for buttons
+        if response_urls:
+            # PERBAIKAN: Format URL dengan lebih aman untuk menghindari error parsing
+            url_parts = []
+            for title, url in response_urls:
+                # Gunakan pipe character sebagai delimiter yang aman
+                url_parts.append(f"{title}|{url}")
+                
+            response_text += f"__URLS__{','.join(url_parts)}"
         
-        return text
+        return response_text

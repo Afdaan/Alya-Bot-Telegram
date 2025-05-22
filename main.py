@@ -1,122 +1,64 @@
 """
 Main entry point for Alya Telegram Bot.
-This module sets up logging configuration and launches the bot.
+
+This module initializes the bot, sets up handlers, and starts the bot polling.
 """
 
-import os
 import logging
-from dotenv import load_dotenv
+import asyncio
+import os
+import signal
+import sys
+from pathlib import Path
 
-# Load .env first before any other imports
-load_dotenv()
+from telegram.ext import Application
 
-from telegram import Update
-from telegram.ext import (
-    Application,
-    CallbackContext,
-    CallbackQueryHandler,
-    CommandHandler,
-    MessageHandler,
-    filters
-)
-from telegram.error import RetryAfter, TimedOut, NetworkError
-from handlers import document_handlers
+from core.bot import create_app, run_bot
+from core.personas import init_personas
+from handlers.command_handlers import register_command_handlers
+from handlers.media_handlers import register_media_handlers
+from handlers.message_handlers import register_message_handlers
+from handlers.callback_handlers import register_callback_handlers
+from config.logging_config import setup_logging
 
-# Import settings after loading .env
-from config.settings import TELEGRAM_BOT_TOKEN, DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
-
-# =========================
-# Logging Configuration
-# =========================
-
-class HTTPFilter(logging.Filter):
-    """Filter to remove successful HTTP request logs."""
-    def filter(self, record):
-        return not (
-            'HTTP Request:' in record.getMessage() and 
-            'HTTP/1.1 200' in record.getMessage()
-        )
-
-def setup_logging():
-    """Configure logging with custom filters."""
-    logging.basicConfig(
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        level=logging.INFO
-    )
-
-    # Add filter to root logger
-    logging.getLogger().addFilter(HTTPFilter())
-    
-    # Reduce verbosity for HTTP-related logs
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-
-# Initialize logging
-setup_logging()
+# Setup logging
 logger = logging.getLogger(__name__)
 
-# =========================
-# Bot Initialization
-# =========================
+def signal_handler(sig, frame):
+    """Handle termination signals gracefully."""
+    logger.info("Received termination signal. Shutting down...")
+    sys.exit(0)
 
-from core.bot import setup_handlers
-
-async def error_handler(update: object, context: CallbackContext) -> None:
-    """Handle errors in the dispatcher."""
-    logger.error(f"Exception while handling an update: {context.error}")
+def main():
+    """Initialize and run the bot."""
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
-    if isinstance(context.error, RetryAfter):
-        retry_in = context.error.retry_after
-        logger.warning(f"Rate limited by Telegram. Retry after {retry_in} seconds")
-        if update and hasattr(update, 'effective_chat') and update.effective_chat:
-            try:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"⚠️ Bot is being rate limited by Telegram. Please try again in {retry_in} seconds."
-                )
-            except Exception as e:
-                logger.error(f"Failed to send rate limit notification: {e}")
-    elif isinstance(context.error, TimedOut):
-        logger.warning("Request timed out")
-    elif isinstance(context.error, NetworkError):
-        logger.warning(f"Network error: {context.error}")
-
-def main() -> None:
-    """Main function to run the bot."""
-    # Load dotenv first before everything else
-    load_dotenv()
+    # Initialize logging
+    setup_logging()
     
-    # Validate configuration
-    if not TELEGRAM_BOT_TOKEN:
-        logger.error("Telegram token not found. Please check your .env file")
-        return
+    try:
+        # Initialize personas
+        init_personas()
         
-    # Create application instance
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    
-    # Initialize default language
-    application.bot_data["language"] = DEFAULT_LANGUAGE
-    logger.info(f"Setting default language to {DEFAULT_LANGUAGE} ({SUPPORTED_LANGUAGES.get(DEFAULT_LANGUAGE, 'Unknown')})")
-    
-    # Setup all handlers
-    setup_handlers(application)
-    
-    # Add global error handler
-    application.add_error_handler(error_handler)
-    
-    # Register callback handler for sauce search
-    application.add_handler(CallbackQueryHandler(
-        document_handlers.handle_sauce_command,
-        pattern='^(sauce_nao)_'
-    ))
-    
-    # Start bot
-    logger.info("Starting Alya Bot...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+        # Create application
+        app = create_app()
+        
+        # Register handlers explicitly
+        register_command_handlers(app)
+        register_media_handlers(app)
+        register_message_handlers(app)
+        register_callback_handlers(app)
+        
+        logger.info("Command handlers registered successfully")
+        
+        # Run the bot
+        app.run_polling()
+        
+    except Exception as e:
+        logger.error(f"Error running bot: {e}", exc_info=True)
+        sys.exit(1)
 
-# =========================
-# Entry Point
-# =========================
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
