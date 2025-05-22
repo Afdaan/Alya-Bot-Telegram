@@ -15,14 +15,40 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Try to import optional dependencies with fallback behavior
+# Set tokenizers parallelism to false to avoid fork issues
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Define EMBEDDINGS_AVAILABLE as global variable with default False
+EMBEDDINGS_AVAILABLE = False
+
+# Try to import optional dependencies with better error handling and fallback
 try:
     import torch
+    # Check if torch.cuda is available without using attribute access
+    has_cuda = False
+    try:
+        if hasattr(torch, 'cuda') and torch.cuda.is_available():
+            # Use CUDA if available but with limited memory allocation
+            torch.cuda.set_per_process_memory_fraction(0.3)  # Use only 30% of GPU memory
+            device = torch.device("cuda")
+            has_cuda = True
+        else:
+            device = torch.device("cpu")
+    except AttributeError:
+        logger.warning("PyTorch CUDA support not available, using CPU")
+        device = torch.device("cpu")
+        
+    # Import sentence transformers with explicit device setting
     from sentence_transformers import SentenceTransformer
-    EMBEDDINGS_AVAILABLE = True
-except ImportError:
-    logger.warning("SentenceTransformer and/or PyTorch not available. Emotion analysis will use fallback mode.")
-    EMBEDDINGS_AVAILABLE = False
+    
+    # Initialize model with specific device and smaller batch size for efficiency
+    # Set global variable for availability
+    logger.info(f"PyTorch available, using device: {device}")
+except ImportError as e:
+    logger.warning(f"SentenceTransformer and/or PyTorch not available: {e}")
+    logger.warning("Emotion analysis will use fallback mode.")
+except Exception as e:
+    logger.warning(f"Error initializing embeddings: {e}")
 
 import re
 import yaml
@@ -134,11 +160,22 @@ class EmotionEngine:
     """
     
     def __init__(self):
-        """Initialize dengan embedding model untuk deteksi emosi dan load config."""
-        # Load the embedding model
+        """Initialize emotion detection engine with embeddings model and load config."""
+        # Load the embedding model with more robust error handling
+        self.model = None
         if EMBEDDINGS_AVAILABLE:
-            self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-        
+            try:
+                # Use smaller, more efficient model with explicit device setting
+                self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2', 
+                                               device=device if 'device' in globals() else None)
+                logger.info("Successfully loaded SentenceTransformer model")
+            except Exception as e:
+                logger.error(f"Failed to load SentenceTransformer model: {e}")
+                # Don't modify global EMBEDDINGS_AVAILABLE, just set instance availability
+                self._embeddings_ready = False
+        else:
+            self._embeddings_ready = False
+            
         # Load configurations
         self.config = self._load_config()
         
@@ -210,9 +247,23 @@ class EmotionEngine:
     def _prepare_emotion_embeddings(self) -> Dict[EmotionType, List[float]]:
         """Generate embeddings untuk contoh-contoh emosi."""
         embeddings = {}
-        if EMBEDDINGS_AVAILABLE:
-            for emotion, examples in self.emotion_examples.items():
-                embeddings[emotion] = self.model.encode(examples)
+        if EMBEDDINGS_AVAILABLE and hasattr(self, 'model') and self.model is not None:
+            try:
+                for emotion, examples in self.emotion_examples.items():
+                    # Process in smaller batches to reduce memory usage
+                    batch_size = 16
+                    results = []
+                    
+                    for i in range(0, len(examples), batch_size):
+                        batch = examples[i:i+batch_size]
+                        batch_embeddings = self.model.encode(batch, convert_to_numpy=True)
+                        results.extend(batch_embeddings)
+                        
+                    embeddings[emotion] = results
+            except Exception as e:
+                logger.error(f"Error generating emotion embeddings: {e}")
+                # Return empty embeddings as fallback
+                return {}
         return embeddings
 
     def detect_emotion(self, message: str) -> Tuple[EmotionType, EmotionIntensity]:
@@ -220,26 +271,34 @@ class EmotionEngine:
         if not message or len(message) < 3:
             return EmotionType.NEUTRAL, EmotionIntensity.MILD
             
-        if not EMBEDDINGS_AVAILABLE:
+        if not EMBEDDINGS_AVAILABLE or not hasattr(self, 'model') or self.model is None:
             return EmotionType.NEUTRAL, EmotionIntensity.MILD
+        
+        try:    
+            message_embedding = self.model.encode(message, convert_to_numpy=True)
+            best_emotion = EmotionType.NEUTRAL
+            highest_score = 0.0
+
+            for emotion, example_embeddings in self.emotion_embeddings.items():
+                if not example_embeddings:
+                    continue
+                    
+                similarities = cosine_similarity([message_embedding], example_embeddings)[0]
+                max_similarity = max(similarities)
+                if max_similarity > highest_score:
+                    highest_score = max_similarity
+                    best_emotion = emotion
+
+            # If score is too low, default to neutral
+            if highest_score < 0.5:
+                return EmotionType.NEUTRAL, EmotionIntensity.MILD
+                
+            intensity = self._map_score_to_intensity(highest_score)
+            return best_emotion, intensity
             
-        message_embedding = self.model.encode(message)
-        best_emotion = EmotionType.NEUTRAL
-        highest_score = 0.0
-
-        for emotion, example_embeddings in self.emotion_embeddings.items():
-            similarities = cosine_similarity([message_embedding], example_embeddings)[0]
-            max_similarity = max(similarities)
-            if max_similarity > highest_score:
-                highest_score = max_similarity
-                best_emotion = emotion
-
-        # If score is too low, default to neutral
-        if highest_score < 0.5:
+        except Exception as e:
+            logger.error(f"Error in emotion detection: {e}")
             return EmotionType.NEUTRAL, EmotionIntensity.MILD
-            
-        intensity = self._map_score_to_intensity(highest_score)
-        return best_emotion, intensity
 
     def _map_score_to_intensity(self, score: float) -> EmotionIntensity:
         """Map similarity score ke intensitas emosi."""

@@ -12,6 +12,7 @@ import asyncio
 import tempfile
 import hashlib
 import time
+import http
 from typing import Optional, Union, Dict, Any, List, Tuple
 from pathlib import Path
 
@@ -73,6 +74,10 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
     message = update.message
     user = update.effective_user
     
+    # Debug log the caption if exists
+    if message.caption:
+        logger.debug(f"Processing media with caption: '{message.caption}'")
+    
     # Get chat type - critical for group handling
     is_group_chat = message.chat.type in ["group", "supergroup"]
     
@@ -102,12 +107,15 @@ async def handle_document_image(update: Update, context: CallbackContext) -> Non
     
     # Determine command type from caption
     command_type = detect_command_type(message)
+    logger.debug(f"Detected command type from caption: {command_type}")
     
     try:
         # Process based on command type
-        if command_type == ANALYZE_PREFIX.lower() :
+        if command_type == "trace" or command_type == "ocr":
+            logger.info(f"Handling trace/OCR command for user {user.id}")
             await handle_trace_command(message, user, context)
-        elif command_type == SAUCE_PREFIX.lower():
+        elif command_type == "sauce":
+            logger.info(f"Handling sauce command for user {user.id}")
             await handle_sauce_command(message, user, context)
         elif not is_group_chat or not GROUP_CHAT_REQUIRES_PREFIX:
             # Only process as normal chat in private chats or groups without prefix requirement
@@ -138,10 +146,10 @@ def detect_command_type(message: Message) -> Optional[str]:
     caption_lower = message.caption.lower().strip()
     
     # Check for trace/analyze command
-    if caption_lower.startswith(("!trace", "/trace", ANALYZE_PREFIX.lower())):
+    if caption_lower.startswith(("!trace", "/trace")) or caption_lower.startswith(ANALYZE_PREFIX.lower()):
         return "trace"
     # Check for sauce command
-    elif caption_lower.startswith(("!sauce", "/sauce", SAUCE_PREFIX.lower())):
+    elif caption_lower.startswith(("!sauce", "/sauce")) or caption_lower.startswith(SAUCE_PREFIX.lower()):
         return "sauce"
     # Check for OCR command
     elif caption_lower.startswith(("!ocr", "/ocr")):
@@ -513,11 +521,101 @@ async def analyze_with_gemini(
         )
 
     except Exception as e:
-        logger.error(f"Error in analyze_with_gemini: {e}")
+        logger.error(f"Error in analyze_with_gemini: {e}", exc_info=True)
         await status_msg.edit_text(
             "Maaf, terjadi kesalahan saat menganalisis konten 😔",
             parse_mode=None
         )
+
+async def analyze_with_gemini_api(
+    content: Union[str, PIL.Image.Image],
+    prompt: str,
+    image_mode: bool = False,
+    retry_count: int = 0
+) -> str:
+    """
+    Generic analyzer using Gemini API with proper error handling.
+    
+    Args:
+        content: Text content or PIL Image to analyze
+        prompt: Analysis prompt
+        image_mode: Whether to use image model
+        retry_count: Number of retries attempted
+        
+    Returns:
+        Analysis result text
+        
+    Raises:
+        RuntimeError: If analysis fails after retries
+    """
+    try:
+        current_key = get_current_gemini_key()
+        model = genai.GenerativeModel(
+            model_name=IMAGE_MODEL if image_mode else DEFAULT_MODEL,
+            generation_config={
+                "max_output_tokens": 1500,
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "top_k": 40
+            },
+            safety_settings=convert_safety_settings()
+        )
+        
+        # Set a reasonable timeout for API calls
+        response = await asyncio.wait_for(
+            asyncio.to_thread(
+                model.generate_content,
+                [prompt, content] if image_mode else prompt
+            ),
+            timeout=60  # 60 second timeout
+        )
+        
+        if not response or not response.text:
+            raise RuntimeError("Empty response from Gemini")
+            
+        result = response.text
+        return result[:4000]
+        
+    except asyncio.TimeoutError:
+        # Handle timeout specifically
+        logger.warning(f"Timeout when calling Gemini API (attempt {retry_count+1}/3)")
+        if retry_count < 2:
+            # Add exponential backoff
+            await asyncio.sleep(2 ** retry_count)
+            return await analyze_with_gemini_api(
+                content=content,
+                prompt=prompt,
+                image_mode=image_mode,
+                retry_count=retry_count + 1
+            )
+        return "<i>Analisis timeout. Server Gemini mungkin sedang sibuk, silakan coba lagi nanti.</i>"
+    except (http.client.RemoteDisconnected, ConnectionError, OSError) as e:
+        # Handle connection issues specifically
+        logger.warning(f"Connection error when calling Gemini API: {e} (attempt {retry_count+1}/3)")
+        if retry_count < 2:
+            # Add exponential backoff
+            await asyncio.sleep(2 ** retry_count)
+            return await analyze_with_gemini_api(
+                content=content,
+                prompt=prompt,
+                image_mode=image_mode,
+                retry_count=retry_count + 1
+            )
+        return "<i>Terjadi masalah koneksi ke API Gemini. Silakan coba lagi nanti.</i>"
+    except Exception as e:
+        error_message = str(e).lower()
+        if retry_count < 2 and any(x in error_message for x in ["quota", "rate", "429", "timeout"]):
+            logger.info(f"Retrying analysis after error: {e}")
+            # Add exponential backoff
+            await asyncio.sleep(2 ** retry_count)
+            return await analyze_with_gemini_api(
+                content=content,
+                prompt=prompt,
+                image_mode=image_mode,
+                retry_count=retry_count + 1
+            )
+        logger.error(f"Gemini API error: {e}", exc_info=True)
+        return f"<i>Tidak dapat menganalisis konten: {str(e)[:100]}...</i>"
 
 async def handle_sauce_command(message: Message, user: User, context: CallbackContext) -> None:
     """
@@ -559,9 +657,25 @@ async def handle_sauce_command(message: Message, user: User, context: CallbackCo
             parse_mode=None
         )
             
-        # Search for the sauce
+        # Search for the sauce with better error handling
         try:
-            await search_with_saucenao(status_msg, temp_path)
+            # Add timeout to prevent hanging
+            await asyncio.wait_for(
+                search_with_saucenao(status_msg, temp_path),
+                timeout=30
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout while searching image source")
+            await status_msg.edit_text(
+                "Pencarian sumber gambar timeout. Mohon coba lagi nanti.",
+                parse_mode=None
+            )
+        except (ConnectionError, http.client.RemoteDisconnected, OSError) as e:
+            logger.error(f"Connection error in sauce search: {e}")
+            await status_msg.edit_text(
+                "Terjadi masalah koneksi saat mencari sumber gambar. Mohon coba lagi nanti.",
+                parse_mode=None
+            )
         except Exception as e:
             logger.error(f"Error in sauce search: {e}")
             try:
@@ -814,9 +928,13 @@ async def analyze_with_gemini_api(
             safety_settings=convert_safety_settings()
         )
         
-        response = await asyncio.to_thread(
-            model.generate_content,
-            [prompt, content] if image_mode else prompt
+        # Set a reasonable timeout for API calls
+        response = await asyncio.wait_for(
+            asyncio.to_thread(
+                model.generate_content,
+                [prompt, content] if image_mode else prompt
+            ),
+            timeout=60  # 60 second timeout
         )
         
         if not response or not response.text:
@@ -825,16 +943,46 @@ async def analyze_with_gemini_api(
         result = response.text
         return result[:4000]
         
-    except Exception as e:
-        if retry_count < 3 and any(x in str(e).lower() for x in ["quota", "rate", "429"]):
-            logger.info(f"Retrying analysis after error: {e}")
+    except asyncio.TimeoutError:
+        # Handle timeout specifically
+        logger.warning(f"Timeout when calling Gemini API (attempt {retry_count+1}/3)")
+        if retry_count < 2:
+            # Add exponential backoff
+            await asyncio.sleep(2 ** retry_count)
             return await analyze_with_gemini_api(
                 content=content,
                 prompt=prompt,
                 image_mode=image_mode,
                 retry_count=retry_count + 1
             )
-        raise
+        return "<i>Analisis timeout. Server Gemini mungkin sedang sibuk, silakan coba lagi nanti.</i>"
+    except (http.client.RemoteDisconnected, ConnectionError, OSError) as e:
+        # Handle connection issues specifically
+        logger.warning(f"Connection error when calling Gemini API: {e} (attempt {retry_count+1}/3)")
+        if retry_count < 2:
+            # Add exponential backoff
+            await asyncio.sleep(2 ** retry_count)
+            return await analyze_with_gemini_api(
+                content=content,
+                prompt=prompt,
+                image_mode=image_mode,
+                retry_count=retry_count + 1
+            )
+        return "<i>Terjadi masalah koneksi ke API Gemini. Silakan coba lagi nanti.</i>"
+    except Exception as e:
+        error_message = str(e).lower()
+        if retry_count < 2 and any(x in error_message for x in ["quota", "rate", "429", "timeout"]):
+            logger.info(f"Retrying analysis after error: {e}")
+            # Add exponential backoff
+            await asyncio.sleep(2 ** retry_count)
+            return await analyze_with_gemini_api(
+                content=content,
+                prompt=prompt,
+                image_mode=image_mode,
+                retry_count=retry_count + 1
+            )
+        logger.error(f"Gemini API error: {e}", exc_info=True)
+        return f"<i>Tidak dapat menganalisis konten: {str(e)[:100]}...</i>"
 
 async def generate_document_analysis(text_content: str) -> str:
     """Generate analysis of document text using Gemini."""
