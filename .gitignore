@@ -1,0 +1,95 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environment
+Alya/
+.Alya/
+.myenv/
+myenv/
+venv/
+ENV/
+env/
+pythonenv*/ 
+
+# Database/logs/cache
+.data/
+data/
+logs/
+.logs/
+/data/*
+/logs/*
+*.db
+*.sqlite3
+*.log
+*.tmp
+.cache/
+
+# Testing artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+tests/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+*~
+\#*\#
+.\#*
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+google_credentials.json
+
+# Model files
+*.pt
+*.bin
+*.model
+*.onnx
+
+# Keep data and logs dirs but not contents
+!data/.gitkeep
+!logs/.gitkeep
+
+# Bot-specific stuff
+/temp_images/
+/downloads/
+/uploads/
+
+# Ignore specific files
+.github/copilot-instructions.md

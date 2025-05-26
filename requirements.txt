@@ -1,0 +1,10 @@
+python-telegram-bot[job-queue]==20.7
+google-generativeai>=0.3.0
+PyYAML>=6.0
+python-dotenv>=1.0.0
+transformers>=4.35.0
+torch>=2.0.0
+numpy>=1.24.0
+sentence-transformers>=2.2.2
+emoji>=2.8.0
+pydantic>=2.4.0
