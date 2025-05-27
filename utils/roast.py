@@ -233,15 +233,20 @@ class RoastHandler:
                     target_id=user.id,
                     roast_context=roast_context
                 )
+                
+                # Clean and format the response properly
+                cleaned_response = self._clean_response_formatting(roast_text)
             except Exception as e:
                 # If any error in generation, fallback to template
                 logger.error(f"Error generating roast using API: {e}")
-                roast_text = self._get_random_personal_roast_template(target_name)
+                cleaned_response = self._clean_response_formatting(
+                    self._get_random_personal_roast_template(target_name)
+                )
                 
             # Send the roast
             await message.reply_text(
-                roast_text,
-                parse_mode=None,  # Don't use markdown for safety
+                cleaned_response,
+                parse_mode=None,  # Don't use any parse mode for raw text
                 reply_to_message_id=message.reply_to_message.message_id if message.reply_to_message else None
             )
         
@@ -250,7 +255,7 @@ class RoastHandler:
             await update.message.reply_text(
                 f"ERROR BANGSAT! {str(e)[:100]}"
             )
-    
+
     async def handle_github_roast(self, update: Update, context: CallbackContext) -> None:
         """Handle GitHub-specific roast command that targets repos or coding ability.
         
@@ -310,6 +315,9 @@ class RoastHandler:
                     is_technical=True,
                     github_repo=github_target if is_repo else None
                 )
+                    
+                # Clean and format the response properly
+                cleaned_response = self._clean_response_formatting(roast_text)
             except Exception as e:
                 logger.error(f"Error generating GitHub roast: {e}", exc_info=True)
                 
@@ -329,10 +337,13 @@ class RoastHandler:
                     else:
                         roast_text = f"ANJING {user.first_name}! CODING SKILL LO TUH LEBIH SAMPAH DARI LAPTOP BEKAS PASAR LOAK GOBLOK! 💀"
                 
+                # Clean and format the response properly
+                cleaned_response = self._clean_response_formatting(roast_text)
+            
             # Send the roast
             await message.reply_text(
-                roast_text,
-                parse_mode=None  # Don't use markdown for safety
+                cleaned_response,
+                parse_mode=None  # Don't use any parse mode for safety
             )
             
         except Exception as e:
@@ -588,3 +599,38 @@ class RoastHandler:
         else:
             # Personal roast
             return self._get_random_personal_roast_template(target_name)
+    
+    def _clean_response_formatting(self, text: str) -> str:
+        """Clean response text from any markdown/formatting artifacts.
+        
+        Args:
+            text: Raw response text
+            
+        Returns:
+            Cleaned text without markdown artifacts
+        """
+        if not text:
+            return "ERROR KONTOL! TEXT KOSONG BANGSAT!"
+        
+        # Remove any markdown formatting
+        cleaned = text
+        
+        # Replace escaped asterisks with nothing (remove \*)
+        cleaned = cleaned.replace("\\*", "")
+        
+        # Replace markdown formatting patterns
+        cleaned = re.sub(r'\*\*(.*?)\*\*', r'\1', cleaned)  # Bold
+        cleaned = re.sub(r'\*(.*?)\*', r'\1', cleaned)       # Italic
+        cleaned = re.sub(r'_{1,2}(.*?)_{1,2}', r'\1', cleaned)  # Underscore formatting
+        
+        # Remove any curly braces segments that look like template variables
+        cleaned = re.sub(r'\{[^{}]*\}', '', cleaned)
+        
+        # Remove any remaining Markdown escapes
+        cleaned = cleaned.replace("\\", "")
+        
+        # Clean up extra spaces and newlines
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)  # Multiple newlines to double
+        cleaned = re.sub(r' {2,}', ' ', cleaned)      # Multiple spaces to single
+        
+        return cleaned.strip()
