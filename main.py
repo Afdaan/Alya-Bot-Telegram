@@ -20,7 +20,9 @@ from core.memory import MemoryManager
 from core.database import DatabaseManager
 from core.nlp import NLPEngine
 from handlers.conversation import ConversationHandler
-from handlers.admin import AdminHandler
+from handlers.admin import AdminHandler, register_admin_handlers
+from handlers.commands import CommandsHandler
+from utils.roast import RoastHandler
 
 # Configure logging
 logging.basicConfig(
@@ -29,6 +31,13 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Setup detailed logging for handlers
+telegram_logger = logging.getLogger('telegram')
+telegram_logger.setLevel(logging.ERROR)
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter(LOG_FORMAT))
+telegram_logger.addHandler(handler)
 
 async def cleanup_task(context: CallbackContext) -> None:
     """Run database cleanup task.
@@ -75,7 +84,28 @@ def main() -> None:
         # Store db_manager for later use in job
         application.db_manager = db_manager
         
-        # Create handlers
+        # Clear all existing handlers to avoid conflicts
+        application.handlers.clear()
+        
+        # Register handlers in CORRECT ORDER OF PRECEDENCE
+        # 1. First register standard command handlers
+        logger.info("Registering standard command handlers...")
+        
+        async def ping_command(update, context):
+            await update.message.reply_text("Pong! Bot is alive.")
+        application.add_handler(CommandHandler("ping", ping_command))
+        
+        # 2. Next register regex pattern handlers with EXPLICIT patterns
+        logger.info("Registering regex pattern handlers...")
+        # Initialize RoastHandler directly and register its handlers
+        roast_handler = RoastHandler(gemini_client, persona_manager, db_manager)
+        for handler in roast_handler.get_handlers():
+            application.add_handler(handler)
+            if isinstance(handler, MessageHandler):
+                logger.info(f"  - Registered roast handler with filter: {handler.filters}")
+        
+        # 3. Register conversation handlers
+        logger.info("Registering conversation handlers...")
         conversation_handler = ConversationHandler(
             gemini_client, 
             persona_manager, 
@@ -83,16 +113,40 @@ def main() -> None:
             nlp_engine
         )
         
-        admin_handler = AdminHandler(db_manager, persona_manager)
-        
-        # Register handlers
         for handler in conversation_handler.get_handlers():
             application.add_handler(handler)
+            if isinstance(handler, MessageHandler):
+                logger.info(f"  - Registered conversation handler with filter: {handler.filters}")
             
-        # Register admin handlers
+        # 4. Register admin handlers
+        logger.info("Registering admin handlers...")
+        admin_handler = AdminHandler(db_manager, persona_manager)
         for handler in admin_handler.get_handlers():
             application.add_handler(handler)
+            
+        # 5. Register deployment admin handlers
+        logger.info("Registering deployment handlers...")
+        register_admin_handlers(application, db_manager=db_manager, persona_manager=persona_manager)
         
+        # 6. Register command handlers for other utility commands
+        logger.info("Registering utility command handlers...")
+        command_handler = CommandsHandler(application)
+        
+        # Log all registered handlers
+        logger.info("Registered handlers summary:")
+        handler_count = 0
+        for group_id, handlers in application.handlers.items():
+            for handler in handlers:
+                handler_count += 1
+                if isinstance(handler, MessageHandler):
+                    logger.info(f"  - Group {group_id}: MessageHandler with filter: {handler.filters}")
+                elif isinstance(handler, CommandHandler):
+                    cmd_str = ', '.join(handler.commands) if isinstance(handler.commands, (list, tuple)) else str(handler.commands)
+                    logger.info(f"  - Group {group_id}: CommandHandler for commands: {cmd_str}")
+                else:
+                    logger.info(f"  - Group {group_id}: Other handler: {type(handler).__name__}")
+        logger.info(f"Total registered handlers: {handler_count}")
+            
         # Schedule periodic cleanup task using job queue
         job_queue = application.job_queue
         if job_queue:

@@ -3,7 +3,10 @@ Gemini API client for Alya Bot with key rotation.
 """
 import logging
 import random
-from typing import Dict, List, Optional, Any
+import time
+import asyncio
+from collections import defaultdict
+from typing import Dict, List, Optional, Any, Tuple
 
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -15,7 +18,6 @@ from config.settings import (
 )
 
 logger = logging.getLogger(__name__)
-
 class GeminiClient:
     """A client for interacting with Google's Gemini API with key rotation."""
 

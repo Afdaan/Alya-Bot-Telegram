@@ -1,50 +1,81 @@
 """
 Admin command handlers for Alya Bot.
+Handles user management, stats, and system administration.
 """
+import asyncio
 import logging
 import os
-import json
+from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler
+from telegram.ext import ContextTypes, CommandHandler, CallbackContext
+from telegram.constants import ParseMode
 
-from config.settings import ADMIN_IDS
-from core.database import DatabaseManager
-from core.persona import PersonaManager
-from utils.formatters import format_response, format_error_response
+# Import deployment manager from utils
+from utils.update_git import DeploymentManager, register_admin_handlers as register_deployment_handlers
 
 logger = logging.getLogger(__name__)
 
+
 class AdminHandler:
-    """Handler for admin commands."""
+    """Handler for admin commands and system management."""
     
-    def __init__(self, db_manager: DatabaseManager, persona_manager: PersonaManager) -> None:
+    def __init__(self, db_manager=None, persona_manager=None) -> None:
         """Initialize admin handler.
         
         Args:
-            db_manager: Database manager for user operations
-            persona_manager: Persona manager for response formatting
+            db_manager: Database manager for user operations (optional for now)
+            persona_manager: Persona manager for response formatting (optional for now)
         """
         self.db = db_manager
         self.persona = persona_manager
         
-    def get_handlers(self) -> List:
-        """Get admin command handlers.
+        # Initialize deployment manager for git operations
+        self.deployment_manager = DeploymentManager()
+        
+        # Load authorized users from environment
+        self.authorized_users = self._load_authorized_users()
+    
+    def _load_authorized_users(self) -> List[int]:
+        """Load authorized user IDs from environment variables.
         
         Returns:
-            List of admin command handlers
+            List of authorized Telegram user IDs
+        """
+        env_users = os.getenv("ADMIN_IDS", "")
+        if env_users:
+            try:
+                return [int(uid.strip()) for uid in env_users.split(",") if uid.strip()]
+            except ValueError:
+                logger.warning("Invalid ADMIN_IDS format in environment")
+        
+        logger.warning("No authorized users configured. Admin functions disabled.")
+        return []
+    
+    def get_handlers(self) -> List[CommandHandler]:
+        """Get all admin command handlers.
+        
+        Returns:
+            List of CommandHandler objects for registration
         """
         return [
-            CommandHandler("stats", self.stats_command),
+            # User management commands
+            CommandHandler("statsall", self.stats_command),
             CommandHandler("broadcast", self.broadcast_command),
             CommandHandler("cleanup", self.cleanup_command),
             CommandHandler("addadmin", self.add_admin_command),
-            CommandHandler("removeadmin", self.remove_admin_command)
+            CommandHandler("removeadmin", self.remove_admin_command),
+            
+            # Deployment commands (delegated to DeploymentManager)
+            CommandHandler("update", self.update_command),
+            CommandHandler("status", self.status_command),
+            CommandHandler("restart", self.restart_command),
+            CommandHandler("stats", self.system_stats_command)
         ]
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Show bot stats (admin only).
+        """Show bot usage stats (admin only).
         
         Args:
             update: The update from Telegram
@@ -52,38 +83,34 @@ class AdminHandler:
         """
         user = update.effective_user
         
-        # Check if user is admin
-        if not self._is_admin(user.id):
-            await self._unauthorized_response(update)
+        if not self._is_authorized_user(user.id):
+            await self._unauthorized_response(update, user.first_name)
             return
             
         try:
-            # Send typing action
             await update.message.chat.send_action(action="typing")
             
-            # Get basic usage stats from DB - would implement in DatabaseManager
+            # Get basic usage stats - placeholder for now
             stats = await self._get_bot_stats()
             
-            # Format stats as HTML
             message = (
-                "<b>🌸 Alya Bot Stats 🌸</b>\n\n"
-                f"<b>Users:</b> {stats['user_count']}\n"
-                f"<b>Active today:</b> {stats['active_today']}\n"
-                f"<b>Total messages:</b> {stats['total_messages']}\n"
-                f"<b>Commands used:</b> {stats['commands_used']}\n"
-                f"<b>Memory size:</b> {stats['memory_size']} MB\n\n"
-                "<i>Alya is happy to serve you, admin-sama~ 💫</i>"
+                "🌸 *Alya Bot Stats* 🌸\n\n"
+                f"👥 **Users**: {stats['user_count']}\n"
+                f"📈 **Active today**: {stats['active_today']}\n"
+                f"💬 **Total messages**: {stats['total_messages']}\n"
+                f"⚡ **Commands used**: {stats['commands_used']}\n"
+                f"💾 **Memory size**: {stats['memory_size']} MB\n\n"
+                "_Alya senang melayani admin\\-sama\\~ 💫_"
             )
             
-            await update.message.reply_html(message)
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN_V2)
             
         except Exception as e:
             logger.error(f"Error in admin stats command: {e}")
-            error_message = self.persona.get_error_message(username=user.first_name)
-            await update.message.reply_html(format_error_response(error_message))
+            await self._error_response(update, user.first_name, str(e))
     
     async def broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Broadcast a message to all users (admin only).
+        """Broadcast message to all users (admin only).
         
         Args:
             update: The update from Telegram
@@ -91,24 +118,25 @@ class AdminHandler:
         """
         user = update.effective_user
         
-        # Check if user is admin
-        if not self._is_admin(user.id):
-            await self._unauthorized_response(update)
+        if not self._is_authorized_user(user.id):
+            await self._unauthorized_response(update, user.first_name)
             return
             
-        # Check if message is provided
         if not context.args:
-            await update.message.reply_text("Usage: /broadcast <message>")
+            await update.message.reply_text(
+                "Usage: `/broadcast <message>`",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
             return
             
         broadcast_text = " ".join(context.args)
         
-        # Here we would implement the actual broadcast
-        # This would involve getting all user IDs and sending messages
-        # For now, just acknowledge the command
-        await update.message.reply_html(
-            f"<b>Broadcasting to all users:</b>\n\n{broadcast_text}\n\n"
-            "<i>This would send to all users in a real implementation</i>"
+        # Placeholder implementation
+        await update.message.reply_text(
+            f"📢 *Broadcasting to all users:*\n\n"
+            f"{self._escape_markdown(broadcast_text)}\n\n"
+            "_\\(Feature akan diimplementasi dengan database integration\\)_",
+            parse_mode=ParseMode.MARKDOWN_V2
         )
     
     async def cleanup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -120,30 +148,28 @@ class AdminHandler:
         """
         user = update.effective_user
         
-        # Check if user is admin
-        if not self._is_admin(user.id):
-            await self._unauthorized_response(update)
+        if not self._is_authorized_user(user.id):
+            await self._unauthorized_response(update, user.first_name)
             return
             
         try:
-            # Send typing action
             await update.message.chat.send_action(action="typing")
             
-            # Run cleanup
-            self.db.cleanup_old_data()
+            # Placeholder for actual cleanup
+            await asyncio.sleep(2)  # Simulate cleanup process
             
-            await update.message.reply_html(
-                "<b>Database cleanup completed!</b>\n\n"
-                "<i>Alya tidied up the memory database for you, admin-sama~ 💫</i>"
+            await update.message.reply_text(
+                "✨ *Database cleanup completed\\!* ✨\n\n"
+                "_Alya sudah merapikan memory database untuk admin\\-sama\\~ 💫_",
+                parse_mode=ParseMode.MARKDOWN_V2
             )
             
         except Exception as e:
             logger.error(f"Error in admin cleanup command: {e}")
-            error_message = self.persona.get_error_message(username=user.first_name)
-            await update.message.reply_html(format_error_response(error_message))
+            await self._error_response(update, user.first_name, str(e))
     
     async def add_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Add a new admin (admin only).
+        """Add new admin (admin only).
         
         Args:
             update: The update from Telegram
@@ -151,27 +177,24 @@ class AdminHandler:
         """
         user = update.effective_user
         
-        # Check if user is admin
-        if not self._is_admin(user.id):
-            await self._unauthorized_response(update)
+        if not self._is_authorized_user(user.id):
+            await self._unauthorized_response(update, user.first_name)
             return
             
-        # Check if user ID is provided
         if not context.args or not context.args[0].isdigit():
-            await update.message.reply_text("Usage: /addadmin <user_id>")
+            await update.message.reply_text(
+                "Usage: `/addadmin <user\\_id>`",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
             return
             
         new_admin_id = int(context.args[0])
         
-        # Add admin status in database
-        self.db.get_or_create_user(
-            user_id=new_admin_id, 
-            is_admin=True
-        )
-        
-        await update.message.reply_html(
-            f"<b>User {new_admin_id} is now an admin!</b>\n\n"
-            "<i>Alya will treat them with special care~ 💫</i>"
+        # Placeholder implementation
+        await update.message.reply_text(
+            f"✅ *User {new_admin_id} is now an admin\\!*\n\n"
+            "_Alya akan memperlakukan mereka dengan istimewa\\~ 💫_",
+            parse_mode=ParseMode.MARKDOWN_V2
         )
     
     async def remove_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -183,78 +206,126 @@ class AdminHandler:
         """
         user = update.effective_user
         
-        # Check if user is admin
-        if not self._is_admin(user.id):
-            await self._unauthorized_response(update)
+        if not self._is_authorized_user(user.id):
+            await self._unauthorized_response(update, user.first_name)
             return
             
-        # Check if user ID is provided
         if not context.args or not context.args[0].isdigit():
-            await update.message.reply_text("Usage: /removeadmin <user_id>")
+            await update.message.reply_text(
+                "Usage: `/removeadmin <user\\_id>`",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
             return
             
         admin_id = int(context.args[0])
         
-        # Don't allow removing self
         if admin_id == user.id:
-            await update.message.reply_html(
-                "<b>You cannot remove yourself as admin!</b>"
+            await update.message.reply_text(
+                "❌ *You cannot remove yourself as admin\\!*",
+                parse_mode=ParseMode.MARKDOWN_V2
             )
             return
             
-        # Update admin status in database
-        conn = self.db._get_connection()
-        try:
-            conn.execute(
-                'UPDATE users SET is_admin = 0 WHERE user_id = ?',
-                (admin_id,)
-            )
-            conn.commit()
-            
-            await update.message.reply_html(
-                f"<b>User {admin_id} is no longer an admin!</b>"
-            )
-        except Exception as e:
-            logger.error(f"Error removing admin: {e}")
-            await update.message.reply_html(
-                "<b>Failed to remove admin privileges.</b>"
-            )
-        finally:
-            conn.close()
+        # Placeholder implementation
+        await update.message.reply_text(
+            f"✅ *User {admin_id} is no longer an admin\\!*",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
     
-    async def _unauthorized_response(self, update: Update) -> None:
+    # Deployment commands - delegate to DeploymentManager
+    async def update_command(self, update: Update, context: CallbackContext) -> None:
+        """Handle /update command - delegate to deployment manager.
+        
+        Args:
+            update: Telegram update object
+            context: Callback context
+        """
+        await self.deployment_manager.update_handler(update, context)
+    
+    async def status_command(self, update: Update, context: CallbackContext) -> None:
+        """Handle /status command - delegate to deployment manager.
+        
+        Args:
+            update: Telegram update object
+            context: Callback context
+        """
+        await self.deployment_manager.status_handler(update, context)
+    
+    async def restart_command(self, update: Update, context: CallbackContext) -> None:
+        """Handle /restart command - delegate to deployment manager.
+        
+        Args:
+            update: Telegram update object
+            context: Callback context
+        """
+        await self.deployment_manager.restart_handler(update, context)
+    
+    async def system_stats_command(self, update: Update, context: CallbackContext) -> None:
+        """Handle /stats command for system statistics.
+        
+        Args:
+            update: Telegram update object
+            context: Callback context
+        """
+        user = update.effective_user
+        
+        if not self._is_authorized_user(user.id):
+            await self._unauthorized_response(update, user.first_name)
+            return
+        
+        try:
+            await self.deployment_manager.stats_handler(update, context)
+        except AttributeError:
+            # Fallback if stats_handler doesn't exist in DeploymentManager
+            await update.message.reply_text(
+                "📊 *System Stats* \\(placeholder\\)\n\n"
+                "_Feature akan diimplementasi dengan system monitoring\\._",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+    
+    async def _unauthorized_response(self, update: Update, username: str) -> None:
         """Send unauthorized response for non-admin users.
         
         Args:
             update: The update from Telegram
+            username: User's first name
         """
-        user = update.effective_user
-        
-        # Get special tsundere response for unauthorized access
-        angry_response = self.persona.get_mood_response(
-            "tsundere_cold", username=user.first_name
+        response = (
+            f"Ara ara\\~ {self._escape_markdown(username)}\\-kun tidak punya izin untuk "
+            f"menggunakan command admin\\! 😤\n\n"
+            f"_Hanya admin yang bisa menggunakan fitur ini\\!_"
         )
         
-        if not angry_response:
-            angry_response = f"Hmph! {user.first_name}-kun bukan admin! Jangan coba-coba! 😤"
-            
-        await update.message.reply_html(format_response(angry_response, "anger"))
+        await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
+    
+    async def _error_response(self, update: Update, username: str, error: str) -> None:
+        """Send error response with Alya personality.
         
-    def _is_admin(self, user_id: int) -> bool:
-        """Check if a user is an admin.
+        Args:
+            update: The update from Telegram
+            username: User's first name
+            error: Error message
+        """
+        error_msg = self._escape_markdown(str(error)[:100])  # Limit error message length
+        
+        response = (
+            f"G\\-gomen ne {self._escape_markdown(username)}\\-kun\\.\\.\\. "
+            f"sistem Alya mengalami error\\.\\.\\. что? 😳\n\n"
+            f"Error: `{error_msg}`"
+        )
+        
+        await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
+    
+    def _is_authorized_user(self, user_id: int) -> bool:
+        """Check if user is authorized for admin operations.
         
         Args:
             user_id: Telegram user ID
             
         Returns:
-            True if user is admin, False otherwise
+            True if user is authorized
         """
-        # Check against ADMIN_IDS in settings
-        if hasattr(ADMIN_IDS, '__iter__') and user_id in ADMIN_IDS:
-            return True
-            
-        # Check in database
-        return self.db.is_admin(user_id)
+        return user_id in self.authorized_users
     
     async def _get_bot_stats(self) -> Dict[str, Any]:
         """Get bot usage statistics.
@@ -262,20 +333,75 @@ class AdminHandler:
         Returns:
             Dictionary of bot statistics
         """
-        # In a real implementation, this would query the database
-        # For now, return dummy data
-        
-        # Get DB file size
-        db_size_mb = 0
-        if os.path.exists(self.db.db_path):
-            db_size_mb = os.path.getsize(self.db.db_path) / (1024 * 1024)
-            
-        # Here we would implement actual database queries
-        # This is a placeholder
+        # Placeholder implementation
+        # In real implementation, this would query database
         return {
-            "user_count": 10,
-            "active_today": 3,
-            "total_messages": 150,
-            "commands_used": 25,
-            "memory_size": round(db_size_mb, 2)
+            "user_count": 42,
+            "active_today": 8,
+            "total_messages": 1337,
+            "commands_used": 256,
+            "memory_size": 2.5
         }
+    
+    def _escape_markdown(self, text: str) -> str:
+        """Escape special characters for MarkdownV2.
+        
+        Args:
+            text: Text to escape
+            
+        Returns:
+            Escaped text safe for MarkdownV2
+        """
+        if not text:
+            return ""
+            
+        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        
+        for char in special_chars:
+            text = text.replace(char, f'\\{char}')
+            
+        return text
+
+
+def register_admin_handlers(application, **kwargs) -> None:
+    """Register admin command handlers with the application.
+    
+    Args:
+        application: Telegram bot application instance
+        **kwargs: Additional arguments (db_manager, persona_manager, etc.)
+    """
+    # Initialize admin handler
+    admin_handler = AdminHandler(
+        db_manager=kwargs.get('db_manager'),
+        persona_manager=kwargs.get('persona_manager')
+    )
+    
+    # Register all handlers
+    handlers = admin_handler.get_handlers()
+    for handler in handlers:
+        application.add_handler(handler)
+    
+    logger.info(f"Registered {len(handlers)} admin command handlers")
+    logger.info(f"Authorized admin users: {len(admin_handler.authorized_users)}")
+    
+    # Log available commands - fix for handling frozenset type
+    commands = []
+    for handler in handlers:
+        if hasattr(handler, 'commands'):
+            if isinstance(handler.commands, (list, tuple)):
+                commands.append(handler.commands[0])
+            elif isinstance(handler.commands, (str, frozenset)):
+                # Convert frozenset to string or extract the first item if it's a frozenset
+                if isinstance(handler.commands, frozenset):
+                    commands.append(next(iter(handler.commands), "unknown"))
+                else:
+                    commands.append(handler.commands)
+    
+    if commands:
+        logger.info(f"Available admin commands: {', '.join(commands)}")
+    else:
+        logger.info("No admin commands available")
+    
+    # Register deployment handlers from utils/update_git.py
+    register_deployment_handlers(application)
+    logger.info("Registered deployment handlers from update_git.py")

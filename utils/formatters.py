@@ -27,6 +27,52 @@ def escape_html(text: str) -> str:
     """
     return html.escape(text)
 
+def escape_markdown_v2(text: str) -> str:
+    """Escape special characters for Telegram's MarkdownV2 format.
+    
+    Args:
+        text: Raw text to escape
+        
+    Returns:
+        Text with special characters escaped for MarkdownV2
+    """
+    if not text:
+        return ""
+        
+    # Special characters that need to be escaped in MarkdownV2
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    
+    # Escape each special character with a backslash
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+        
+    return text
+
+def format_markdown_response(text: str, username: Optional[str] = None,
+                           telegram_username: Optional[str] = None,
+                           mentioned_username: Optional[str] = None,
+                           mentioned_text: Optional[str] = None) -> str:
+    """Format bot response with proper spacing and styling."""
+    if not text:
+        return ""
+
+    # Handle substitutions
+    substitutions = {
+        '{username}': username,
+        '{telegram_username}': telegram_username,
+        '{mentioned_username}': mentioned_username,
+        '{mentioned_text}': mentioned_text
+    }
+    
+    # Replace variables
+    for placeholder, value in substitutions.items():
+        if value:
+            escaped_value = escape_markdown_v2(str(value))
+            text = text.replace(placeholder, escaped_value)
+
+    # Use Alya response formatter
+    return format_response(text)
+
 def detect_roleplay(text: str) -> Tuple[str, Optional[str]]:
     """Detect and extract roleplay actions from text.
     
@@ -103,30 +149,11 @@ def format_response(
     persona = persona_manager.get_persona(persona_name)
     
     # Replace username and target placeholders if not already formatted with HTML
-    if "<" not in message:
-        if "{username}" in message:
-            message = message.format(username=username)
-        if target_name and "{target}" in message:
-            message = message.format(target=target_name)
+    if "{username}" in message:
+        message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
+    if target_name and "{target}" in message:
+        message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
     
-    # For roasting responses with existing HTML, preserve the HTML formatting
-    if "<b>" in message or "<i>" in message:
-        # Check if roleplay is already formatted in HTML
-        existing_roleplay_match = re.search(r'<i>\((.*?)\)</i>', message)
-        if existing_roleplay_match:
-            existing_roleplay = existing_roleplay_match.group(0)
-            message = re.sub(r'<i>\(.*?\)</i>', '', message, count=1).strip()
-            
-            # Split into paragraphs
-            paragraphs = [p for p in message.split('\n\n') if p.strip()]
-            
-            # Build final response, preserving HTML
-            result = [existing_roleplay]
-            result.extend(paragraphs)
-            
-            # Join with double newlines
-            return "\n\n".join(result)
-        
     # Extract existing roleplay if any
     message, existing_roleplay = detect_roleplay(message)
     
@@ -169,11 +196,15 @@ def format_response(
         expressions = mood_data.get("expressions", [])
         if expressions:
             roleplay = random.choice(expressions)
+            if "{username}" in roleplay:
+                roleplay = roleplay.replace("{username}", username)
         else:
             # Fallback when no expressions found for this mood/emotion
-            roleplay = "menatap {username}"
+            roleplay = f"menatap {username}"
     else:
         roleplay = existing_roleplay
+        if roleplay and "{username}" in roleplay:
+            roleplay = roleplay.replace("{username}", username)
     
     # Get emoji based on persona
     if not extracted_emojis and emotion != "neutral" and FORMAT_EMOTION:
@@ -187,11 +218,14 @@ def format_response(
         # Add emoji if found in persona
         if emoji_options:
             selected_emoji = random.choice(emoji_options)
+            # Don't escape emojis
             main_message = f"{main_message} {selected_emoji}"
     
-    # Get optional Russian expression from persona
+    # Process Russian expressions
+    russian_expr = None
+    romaji = None
     if FORMAT_RUSSIAN and random.random() < 0.3:  # Only add Russian 30% of the time
-        russian_triggers = {}
+        russian_triggers = []
         
         # Try to find Russian expressions for this mood/emotion
         for persona_mood, mood_data in persona.get("emotions", {}).items():
@@ -199,22 +233,16 @@ def format_response(
                 russian_triggers = mood_data.get("russian_triggers", [])
                 break
         
-        # If found in persona, add to optional messages
+        # If found in persona, get a random expression
         if russian_triggers:
             russian_expr = random.choice(russian_triggers) if russian_triggers else None
-            if russian_expr and len(optional_messages) < 2:
+            if russian_expr:
                 # Look up romaji from global config if available
                 for emotion_key, expressions in RUSSIAN_EXPRESSIONS.items():
                     if russian_expr in expressions.get("expressions", []):
                         idx = expressions["expressions"].index(russian_expr)
                         romaji = expressions["romaji"][idx] if idx < len(expressions["romaji"]) else None
-                        if romaji:
-                            russian_text = f"{russian_expr} ({romaji})"
-                            optional_messages.append(f"({russian_text})")
-                            break
-                else:
-                    # If not found, just use the expression
-                    optional_messages.append(f"({russian_expr})")
+                        break
     
     # Generate mood display based on persona language data
     mood_display = None
@@ -246,29 +274,60 @@ def format_response(
             }
             mood_display = mood_descriptions.get(mood, mood.replace("_", " "))
     
-    # Build the formatted response according to the specified format
+    # Build the formatted response with proper HTML tags
     result = []
     
     # 1. Add roleplay in italic if present
     if roleplay:
-        # Format roleplay with username
-        roleplay_text = roleplay.format(username=username) if "{username}" in roleplay else roleplay
-        result.append(f"<i>{escape_html(roleplay_text)}</i>")
+        result.append(f"<i>{escape_html(roleplay)}</i>")
     
-    # 2. Add main message
-    result.append(escape_html(main_message))
+    # 2. Add main message with Russian expression if present
+    main_content = main_message
+    if russian_expr:
+        # Insert Russian expression with italic formatting
+        if romaji:
+            main_content = main_content.replace("*Что ты говоришь?!*", f"<i>{russian_expr}</i> ({romaji})")
+            main_content = main_content.replace(f"*{russian_expr}*", f"<i>{russian_expr}</i> ({romaji})")
+        
+        # Process any remaining *text* patterns as italic
+        main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_content)
+    else:
+        # Process *text* patterns as italic
+        main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_content)
+    
+    # Apply bold formatting for name emphasis, preserving italic tags
+    main_content = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', main_content)
+    
+    # Ensure we're not double-escaping after applying formatting
+    if "<i>" in main_content or "<b>" in main_content:
+        # Don't escape content that already has HTML tags
+        result.append(main_content)
+    else:
+        # Escape regular content
+        result.append(escape_html(main_content))
     
     # 3. Add optional messages (limited to keep responses shorter)
     for opt_msg in optional_messages:
         if opt_msg.strip():
-            result.append(escape_html(opt_msg))
+            # Process *text* patterns as italic
+            opt_msg = re.sub(r'\*(.*?)\*', r'<i>\1</i>', opt_msg)
+            
+            if "<i>" in opt_msg or "<b>" in opt_msg:
+                # Don't escape content that already has HTML tags
+                result.append(opt_msg)
+            else:
+                # Escape regular content
+                result.append(escape_html(opt_msg))
     
     # 4. Add mood description in italic at the bottom
     if mood_display:
         result.append(f"<i>{escape_html(mood_display)}</i>")
     
     # Join all parts with line breaks
-    return "\n\n".join(result)
+    formatted_response = "\n\n".join(result)
+    
+    # Final safety check to ensure we don't have double HTML tags
+    return formatted_response
 
 def format_error_response(error_message: str, username: str = "user") -> str:
     """Format an error response with appropriate tone.
@@ -280,9 +339,9 @@ def format_error_response(error_message: str, username: str = "user") -> str:
     Returns:
         Formatted HTML error response
     """
-    # Replace username placeholder
+    # Replace username placeholder with bold formatting
     if "{username}" in error_message:
-        error_message = error_message.format(username=username)
+        error_message = error_message.replace("{username}", f"<b>{escape_html(username)}</b>")
         
     # Initialize persona manager to get persona-appropriate error expressions
     persona_manager = PersonaManager()
@@ -296,6 +355,8 @@ def format_error_response(error_message: str, username: str = "user") -> str:
     expressions = apologetic_mood.get("expressions", [])
     if expressions:
         roleplay = random.choice(expressions)
+        if "{username}" in roleplay:
+            roleplay = roleplay.replace("{username}", username)
     
     # Format according to the specified pattern
     result = [

@@ -12,6 +12,7 @@ load_dotenv()
 BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_NAME: str = "Alya"
 COMMAND_PREFIX: str = "!ai"
+SAUCENAO_PREFIX: str = "!sauce"
 DEFAULT_LANGUAGE: str = "id"  # Options: "id", "en"
 
 # Admin Settings
@@ -31,6 +32,9 @@ TEMPERATURE: float = 0.7
 TOP_K: int = 40
 TOP_P: float = 0.95
 
+# SauceNAO API KEY
+SAUCENAO_API_KEY: Optional[str] = os.getenv("SAUCENAO_API_KEY", True)
+
 # Database Settings
 DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///data/alya.db")
 SQLITE_DB_PATH: str = os.getenv("SQLITE_DB_PATH", "data/alya.db")
@@ -41,6 +45,11 @@ SLIDING_WINDOW_SIZE: int = 25  # Number of messages before sliding the window
 MEMORY_EXPIRY_DAYS: int = 7
 RAG_CHUNK_SIZE: int = 3000
 RAG_CHUNK_OVERLAP: int = 300
+
+# Memory management settings
+MEMORY_EXPIRY_DAYS: int = 7  # How long to keep raw conversation history
+MAX_CONTEXT_MESSAGES: int = 10  # Max messages to include in context window
+SUMMARY_INTERVAL: int = 3  # Days between conversation summarizations
 
 # Logging Settings
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "WARNING")  # Changed to WARNING
