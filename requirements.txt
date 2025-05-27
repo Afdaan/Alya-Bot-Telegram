@@ -1,14 +1,28 @@
+# Core Telegram Bot
 python-telegram-bot[job-queue]==20.7
+
+# AI/LLM Services
 google-generativeai>=0.3.0
-PyYAML>=6.0
-python-dotenv>=1.0.0
+llama-cpp-python>=0.3.9
+
+# NLP & ML
 transformers>=4.35.0
 torch>=2.0.0
 numpy>=1.24.0
 sentence-transformers>=2.2.2
-emoji>=2.8.0
+
+# Database & Storage
+sqlalchemy>=2.0.41
+chromadb>=0.4.0
+
+# Configuration & Utils
+PyYAML>=6.0
+python-dotenv>=1.0.0
 pydantic>=2.4.0
 aiohttp>=3.12.2
 emoji>=2.8.0
-sqlalchemy>=2.0.41
-lllama-cpp-python>0.3.9
+
+# Optional: For advanced features
+requests>=2.31.0
+pillow>=10.0.0
+qrcode>=7.4.2
