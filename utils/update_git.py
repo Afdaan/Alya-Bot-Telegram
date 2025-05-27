@@ -1,4 +1,4 @@
-"""Update """
+"""Update Git and manage Alya Bot deployment via Telegram commands."""
 
 import asyncio
 import logging
@@ -122,8 +122,8 @@ class DeploymentManager:
         # Security check - only allow authorized users
         if not self._is_authorized_user(user_id):
             await update.message.reply_text(
-                f"Ara ara~ *{self._escape_markdown(username)}*\\-kun tidak punya izin untuk melakukan update sistem\\! 😤",
-                parse_mode=ParseMode.MARKDOWN_V2
+                f"Ara ara~ <b>{html.escape(username)}</b>-kun tidak punya izin untuk melakukan update sistem! 😤",
+                parse_mode=ParseMode.HTML
             )
             return
         
@@ -134,15 +134,15 @@ class DeploymentManager:
         # Validate branch name
         if not self._is_valid_branch_name(branch):
             await update.message.reply_text(
-                f"Branch name tidak valid\\! что?\\! 😳\n\n"
-                f"Gunakan: `/update \\[branch\\-name\\]`",
-                parse_mode=ParseMode.MARKDOWN_V2
+                f"Branch name tidak valid! что?! 😳\n\n"
+                f"Gunakan: <code>/update [branch-name]</code>",
+                parse_mode=ParseMode.HTML
             )
             return
         
         await update.message.reply_text(
-            f"Alya sedang mempersiapkan update sistem dari branch `{self._escape_markdown(branch)}`\\.\\.\\. 💫",
-            parse_mode=ParseMode.MARKDOWN_V2
+            f"Alya sedang mempersiapkan update sistem dari branch <code>{html.escape(branch)}</code>... 💫",
+            parse_mode=ParseMode.HTML
         )
         
         try:
@@ -150,32 +150,32 @@ class DeploymentManager:
             git_result = await self._perform_git_update(branch)
             
             if not git_result["success"]:
-                error_msg = self._escape_markdown(git_result.get("error", "Unknown error"))
+                error_msg = html.escape(git_result.get("error", "Unknown error"))
                 await update.message.reply_text(
-                    f"Git update gagal\\! что?\\! 😳\n\n"
-                    f"Error: `{error_msg}`",
-                    parse_mode=ParseMode.MARKDOWN_V2
+                    f"Git update gagal! что?! 😳\n\n"
+                    f"Error: <code>{error_msg}</code>",
+                    parse_mode=ParseMode.HTML
                 )
                 return
             
             # Step 2: Generate commit log
-            commit_log = await self._generate_commit_log()
+            commit_log = await self._generate_commit_log_html()
             
             # Step 3: Restart bot via tmux
             restart_result = await self._restart_bot_tmux()
             
             # Step 4: Send status message
-            await self._send_update_status(
+            await self._send_update_status_html(
                 update, branch, restart_result, commit_log, git_result
             )
             
         except Exception as e:
             logger.error(f"Deployment update failed: {e}")
-            error_msg = self._escape_markdown(str(e))
+            error_msg = html.escape(str(e))
             await update.message.reply_text(
-                f"Update sistem error\\! дурак система\\! 😤\n\n"
-                f"Error: `{error_msg}`",
-                parse_mode=ParseMode.MARKDOWN_V2
+                f"Update sistem error! дурак система! 😤\n\n"
+                f"Error: <code>{error_msg}</code>",
+                parse_mode=ParseMode.HTML
             )
     
     async def status_handler(self, update: Update, context: CallbackContext) -> None:
@@ -200,35 +200,35 @@ class DeploymentManager:
             
             # Format status message
             status_lines = [
-                "🔍 *Status Sistem Alya Bot*",
-                f"📁 Project Path: `{self._escape_markdown(str(self.project_path))}`",
-                f"📂 Current Branch: `{self._escape_markdown(current_branch or 'Unknown')}`",
+                "🔍 <b>Status Sistem Alya Bot</b>",
+                f"📁 Project Path: <code>{html.escape(str(self.project_path))}</code>",
+                f"📂 Current Branch: <code>{html.escape(current_branch or 'Unknown')}</code>",
                 f"📊 Git Status: {git_status['message']}",
-                f"🖥️ Tmux Session: {tmux_status['message']} \\(`{self._escape_markdown(self.tmux_session)}`\\)",
+                f"🖥️ Tmux Session: {tmux_status['message']} (<code>{html.escape(self.tmux_session)}</code>)",
                 f"👥 Admin Users: {len(self.authorized_users)} configured",
-                f"⏰ Checked at: {datetime.now().strftime('%Y\\-%m\\-%d %H:%M:%S')}"
+                f"⏰ Checked at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             ]
             
             if project_info:
                 status_lines.insert(2, project_info)
             
             if git_status.get("modified_files"):
-                status_lines.append("\n📝 *Modified Files:*")
+                status_lines.append("\n📝 <b>Modified Files:</b>")
                 for file_path in git_status["modified_files"][:5]:  # Show max 5 files
-                    status_lines.append(f"• `{self._escape_markdown(file_path)}`")
+                    status_lines.append(f"• <code>{html.escape(file_path)}</code>")
             
             await update.message.reply_text(
                 '\n'.join(status_lines),
-                parse_mode=ParseMode.MARKDOWN_V2
+                parse_mode=ParseMode.HTML
             )
             
         except Exception as e:
             logger.error(f"Status check failed: {e}")
-            error_msg = self._escape_markdown(str(e))
+            error_msg = html.escape(str(e))
             await update.message.reply_text(
-                f"Error checking status\\! дурак система\\! 😤\n\n"
-                f"Error: `{error_msg}`",
-                parse_mode=ParseMode.MARKDOWN_V2
+                f"Error checking status! дурак система! 😤\n\n"
+                f"Error: <code>{error_msg}</code>",
+                parse_mode=ParseMode.HTML
             )
     
     async def restart_handler(self, update: Update, context: CallbackContext) -> None:
@@ -244,8 +244,8 @@ class DeploymentManager:
         # Security check
         if not self._is_authorized_user(user_id):
             await update.message.reply_text(
-                f"Ara ara~ *{self._escape_markdown(username)}*\\-kun tidak punya izin untuk restart sistem\\! 😤",
-                parse_mode=ParseMode.MARKDOWN_V2
+                f"Ara ara~ <b>{html.escape(username)}</b>-kun tidak punya izin untuk restart sistem! 😤",
+                parse_mode=ParseMode.HTML
             )
             return
         
@@ -254,27 +254,27 @@ class DeploymentManager:
             
             if result["success"]:
                 await update.message.reply_text(
-                    "✨ *Bot berhasil direstart\\!* ✨\n\n"
-                    f"🔄 Tmux session: `{self._escape_markdown(self.tmux_session)}`\n"
-                    f"📁 Project path: `{self._escape_markdown(str(self.project_path))}`\n"
-                    f"⏰ Restart time: {datetime.now().strftime('%Y\\-%m\\-%d %H:%M:%S')}",
-                    parse_mode=ParseMode.MARKDOWN_V2
+                    f"✨ Bot berhasil direstart! ✨\n\n"
+                    f"🔄 Tmux session: <code>{html.escape(self.tmux_session)}</code>\n"
+                    f"📁 Project path: <code>{html.escape(str(self.project_path))}</code>\n"
+                    f"⏰ Restart time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    parse_mode=ParseMode.HTML
                 )
             else:
-                error_msg = self._escape_markdown(result.get("error", "Unknown error"))
+                error_msg = html.escape(result.get("error", "Unknown error"))
                 await update.message.reply_text(
-                    f"❌ Restart gagal\\! что?\\! 😳\n\n"
-                    f"Error: `{error_msg}`",
-                    parse_mode=ParseMode.MARKDOWN_V2
+                    f"❌ Restart gagal! что?! 😳\n\n"
+                    f"Error: <code>{error_msg}</code>",
+                    parse_mode=ParseMode.HTML
                 )
                 
         except Exception as e:
             logger.error(f"Restart failed: {e}")
-            error_msg = self._escape_markdown(str(e))
+            error_msg = html.escape(str(e))
             await update.message.reply_text(
-                f"Restart error\\! дурак система\\! 😤\n\n"
-                f"Error: `{error_msg}`",
-                parse_mode=ParseMode.MARKDOWN_V2
+                f"Restart error! дурак система! 😤\n\n"
+                f"Error: <code>{error_msg}</code>",
+                parse_mode=ParseMode.HTML
             )
     
     def _get_project_info(self) -> Optional[str]:
@@ -604,58 +604,89 @@ class DeploymentManager:
         except Exception:
             return None
     
-async def _send_update_status(self, update: Update, branch: str, 
-                           restart_result: Dict[str, any], commit_log: str,
-                           git_result: Dict[str, any]) -> None:
-    """Send update status message to user.
-    
-    Args:
-        update: Telegram update object
-        branch: Git branch name
-        restart_result: Result from bot restart
-        commit_log: Formatted commit log
-        git_result: Result from git operations
-    """
-    # Pre-escape all strings that will be used in f-strings to avoid
-    # backslashes inside f-string expressions (not supported in Python 3.6)
-    safe_branch = self._escape_markdown(branch)
-    safe_path = self._escape_markdown(str(self.project_path))
-    safe_session = self._escape_markdown(self.tmux_session)
-    date_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    safe_date = self._escape_markdown(date_time)
-    
-    if restart_result["success"]:
-        status_message = (
-            "✨ *Update berhasil\\!* ✨\n\n"
-            f"📂 Branch: `{safe_branch}`\n"
-            f"📁 Path: `{safe_path}`\n"
-            f"🔄 Bot direstart via tmux: `{safe_session}`\n"
-            f"⏰ Waktu: {safe_date}\n\n"
-            f"{commit_log}"
-        )
-    else:
-        error_msg = self._escape_markdown(restart_result.get("error", "Unknown error"))
-        # Prepare tmux commands separately to avoid backslash issues in f-strings
-        tmux_cmd1 = "tmux send-keys -t " + self.tmux_session + " C-c"
-        tmux_cmd2 = "tmux send-keys -t " + self.tmux_session + " 'python main.py' Enter"
-        safe_cmd1 = self._escape_markdown(tmux_cmd1)
-        safe_cmd2 = self._escape_markdown(tmux_cmd2)
+    async def _send_update_status(self, update: Update, branch: str, 
+                                restart_result: Dict[str, any], commit_log: str,
+                                git_result: Dict[str, any]) -> None:
+        """Send update status message to user.
         
-        status_message = (
-            "⚠️ *Update git berhasil, tapi restart gagal\\!* ⚠️\n\n"
-            f"📂 Branch: `{safe_branch}`\n"
-            f"📁 Path: `{safe_path}`\n"
-            f"❌ Tmux error: `{error_msg}`\n\n"
-            f"{commit_log}\n\n"
-            "_Silakan restart manual dengan:_\n"
-            f"`{safe_cmd1}`\n"
-            f"`{safe_cmd2}`"
+        Args:
+            update: Telegram update object
+            branch: Git branch name
+            restart_result: Result from bot restart
+            commit_log: Formatted commit log
+            git_result: Result from git operations
+        """
+        # Pre-escape all strings yang akan dipakai di f-string untuk menghindari
+        # backslash di dalam expression f-string (tidak didukung di Python 3.6)
+        safe_branch = self._escape_markdown(branch)
+        safe_path = self._escape_markdown(str(self.project_path))
+        safe_session = self._escape_markdown(self.tmux_session)
+        date_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        safe_date = self._escape_markdown(date_time)
+        
+        if restart_result["success"]:
+            status_message = (
+                "✨ *Update berhasil\\!* ✨\n\n"
+                f"📂 Branch: `{safe_branch}`\n"
+                f"📁 Path: `{safe_path}`\n"
+                f"🔄 Bot direstart via tmux: `{safe_session}`\n"
+                f"⏰ Waktu: {safe_date}\n\n"
+                f"{commit_log}"
+            )
+        else:
+            error_msg = self._escape_markdown(restart_result.get("error", "Unknown error"))
+            # Buat tmux commands secara terpisah untuk menghindari backslash dalam f-string
+            tmux_cmd1 = "tmux send-keys -t " + self.tmux_session + " C-c"
+            tmux_cmd2 = "tmux send-keys -t " + self.tmux_session + " 'python main.py' Enter"
+            safe_cmd1 = self._escape_markdown(tmux_cmd1)
+            safe_cmd2 = self._escape_markdown(tmux_cmd2)
+            
+            status_message = (
+                "⚠️ *Update git berhasil, tapi restart gagal\\!* ⚠️\n\n"
+                f"📂 Branch: `{safe_branch}`\n"
+                f"📁 Path: `{safe_path}`\n"
+                f"❌ Tmux error: `{error_msg}`\n\n"
+                f"{commit_log}\n\n"
+                "_Silakan restart manual dengan:_\n"
+                f"`{safe_cmd1}`\n"
+                f"`{safe_cmd2}`"
+            )
+        
+        await update.message.reply_text(
+            status_message,
+            parse_mode=ParseMode.MARKDOWN_V2
         )
     
-    await update.message.reply_text(
-        status_message,
-        parse_mode=ParseMode.MARKDOWN_V2
-    )
+    async def _send_update_status_html(self, update: Update, branch: str, 
+                                restart_result: Dict[str, any], commit_log: str,
+                                git_result: Dict[str, any]) -> None:
+        """Send update status message to user in HTML format."""
+        if restart_result["success"]:
+            status_message = (
+                "✨ <b>Update berhasil!</b> ✨<br><br>"
+                f"📂 Branch: <code>{html.escape(branch)}</code><br>"
+                f"📁 Path: <code>{html.escape(str(self.project_path))}</code><br>"
+                f"🔄 Bot direstart via tmux: <code>{html.escape(self.tmux_session)}</code><br>"
+                f"⏰ Waktu: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br><br>"
+                f"{commit_log}"
+            )
+        else:
+            error_msg = html.escape(restart_result.get("error", "Unknown error"))
+            status_message = (
+                "⚠️ <b>Update git berhasil, tapi restart gagal!</b> ⚠️<br><br>"
+                f"📂 Branch: <code>{html.escape(branch)}</code><br>"
+                f"📁 Path: <code>{html.escape(str(self.project_path))}</code><br>"
+                f"❌ Tmux error: <code>{error_msg}</code><br><br>"
+                f"{commit_log}<br><br>"
+                f"<i>Silakan restart manual dengan:</i><br>"
+                f"<code>tmux send-keys -t {html.escape(self.tmux_session)} C-c</code><br>"
+                f"<code>tmux send-keys -t {html.escape(self.tmux_session)} 'python main.py' Enter</code>"
+            )
+        
+        await update.message.reply_text(
+            status_message,
+            parse_mode=ParseMode.HTML
+        )
     
     def _is_authorized_user(self, user_id: int) -> bool:
         """Check if user is authorized to perform admin operations.
@@ -725,6 +756,57 @@ async def _send_update_status(self, update: Update, branch: str,
         
         return None
     
+    async def _generate_commit_log_html(self) -> str:
+        """Generate formatted commit log for Telegram message in HTML."""
+        try:
+            log_result = await self._run_git_command([
+                "git", "log", f"--max-count={self.max_commit_display}", 
+                "--pretty=format:%h|%an|%s|%ar"
+            ])
+            
+            if not log_result["success"]:
+                return "❌ Gagal mengambil commit log"
+            
+            commits = log_result["output"].strip().split('\n')
+            
+            if not commits or commits == ['']:
+                return "📝 Tidak ada commit terbaru"
+            
+            commit_lines = ["🔄 <b>Recent Commits:</b><br>"]
+            
+            for commit in commits[:self.max_commit_display]:
+                if not commit.strip():
+                    continue
+                    
+                parts = commit.split('|')
+                if len(parts) >= 4:
+                    hash_short = parts[0]
+                    author = parts[1]
+                    message = parts[2]
+                    time_ago = parts[3]
+                    
+                    # Truncate long commit messages
+                    if len(message) > 50:
+                        message = message[:47] + "..."
+                    
+                    # Escape for HTML
+                    hash_escaped = html.escape(hash_short)
+                    author_escaped = html.escape(author)
+                    message_escaped = html.escape(message)
+                    time_escaped = html.escape(time_ago)
+                    
+                    commit_lines.append(
+                        f"<code>{hash_escaped}</code> <b>{author_escaped}</b><br>"
+                        f"└─ {message_escaped}<br>"
+                        f"   <i>{time_escaped}</i><br>"
+                    )
+            
+            return '<br>'.join(commit_lines)
+            
+        except Exception as e:
+            logger.error(f"Failed to generate commit log: {e}")
+            return f"❌ Error generating commit log: <code>{html.escape(str(e))}</code>"
+
 def register_admin_handlers(application, tmux_session: Optional[str] = None) -> None:
     """Register admin command handlers with the application.
     
