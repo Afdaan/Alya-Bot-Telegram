@@ -1,68 +1,80 @@
 """
-SQLAlchemy models for database storage.
+Database models for Alya Bot.
 """
 import json
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, List, Optional
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Float
+from sqlalchemy.orm import relationship
 
-Base = declarative_base()
+from database.session import Base
 
 class User(Base):
     """User model for storing user information."""
     
     __tablename__ = "users"
     
-    id = Column(Integer, primary_key=True)
-    username = Column(String(255), nullable=True)
-    first_name = Column(String(255), nullable=True)
-    last_name = Column(String(255), nullable=True)
-    language_code = Column(String(10), default="id")
-    last_interaction = Column(DateTime, default=datetime.now)
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, nullable=True)
+    first_name = Column(String)
+    last_name = Column(String, nullable=True)
+    is_admin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_interaction = Column(DateTime, default=datetime.utcnow)
+    relationship_level = Column(Integer, default=0)
+    relationship_progress = Column(Float, default=0.0)
+    affection_points = Column(Integer, default=0)
+    last_mood = Column(String, nullable=True)
     
-    # Stored as JSON in db
-    preferences = Column(JSON, default=lambda: {})
-    topics_discussed = Column(JSON, default=lambda: [])
-    relationship_score = Column(Integer, default=0)
-    
-    def __repr__(self) -> str:
-        """String representation of User object."""
-        return f"<User(id={self.id}, username={self.username})>"
-
+    # Define relationships
+    conversations = relationship("Conversation", back_populates="user")
+    summaries = relationship("ConversationSummary", back_populates="user")
 
 class Conversation(Base):
-    """Model for storing conversation history."""
+    """Conversation model for storing message history."""
     
     __tablename__ = "conversations"
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    message = Column(Text, nullable=False)
-    is_user = Column(Boolean, default=True)  # True for user messages, False for bot
-    timestamp = Column(DateTime, default=datetime.now)
+    role = Column(String)  # 'user' or 'assistant'
+    content = Column(Text)
+    timestamp = Column(DateTime, default=datetime.utcnow)
     
-    # Stored as JSON in db - holds emotions, topics, etc.
-    metadata = Column(JSON, default=lambda: {})
+    # Define relationships
+    user = relationship("User", back_populates="conversations")
     
-    def __repr__(self) -> str:
-        """String representation of Conversation object."""
-        sender = "User" if self.is_user else "Bot"
-        return f"<Conversation(id={self.id}, user_id={self.user_id}, sender={sender})>"
-
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API use."""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "role": self.role,
+            "content": self.content,
+            "timestamp": self.timestamp.isoformat(),
+        }
 
 class ConversationSummary(Base):
-    """Model for storing summarized conversation history."""
+    """Summary of conversation for long-term memory."""
     
     __tablename__ = "conversation_summaries"
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    content = Column(Text, nullable=False)  # The summarized content
-    message_count = Column(Integer, default=0)  # How many messages were summarized
-    created_at = Column(DateTime, default=datetime.now)
+    summary = Column(Text)
+    key_topics = Column(Text)  # JSON-encoded list of topics
+    created_at = Column(DateTime, default=datetime.utcnow)
     
-    def __repr__(self) -> str:
-        """String representation of ConversationSummary object."""
-        return f"<ConversationSummary(id={self.id}, user_id={self.user_id})>"
+    # Define relationships
+    user = relationship("User", back_populates="summaries")
+    
+    def get_topics(self) -> List[str]:
+        """Get key topics as list."""
+        if not self.key_topics:
+            return []
+        return json.loads(self.key_topics)
+    
+    def set_topics(self, topics: List[str]) -> None:
+        """Set key topics from list."""
+        self.key_topics = json.dumps(topics)

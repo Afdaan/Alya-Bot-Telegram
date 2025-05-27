@@ -21,16 +21,28 @@ ADMIN_IDS: Set[int] = set()
 admin_id_str = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = {int(id_str.strip()) for id_str in admin_id_str.split(',') if id_str.strip()}
 
+# LLM Provider Selection
+# Options: "gemini", "self"
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")
 
 # Gemini API Settings
 GEMINI_API_KEYS: List[str] = [
     key.strip() for key in os.getenv("GEMINI_API_KEYS", "").split(",") if key.strip()
 ]
-GEMINI_MODEL: str = "gemini-2.0-flash"
-MAX_OUTPUT_TOKENS: int = 8098
-TEMPERATURE: float = 0.7
-TOP_K: int = 40
-TOP_P: float = 0.95
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+MAX_OUTPUT_TOKENS: int = int(os.getenv("MAX_OUTPUT_TOKENS", "8098"))
+TEMPERATURE: float = float(os.getenv("TEMPERATURE", "0.7"))
+TOP_K: int = int(os.getenv("TOP_K", "40"))
+TOP_P: float = float(os.getenv("TOP_P", "0.95"))
+
+# Self-hosted LLM Settings
+LLM_MODEL_PATH: str = os.getenv("LLM_MODEL_PATH", "models/openchat-3.5-0106-Q5_K.gguf")
+LLM_CONTEXT_SIZE: int = int(os.getenv("LLM_CONTEXT_SIZE", "4096"))
+LLM_N_GPU_LAYERS: int = int(os.getenv("LLM_N_GPU_LAYERS", "0"))  # 0 for CPU only
+LLM_N_THREADS: int = int(os.getenv("LLM_N_THREADS", "4"))
+LLM_N_BATCH: int = int(os.getenv("LLM_N_BATCH", "512"))
+LLM_TEMP: float = float(os.getenv("LLM_TEMP", "0.7"))
+LLM_TOP_P: float = float(os.getenv("LLM_TOP_P", "0.95"))
 
 # SauceNAO API KEY
 SAUCENAO_API_KEY: Optional[str] = os.getenv("SAUCENAO_API_KEY", True)

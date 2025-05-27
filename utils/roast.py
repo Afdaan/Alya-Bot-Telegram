@@ -83,18 +83,18 @@ class RoastHandler:
     
     def __init__(
         self,
-        gemini_client: GeminiClient,
+        llm_client,  # Change from gemini_client to more generic llm_client
         persona_manager: PersonaManager,
         db_manager: Optional[DatabaseManager] = None
     ) -> None:
-        """Initialize the RoastHandler with templates from configuration.
+        """Initialize the roast handler.
         
         Args:
-            gemini_client: Gemini client for AI generation
+            llm_client: LLM client for AI generation
             persona_manager: Persona manager for response formatting
             db_manager: Optional database manager for user operations
         """
-        self.gemini = gemini_client
+        self.gemini = llm_client  # Keep variable name for backward compatibility
         self.persona = persona_manager
         self.db = db_manager
         

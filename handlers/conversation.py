@@ -18,6 +18,7 @@ from core.database import DatabaseManager
 from core.nlp import NLPEngine
 from utils.formatters import format_response, format_error_response
 from utils.roast import RoastHandler
+from core.llm_factory import get_llm_client  # Import factory function
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class ConversationHandler:
     
     def __init__(
         self,
-        gemini_client: GeminiClient,
+        llm_client,  # Change from gemini_client to more generic llm_client
         persona_manager: PersonaManager, 
         memory_manager: MemoryManager,
         nlp_engine: Optional[NLPEngine] = None
@@ -34,19 +35,19 @@ class ConversationHandler:
         """Initialize conversation handler.
         
         Args:
-            gemini_client: Gemini client for AI generation
+            llm_client: LLM client (Gemini or Self-hosted)
             persona_manager: Persona manager for response formatting
             memory_manager: Memory manager for conversation context
             nlp_engine: Optional NLP engine for emotion detection
         """
-        self.gemini = gemini_client
+        self.gemini = llm_client  # Keep variable name for backward compatibility
         self.persona = persona_manager
         self.memory = memory_manager
         self.nlp = nlp_engine or NLPEngine()
         self.db = DatabaseManager()
         
         # Initialize specialized handlers - now with correct parameters
-        self.roast_handler = RoastHandler(gemini_client, persona_manager)
+        self.roast_handler = RoastHandler(llm_client, persona_manager)
     
     def get_handlers(self) -> List:
         """Get conversation handlers.

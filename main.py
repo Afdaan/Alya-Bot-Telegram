@@ -14,7 +14,7 @@ from config.settings import (
     BOT_TOKEN, LOG_LEVEL, LOG_FORMAT, PTB_DEFAULTS, 
     FEATURES, MEMORY_EXPIRY_DAYS
 )
-from core.gemini_client import GeminiClient
+from core.llm_factory import get_llm_client
 from core.persona import PersonaManager
 from core.memory import MemoryManager
 from core.database import DatabaseManager
@@ -70,7 +70,10 @@ def main() -> None:
         logger.info("Initializing components...")
         db_manager = DatabaseManager()
         memory_manager = MemoryManager(db_manager)
-        gemini_client = GeminiClient()
+        
+        # Use LLM factory to get the right client based on configuration
+        llm_client = get_llm_client()  # This will return appropriate client
+        
         persona_manager = PersonaManager()
         
         # Initialize NLP engine if enabled
@@ -98,7 +101,7 @@ def main() -> None:
         # 2. Next register regex pattern handlers with EXPLICIT patterns
         logger.info("Registering regex pattern handlers...")
         # Initialize RoastHandler directly and register its handlers
-        roast_handler = RoastHandler(gemini_client, persona_manager, db_manager)
+        roast_handler = RoastHandler(llm_client, persona_manager, db_manager)  # Initialize RoastHandler with LLM client
         for handler in roast_handler.get_handlers():
             application.add_handler(handler)
             if isinstance(handler, MessageHandler):
@@ -107,7 +110,7 @@ def main() -> None:
         # 3. Register conversation handlers
         logger.info("Registering conversation handlers...")
         conversation_handler = ConversationHandler(
-            gemini_client, 
+            llm_client,  # Pass the client from factory
             persona_manager, 
             memory_manager,
             nlp_engine
