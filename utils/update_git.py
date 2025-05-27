@@ -1,3 +1,5 @@
+"""Update """
+
 import asyncio
 import logging
 import os
@@ -602,44 +604,58 @@ class DeploymentManager:
         except Exception:
             return None
     
-    async def _send_update_status(self, update: Update, branch: str, 
-                                restart_result: Dict[str, any], commit_log: str,
-                                git_result: Dict[str, any]) -> None:
-        """Send update status message to user.
-        
-        Args:
-            update: Telegram update object
-            branch: Git branch name
-            restart_result: Result from bot restart
-            commit_log: Formatted commit log
-            git_result: Result from git operations
-        """
-        if restart_result["success"]:
-            status_message = (
-                "✨ *Update berhasil\\!* ✨\n\n"
-                f"📂 Branch: `{self._escape_markdown(branch)}`\n"
-                f"📁 Path: `{self._escape_markdown(str(self.project_path))}`\n"
-                f"🔄 Bot direstart via tmux: `{self._escape_markdown(self.tmux_session)}`\n"
-                f"⏰ Waktu: {datetime.now().strftime('%Y\\-%m\\-%d %H:%M:%S')}\n\n"
-                f"{commit_log}"
-            )
-        else:
-            error_msg = self._escape_markdown(restart_result.get("error", "Unknown error"))
-            status_message = (
-                "⚠️ *Update git berhasil, tapi restart gagal\\!* ⚠️\n\n"
-                f"📂 Branch: `{self._escape_markdown(branch)}`\n"
-                f"📁 Path: `{self._escape_markdown(str(self.project_path))}`\n"
-                f"❌ Tmux error: `{error_msg}`\n\n"
-                f"{commit_log}\n\n"
-                "_Silakan restart manual dengan:_\n"
-                f"`tmux send\\-keys \\-t {self._escape_markdown(self.tmux_session)} C\\-c`\n"
-                f"`tmux send\\-keys \\-t {self._escape_markdown(self.tmux_session)} 'python main\\.py' Enter`"
-            )
-        
-        await update.message.reply_text(
-            status_message,
-            parse_mode=ParseMode.MARKDOWN_V2
+async def _send_update_status(self, update: Update, branch: str, 
+                           restart_result: Dict[str, any], commit_log: str,
+                           git_result: Dict[str, any]) -> None:
+    """Send update status message to user.
+    
+    Args:
+        update: Telegram update object
+        branch: Git branch name
+        restart_result: Result from bot restart
+        commit_log: Formatted commit log
+        git_result: Result from git operations
+    """
+    # Pre-escape all strings that will be used in f-strings to avoid
+    # backslashes inside f-string expressions (not supported in Python 3.6)
+    safe_branch = self._escape_markdown(branch)
+    safe_path = self._escape_markdown(str(self.project_path))
+    safe_session = self._escape_markdown(self.tmux_session)
+    date_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    safe_date = self._escape_markdown(date_time)
+    
+    if restart_result["success"]:
+        status_message = (
+            "✨ *Update berhasil\\!* ✨\n\n"
+            f"📂 Branch: `{safe_branch}`\n"
+            f"📁 Path: `{safe_path}`\n"
+            f"🔄 Bot direstart via tmux: `{safe_session}`\n"
+            f"⏰ Waktu: {safe_date}\n\n"
+            f"{commit_log}"
         )
+    else:
+        error_msg = self._escape_markdown(restart_result.get("error", "Unknown error"))
+        # Prepare tmux commands separately to avoid backslash issues in f-strings
+        tmux_cmd1 = "tmux send-keys -t " + self.tmux_session + " C-c"
+        tmux_cmd2 = "tmux send-keys -t " + self.tmux_session + " 'python main.py' Enter"
+        safe_cmd1 = self._escape_markdown(tmux_cmd1)
+        safe_cmd2 = self._escape_markdown(tmux_cmd2)
+        
+        status_message = (
+            "⚠️ *Update git berhasil, tapi restart gagal\\!* ⚠️\n\n"
+            f"📂 Branch: `{safe_branch}`\n"
+            f"📁 Path: `{safe_path}`\n"
+            f"❌ Tmux error: `{error_msg}`\n\n"
+            f"{commit_log}\n\n"
+            "_Silakan restart manual dengan:_\n"
+            f"`{safe_cmd1}`\n"
+            f"`{safe_cmd2}`"
+        )
+    
+    await update.message.reply_text(
+        status_message,
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
     
     def _is_authorized_user(self, user_id: int) -> bool:
         """Check if user is authorized to perform admin operations.
