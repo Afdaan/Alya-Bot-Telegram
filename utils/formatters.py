@@ -48,6 +48,37 @@ def escape_markdown_v2(text: str) -> str:
         
     return text
 
+def escape_markdown_v2_safe(text: str) -> str:
+    """Ultra-safe escaping of MarkdownV2 special characters.
+    
+    This implementation guarantees fully escaped text for Telegram's MarkdownV2 format.
+    
+    Args:
+        text: Text to escape
+        
+    Returns:
+        Text with all special characters properly escaped
+    """
+    if not text:
+        return ""
+    
+    # Convert to string if not already
+    text = str(text)
+    
+    # List all characters that need escaping in MarkdownV2
+    # This is the complete list from Telegram API documentation
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', 
+                    '-', '=', '|', '{', '}', '.', '!', ',']
+    
+    # Escape backslash first to avoid double escaping
+    text = text.replace('\\', '\\\\')
+    
+    # Escape all other special characters
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    
+    return text
+
 def format_markdown_response(text: str, username: Optional[str] = None,
                            telegram_username: Optional[str] = None,
                            mentioned_username: Optional[str] = None,
@@ -130,204 +161,153 @@ def format_response(
     target_name: Optional[str] = None,
     persona_name: str = "waifu"
 ) -> str:
-    """Format a bot response with proper structure and HTML formatting.
-    
-    Args:
-        message: The main message content
-        emotion: Detected or assigned emotion
-        mood: Selected mood for response
-        intensity: Emotional intensity (0.0-1.0)
-        username: User's name for personalization
-        target_name: Target name for roasting (if applicable)
-        persona_name: Name of persona to use for roleplay and mood
-        
-    Returns:
-        Formatted HTML response according to persona settings
-    """
-    # Initialize PersonaManager if not already instantiated
+    """Format a bot response with persona, mood, and expressive emoji."""
     persona_manager = PersonaManager()
     persona = persona_manager.get_persona(persona_name)
-    
-    # Replace username and target placeholders if not already formatted with HTML
+
+    # Replace username/target placeholders
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
-    
-    # Extract existing roleplay if any
+
+    # Extract roleplay and split paragraphs
     message, existing_roleplay = detect_roleplay(message)
+    paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
+    main_message = paragraphs[0] if paragraphs else message
+    optional_messages = paragraphs[1:3] if len(paragraphs) > 1 else []
+
+    # Emoji magic - lets make this more lively! ✨
+    persona_emojis = []
+    all_emojis = []
     
-    # Split message into paragraphs for cleaner formatting
-    paragraphs = message.split('\n\n')
+    # Dictionary of mood-appropriate emojis
+    mood_emoji_mapping = {
+        "neutral": ["✨", "💭", "🌸", "💫"],
+        "happy": ["😊", "💕", "✨", "🌟"],
+        "sad": ["😔", "💔", "🥺", "💧"],
+        "surprised": ["😳", "⁉️", "🙀", "❗"],
+        "angry": ["😤", "💢", "😠", "🔥"],
+        "dere_caring": ["💕", "🥰", "💖", "✨"],
+        "tsundere_cold": ["😒", "💢", "❄️", "🙄"],
+        "tsundere_defensive": ["😳", "💥", "🔥", "❗"],
+        "academic_serious": ["📝", "🎓", "📚", "🧐"],
+        "apologetic_sincere": ["🙇‍♀️", "😔", "🙏", "💔"],
+        "happy_genuine": ["🥰", "💓", "✨", "🌟"],
+        "surprised_genuine": ["😳", "⁉️", "💫", "❗"],
+        "default": ["✨", "💫"]
+    }
+
+    # Get mood-appropriate emojis
+    current_mood = mood if mood != "default" else "neutral"
+    mood_emojis = mood_emoji_mapping.get(current_mood, mood_emoji_mapping["default"])
     
-    # Determine if we should keep it short or allow multiple paragraphs
-    allow_multiple_paragraphs = (
-        intensity > 0.7 or 
-        mood in ["apologetic_sincere", "academic_serious"] or
-        emotion in ["anger", "surprise"]
-    )
+    # Add 1-3 random emojis, slightly weighted toward the beginning/end
+    emoji_count = random.randint(1, 3)
+    emoji_positions = []
     
-    # Limit to first paragraph unless we allow multiple
-    if not allow_multiple_paragraphs and len(paragraphs) > 1:
-        main_message = paragraphs[0]
-        optional_messages = []
-    else:
-        # Even with multiple paragraphs, limit to at most 3 for conciseness
-        main_message = paragraphs[0]
-        optional_messages = paragraphs[1:3] if len(paragraphs) > 1 else []
-    
-    # Extract existing emojis from main message
-    _, extracted_emojis = extract_emoji_sentiment(main_message)
-    
-    # ===== PERSONA-DRIVEN CONTENT =====
-    # Get roleplay actions from persona file instead of hardcoded dictionaries
-    if not existing_roleplay and FORMAT_ROLEPLAY:
-        # Get roleplay action from persona emotions section
-        emotions_data = persona.get("emotions", {})
-        mood_data = emotions_data.get(mood if mood != "default" else "neutral", {})
-        
-        if not mood_data and emotion != "neutral":
-            # Fall back to emotion-based lookup
-            for persona_mood, mood_data in emotions_data.items():
-                if emotion in persona_mood.lower():
-                    break
-        
-        # Get expressions from mood data
-        expressions = mood_data.get("expressions", [])
+    # Prioritize start and end positions
+    if random.random() < 0.7:  # 70% chance for emoji at start
+        emoji_positions.append("start")
+        emoji_count -= 1
+    if random.random() < 0.8 and emoji_count > 0:  # 80% chance for emoji at end
+        emoji_positions.append("end")
+        emoji_count -= 1
+    # Fill remaining positions randomly
+    while emoji_count > 0:
+        emoji_positions.append("middle")
+        emoji_count -= 1
+
+    # Roleplay formatting (with emoji enhancement)
+    roleplay = existing_roleplay
+    if not roleplay and FORMAT_ROLEPLAY:
+        expressions = persona.get("emotions", {}).get(mood if mood != "default" else "neutral", {}).get("expressions", [])
         if expressions:
             roleplay = random.choice(expressions)
             if "{username}" in roleplay:
                 roleplay = roleplay.replace("{username}", username)
+    
+    if roleplay:
+        # Add emoji to roleplay 50% of the time
+        if random.random() < 0.5:
+            random_emoji = random.choice(mood_emojis)
+            roleplay = f"{random_emoji} <i>{escape_html(roleplay)}</i>"
         else:
-            # Fallback when no expressions found for this mood/emotion
-            roleplay = f"menatap {username}"
-    else:
-        roleplay = existing_roleplay
-        if roleplay and "{username}" in roleplay:
-            roleplay = roleplay.replace("{username}", username)
+            roleplay = f"<i>{escape_html(roleplay)}</i>"
+
+    # Main message formatting with enhanced styling
+    main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_message)
+    main_content = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', main_content)
+    main_content = escape_html(main_content) if "<i>" not in main_content and "<b>" not in main_content else main_content
+
+    # Add emojis to main content based on positions
+    formatted_main = main_content
     
-    # Get emoji based on persona
-    if not extracted_emojis and emotion != "neutral" and FORMAT_EMOTION:
-        # Look for emojis in persona file for this mood/emotion
-        emoji_options = []
-        for persona_mood, mood_data in persona.get("emotions", {}).items():
-            if emotion in persona_mood.lower() or mood in persona_mood.lower():
-                emoji_options = mood_data.get("emoji", [])
-                break
-        
-        # Add emoji if found in persona
-        if emoji_options:
-            selected_emoji = random.choice(emoji_options)
-            # Don't escape emojis
-            main_message = f"{main_message} {selected_emoji}"
-    
-    # Process Russian expressions
-    russian_expr = None
-    romaji = None
-    if FORMAT_RUSSIAN and random.random() < 0.3:  # Only add Russian 30% of the time
-        russian_triggers = []
-        
-        # Try to find Russian expressions for this mood/emotion
-        for persona_mood, mood_data in persona.get("emotions", {}).items():
-            if emotion in persona_mood.lower() or mood in persona_mood.lower():
-                russian_triggers = mood_data.get("russian_triggers", [])
-                break
-        
-        # If found in persona, get a random expression
-        if russian_triggers:
-            russian_expr = random.choice(russian_triggers) if russian_triggers else None
-            if russian_expr:
-                # Look up romaji from global config if available
-                for emotion_key, expressions in RUSSIAN_EXPRESSIONS.items():
-                    if russian_expr in expressions.get("expressions", []):
-                        idx = expressions["expressions"].index(russian_expr)
-                        romaji = expressions["romaji"][idx] if idx < len(expressions["romaji"]) else None
-                        break
-    
-    # Generate mood display based on persona language data
+    # Format the message with emojis at positions
+    for position in emoji_positions:
+        emoji = random.choice(mood_emojis)
+        if position == "start":
+            formatted_main = f"{emoji} {formatted_main}"
+        elif position == "end":
+            formatted_main = f"{formatted_main} {emoji}"
+        else:
+            # For middle position, try to insert at sentence breaks
+            sentences = re.split(r'([.!?]\s+)', formatted_main)
+            if len(sentences) > 2:
+                # Insert after a random sentence break
+                insertion_point = random.randrange(1, len(sentences), 2)
+                sentences.insert(insertion_point, f" {emoji} ")
+                formatted_main = "".join(sentences)
+            else:
+                # If no good sentence breaks, just append to the end
+                formatted_main = f"{formatted_main} {emoji}"
+
+    # Optional messages with improved formatting
+    formatted_optionals = []
+    for opt_msg in optional_messages:
+        opt_msg = re.sub(r'\*(.*?)\*', r'<i>\1</i>', opt_msg)
+        opt_msg = escape_html(opt_msg) if "<i>" not in opt_msg and "<b>" not in opt_msg else opt_msg
+        # 30% chance to add emoji to optional paragraphs
+        if random.random() < 0.3:
+            random_emoji = random.choice(mood_emojis)
+            opt_msg = f"{random_emoji} {opt_msg}"
+        formatted_optionals.append(opt_msg)
+
+    # Mood display with emoji
     mood_display = None
     if mood != "default" and FORMAT_EMOTION:
-        # Try to find an appropriate mood description in persona data
-        persona_moods = persona.get("emotions", {})
-        for persona_mood, mood_data in persona_moods.items():
-            if mood in persona_mood.lower():
-                responses = mood_data.get("responses", [])
-                if responses:
-                    # Take a random action description from the first response
-                    response = random.choice(responses)
-                    # Extract a mood action from the response
-                    mood_matches = re.search(r"(sedang|sambil|dengan)\s+([^,.!?]+)", response)
-                    if mood_matches:
-                        mood_display = mood_matches.group(0)
-                    break
-                    
-        # Fallback for mood display if nothing found
-        if not mood_display:
-            mood_descriptions = {
-                "tsundere_cold": "sedang bersikap dingin",
-                "tsundere_defensive": "menjadi defensif",
-                "dere_caring": "menunjukkan kepedulian",
-                "academic_serious": "dalam mode serius",
-                "surprised_genuine": "terkejut sungguhan",
-                "happy_genuine": "terlihat bahagia",
-                "apologetic_sincere": "merasa menyesal"
-            }
-            mood_display = mood_descriptions.get(mood, mood.replace("_", " "))
-    
-    # Build the formatted response with proper HTML tags
+        try:
+            import yaml
+            from pathlib import Path
+            yaml_path = Path(__file__).parent.parent / "config" / "persona" / "emotion_display.yml"
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                mood_yaml = yaml.safe_load(f)
+            mood_list = mood_yaml.get("moods", {}).get(mood, []) or mood_yaml.get("moods", {}).get("default", [])
+            chosen = random.choice(mood_list) if mood_list else mood.replace("_", " ")
+        except Exception as e:
+            logger.warning(f"Failed to load emotion_display.yml: {e}")
+            chosen = mood.replace("_", " ")
+        mood_emoji = random.choice(mood_emoji_mapping.get(mood, ["✨"]))
+        mood_display = f"{mood_emoji} <i>{escape_html(chosen)}</i>"
+
+    # Compose result with clear section breaks
     result = []
     
-    # 1. Add roleplay in italic if present
     if roleplay:
-        result.append(f"<i>{escape_html(roleplay)}</i>")
+        result.append(roleplay)
     
-    # 2. Add main message with Russian expression if present
-    main_content = main_message
-    if russian_expr:
-        # Insert Russian expression with italic formatting
-        if romaji:
-            main_content = main_content.replace("*Что ты говоришь?!*", f"<i>{russian_expr}</i> ({romaji})")
-            main_content = main_content.replace(f"*{russian_expr}*", f"<i>{russian_expr}</i> ({romaji})")
-        
-        # Process any remaining *text* patterns as italic
-        main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_content)
-    else:
-        # Process *text* patterns as italic
-        main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_content)
+    # Main content
+    result.append(formatted_main)
     
-    # Apply bold formatting for name emphasis, preserving italic tags
-    main_content = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', main_content)
+    # Optional paragraphs with spacing
+    if formatted_optionals:
+        result.extend(formatted_optionals)
     
-    # Ensure we're not double-escaping after applying formatting
-    if "<i>" in main_content or "<b>" in main_content:
-        # Don't escape content that already has HTML tags
-        result.append(main_content)
-    else:
-        # Escape regular content
-        result.append(escape_html(main_content))
-    
-    # 3. Add optional messages (limited to keep responses shorter)
-    for opt_msg in optional_messages:
-        if opt_msg.strip():
-            # Process *text* patterns as italic
-            opt_msg = re.sub(r'\*(.*?)\*', r'<i>\1</i>', opt_msg)
-            
-            if "<i>" in opt_msg or "<b>" in opt_msg:
-                # Don't escape content that already has HTML tags
-                result.append(opt_msg)
-            else:
-                # Escape regular content
-                result.append(escape_html(opt_msg))
-    
-    # 4. Add mood description in italic at the bottom
+    # Mood indicator
     if mood_display:
-        result.append(f"<i>{escape_html(mood_display)}</i>")
-    
-    # Join all parts with line breaks
-    formatted_response = "\n\n".join(result)
-    
-    # Final safety check to ensure we don't have double HTML tags
-    return formatted_response
+        result.append(mood_display)
+
+    return "\n\n".join(result)
 
 def format_error_response(error_message: str, username: str = "user") -> str:
     """Format an error response with appropriate tone.

@@ -1,5 +1,5 @@
 """
-Conversation handlers for Alya Bot.
+Conversation for Alya Bot.
 """
 import logging
 import random
@@ -8,9 +8,9 @@ import asyncio
 
 from telegram import Update
 from telegram.constants import ChatAction
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
+from telegram.ext import ContextTypes, MessageHandler, filters
 
-from config.settings import COMMAND_PREFIX, FEATURES, ADMIN_IDS, SAUCENAO_PREFIX
+from config.settings import COMMAND_PREFIX, FEATURES, ADMIN_IDS
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from core.memory import MemoryManager
@@ -55,12 +55,20 @@ class ConversationHandler:
             List of handlers for the dispatcher
         """
         handlers = [
-            CommandHandler("start", self.start_command),
-            CommandHandler("help", self.help_command),
-            CommandHandler("stats", self.stats_command),
-            CommandHandler("reset", self.reset_command),
+            # Private chat: no prefix needed
             MessageHandler(
-                filters.TEXT & filters.Regex(f"^{COMMAND_PREFIX}\\b"), 
+                filters.TEXT & filters.ChatType.PRIVATE & ~filters.COMMAND,
+                self.chat_command
+            ),
+            # Group: use prefix or reply to Alya
+            MessageHandler(
+                (
+                    filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND &
+                    (
+                        filters.Regex(f"^{COMMAND_PREFIX}") |
+                        filters.REPLY
+                    )
+                ),
                 self.chat_command
             ),
         ]
@@ -103,179 +111,6 @@ class ConversationHandler:
         """
         user_info = self.db.get_user_relationship_info(user_id)
         return user_info.get("relationship", {}).get("level", 0) if user_info else 0
-        
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /start command.
-        
-        Args:
-            update: The update from Telegram
-            context: The callback context
-        """
-        user = update.effective_user
-        
-        # Check if user is admin and create/update user record
-        is_admin = self._create_or_update_user(user)
-        
-        # Get appropriate greeting based on relationship level
-        relationship_level = self._get_relationship_level(user.id)
-        
-        # Choose appropriate roleplay expression based on relationship level
-        roleplay_actions = {
-            0: "sedikit menunduk dengan formal",  # Stranger
-            1: "tersenyum kecil dengan sikap formal",  # Acquaintance
-            2: "tersenyum ramah",  # Friend
-            3: "tersenyum lebar dengan mata berbinar"  # Close Friend
-        }
-        
-        roleplay = roleplay_actions.get(relationship_level, "tersenyum menyambut")
-        
-        # Special greeting for admins
-        if is_admin:
-            greeting = f"<i>{roleplay}</i>\n\nAh! {user.first_name}-sama! Alya sangat senang melihatmu kembali~ 💖"
-        else:
-            # Get greeting from persona with proper roleplay
-            greeting = f"<i>{roleplay}</i>\n\n{self.persona.get_greeting(username=user.first_name or 'user')}"
-        
-        await update.message.reply_html(greeting)
-        
-        # Add a small delay before sending help message
-        await update.message.chat.send_action(action=ChatAction.TYPING)
-        
-        # Send help message after greeting with proper formatting
-        help_message = self._format_help_message(user.first_name or "user")
-        await update.message.reply_html(help_message)
-        
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /help command.
-        
-        Args:
-            update: The update from Telegram
-            context: The callback context
-        """
-        user = update.effective_user
-        
-        # Format help message with proper HTML and roleplay action
-        help_message = self._format_help_message(user.first_name or "user")
-        await update.message.reply_html(help_message)
-    
-    def _format_help_message(self, username: str) -> str:
-        """Format help message with proper HTML formatting and roleplay.
-        
-        Args:
-            username: User's first name
-            
-        Returns:
-            Formatted HTML help message
-        """
-        # Get base message from persona
-        base_message = self.persona.get_help_message(
-            username=username,
-            prefix=COMMAND_PREFIX
-        )
-        
-        # Random roleplay actions for help command
-        roleplay_options = [
-            "membuka buku catatan OSIS dengan rapi",
-            "mengeluarkan papan klip dengan daftar bantuan",
-            "merapikan kacamata dengan sikap profesional",
-            "menunjukkan pose wakil ketua OSIS yang berwibawa"
-        ]
-        
-        # Choose a random roleplay action
-        roleplay = random.choice(roleplay_options)
-        
-        # Format with HTML and custom roleplay
-        return f"<i>{roleplay}</i>\n\n{base_message}"
-        
-    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /stats command to show relationship stats.
-        
-        Args:
-            update: The update from Telegram
-            context: The callback context
-        """
-        user = update.effective_user
-        
-        # Get user's relationship info
-        relationship_info = self.db.get_user_relationship_info(user.id)
-        
-        if not relationship_info:
-            await update.message.reply_html(
-                "<i>Hmph! Alya belum mengenalmu dengan baik...</i> 😤"
-            )
-            return
-        
-        # Format stats message based on relationship level
-        rel = relationship_info.get("relationship", {})
-        aff = relationship_info.get("affection", {})
-        stats = relationship_info.get("stats", {})
-        
-        # Format progress bar for relationship level
-        rel_progress = self._format_progress_bar(min(100, rel.get("progress_percent", 0)))
-        
-        # Format affection bar
-        aff_progress = self._format_progress_bar(min(100, aff.get("progress_percent", 0)))
-        
-        # Different messages based on relationship level
-        level_messages = [
-            "<i>Hmm? K-kenapa kamu ingin tahu? Alya belum mengenalmu!</i> 😤",
-            "<i>Alya mulai mengingatmu sedikit...</i> 🤔",
-            "<i>Alya pikir kita sudah cukup berteman...</i> ✨",
-            "<i>A-alya senang bisa mengobrol denganmu sejauh ini!</i> 💫"
-        ]
-        
-        level_msg = level_messages[min(rel.get("level", 0), len(level_messages)-1)]
-        
-        # Format the stats message
-        stats_message = (
-            f"<b>Statistik Hubungan {user.first_name}</b>\n\n"
-            f"<b>Level:</b> {rel.get('level', 0)} - {rel.get('name', 'Stranger')}\n"
-            f"{rel_progress} {rel.get('progress_percent', 0):.1f}%\n"
-            f"<b>Interaksi:</b> {rel.get('interactions', 0)}/{rel.get('next_level_at', '∞')}\n\n"
-            
-            f"<b>Affection Points:</b> {aff.get('points', 0)}\n"
-            f"{aff_progress}\n\n"
-            
-            f"<b>Total Pesan:</b> {stats.get('total_messages', 0)}\n"
-            f"<b>Interaksi Positif:</b> {stats.get('positive_interactions', 0)}\n"
-            f"<b>Interaksi Negatif:</b> {stats.get('negative_interactions', 0)}\n\n"
-            f"{level_msg}"
-        )
-        
-        await update.message.reply_html(stats_message)
-    
-    def _format_progress_bar(self, percent: float, length: int = 10) -> str:
-        """Format a progress bar for display.
-        
-        Args:
-            percent: Percentage (0-100)
-            length: Length of the progress bar
-            
-        Returns:
-            Formatted progress bar string
-        """
-        filled_length = int(length * percent / 100)
-        bar = '█' * filled_length + '░' * (length - filled_length)
-        return f"[{bar}]"
-        
-    async def reset_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle memory reset command.
-        
-        Args:
-            update: The update from Telegram
-            context: The callback context
-        """
-        user = update.effective_user
-        success = self.memory.reset_memory(user.id)
-        
-        if success:
-            reset_message = self.persona.get_memory_reset_message(
-                username=user.first_name or "user"
-            )
-            formatted_reset = format_response(reset_message, "surprised")
-            await update.message.reply_html(formatted_reset)
-        else:
-            await self._send_error_response(update, user.first_name)
     
     async def _send_error_response(self, update: Update, username: str) -> None:
         """Send error response to user.
@@ -297,9 +132,36 @@ class ConversationHandler:
         """
         user = update.effective_user
         message_text = update.message.text
-        
-        # Extract the actual query (remove command prefix)
-        query = message_text.replace(COMMAND_PREFIX, "", 1).strip()
+
+        # --- Tambahan untuk group: cek reply_to_message ---
+        reply_context = ""
+        is_reply_to_alya = False
+        if update.message.reply_to_message:
+            replied = update.message.reply_to_message
+            # Cek apakah reply ke Alya (bot)
+            if replied.from_user and replied.from_user.is_bot:
+                reply_context = replied.text or ""
+                is_reply_to_alya = True
+
+        # Extract the actual query (remove command prefix jika ada)
+        if update.message.chat.type in ["group", "supergroup"]:
+            # Di group: kalau reply ke Alya, boleh tanpa prefix
+            if is_reply_to_alya:
+                query = message_text.strip()
+            else:
+                # Kalau bukan reply ke Alya, tetap harus pakai prefix
+                if message_text.startswith(COMMAND_PREFIX):
+                    query = message_text.replace(COMMAND_PREFIX, "", 1).strip()
+                else:
+                    # Bukan reply ke Alya dan tanpa prefix, abaikan (biar ga spam)
+                    return
+        else:
+            # Private chat: bebas, langsung chat
+            query = message_text.strip()
+
+        # Gabungkan context reply (kalau ada)
+        if reply_context:
+            query = f"{reply_context}\n\n{query}"
         
         if not query:
             # Empty query, send help message
@@ -311,28 +173,37 @@ class ConversationHandler:
             await update.message.reply_html(formatted_help)
             return
         
-        # Send typing action first - ASAP for user feedback
-        await update.message.chat.send_action(action=ChatAction.TYPING)
+        # Send typing action for both private and group chat
+        chat = update.effective_chat
+        try:
+            await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
+        except Exception as e:
+            logger.warning(f"Failed to send typing action: {e}")
         
         try:
-            # Check or create user
-            is_admin = self._create_or_update_user(user)
-            
-            # Start parallel processing to improve latency
+            # Always create/update user and stats in DB
+            self._create_or_update_user(user)
+            # Save user message to DB (conversations, user_stats, users)
+            self.db.save_message(user.id, "user", query)
+
+            # Optionally: update memory context (if needed for Gemini)
+            self.memory.save_user_message(user.id, query)
+
+            # Prepare context for Gemini
             user_context = await self._prepare_conversation_context(user, query)
-            
-            # Generate response from Gemini - this is the main bottleneck
+
+            # Generate response from Gemini
             response = await self.gemini.generate_content(
                 user_input=user_context["enhanced_query"],
                 system_prompt=user_context["system_prompt"],
                 history=user_context["history"]
             )
-            
+
             if response:
                 await self._process_and_send_response(update, user, response, user_context["message_context"])
             else:
                 await self._send_error_response(update, user.first_name)
-                
+
         except Exception as e:
             logger.error(f"Error in chat command: {e}", exc_info=True)
             await self._send_error_response(update, user.first_name)
@@ -423,37 +294,20 @@ class ConversationHandler:
             response: Response text from Gemini
             message_context: Message context from NLP
         """
-        # Save bot response to memory
-        if asyncio.iscoroutinefunction(self.memory.save_bot_response):
-            save_task = asyncio.create_task(self.memory.save_bot_response(user.id, response))
-            # Ensure memory saving completes but don't block the response
-            await save_task
-        else:
-            self.memory.save_bot_response(user.id, response)
-        
-        # Process response in parallel while saving to memory
-        if "emotion" in message_context:
-            if asyncio.iscoroutinefunction(self.db.update_last_mood):
-                asyncio.create_task(
-                    self.db.update_last_mood(user.id, message_context.get("emotion", "neutral"))
-                )
-            else:
-                self.db.update_last_mood(user.id, message_context.get("emotion", "neutral"))
-        
-        # Update affection based on message context
-        self._update_affection_from_context(user.id, message_context)
-        
-        # Get user's emotional state and intensity for response formatting
-        emotion = message_context.get("emotion", "neutral")
-        intensity = message_context.get("intensity", 0.5)
-        
-        # Get user's relationship level
+        # Save bot response to DB (conversations, user_stats, users)
+        self.db.save_message(user.id, "assistant", response)
+        # Optionally: update memory context
+        self.memory.save_bot_response(user.id, response)
+
+        # Update affection if context available
+        if message_context:
+            self._update_affection_from_context(user.id, message_context)
+
+        # Format and send response
+        emotion = message_context.get("emotion", "neutral") if message_context else "neutral"
+        intensity = message_context.get("intensity", 0.5) if message_context else 0.5
         relationship_level = self._get_relationship_level(user.id)
-        
-        # Get appropriate mood for the response based on context
-        suggested_mood = self.nlp.suggest_mood_for_response(message_context, relationship_level)
-        
-        # Format response with all the context information
+        suggested_mood = self.nlp.suggest_mood_for_response(message_context, relationship_level) if self.nlp else "neutral"
         formatted_response = format_response(
             response, 
             emotion=emotion,
@@ -461,8 +315,6 @@ class ConversationHandler:
             intensity=intensity,
             username=user.first_name or "user"
         )
-        
-        # Send response to user
         await update.message.reply_html(formatted_response)
     
     async def _get_user_info(self, user) -> Dict[str, Any]:

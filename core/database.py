@@ -45,7 +45,7 @@ class DatabaseManager:
         return conn
         
     def _initialize_db(self) -> None:
-        """Initialize database tables if they don't exist."""
+        """Initialize database tables with the correct schema."""
         conn = self._get_connection()
         try:
             # Create users table with relationship fields
@@ -66,13 +66,16 @@ class DatabaseManager:
                 )
             ''')
             
-            # Create conversation history table
+            # Create conversation history table with clean schema
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS conversations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     role TEXT,
                     content TEXT,
+                    message TEXT,
+                    message_metadata TEXT DEFAULT '{}',
+                    is_user BOOLEAN DEFAULT 0,
                     timestamp INTEGER,
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )
@@ -84,8 +87,8 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     text TEXT,
-                    embedding TEXT, -- JSON string of embedding vector
-                    metadata TEXT,  -- JSON string of additional metadata
+                    embedding TEXT,
+                    metadata TEXT,
                     timestamp INTEGER,
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )
@@ -108,13 +111,71 @@ class DatabaseManager:
             conn.execute('CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_embeddings_user_id ON embeddings(user_id)')
             
+            # Ensure all tables have the expected columns
+            self._ensure_table_columns(conn)
+            
             conn.commit()
             logger.info("Database initialized successfully")
         except Exception as e:
             logger.error(f"Error initializing database: {e}")
         finally:
             conn.close()
-    
+            
+    def _ensure_table_columns(self, conn: sqlite3.Connection) -> None:
+        """Ensure all tables have the expected columns.
+        
+        This method checks each table against the expected schema and adds any missing columns.
+        
+        Args:
+            conn: Database connection
+        """
+        try:
+            # Define expected columns for each table
+            expected_columns = {
+                'conversations': {
+                    'id': 'INTEGER PRIMARY KEY AUTOINCREMENT',
+                    'user_id': 'INTEGER',
+                    'role': 'TEXT',
+                    'content': 'TEXT',
+                    'message': 'TEXT',
+                    'message_metadata': 'TEXT DEFAULT "{}"',
+                    'is_user': 'BOOLEAN DEFAULT 0',
+                    'timestamp': 'INTEGER'
+                },
+                # Add other tables if needed
+            }
+            
+            # Check and add missing columns for each table
+            for table_name, columns in expected_columns.items():
+                # Check if table exists
+                cursor = conn.cursor()
+                cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+                if not cursor.fetchone():
+                    logger.info(f"Table {table_name} doesn't exist yet, will be created")
+                    continue
+                
+                # Get existing columns
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                existing_columns = {column[1] for column in cursor.fetchall()}
+                
+                # Add missing columns
+                for column_name, column_def in columns.items():
+                    if column_name not in existing_columns:
+                        logger.info(f"Adding missing column {column_name} to {table_name}")
+                        try:
+                            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
+                            conn.commit()
+                            logger.info(f"Successfully added {column_name} column to {table_name}")
+                        except Exception as e:
+                            logger.error(f"Error adding column {column_name} to {table_name}: {e}")
+                            # Continue with other columns even if one fails
+                
+            logger.info("Column verification completed")
+                
+        except Exception as e:
+            logger.error(f"Error ensuring table columns: {e}")
+            conn.rollback()
+
     def get_or_create_user(self, user_id: int, username: str = "", first_name: str = "", 
                            last_name: str = "", is_admin: bool = False) -> Dict[str, Any]:
         """Get or create a user record.
@@ -183,44 +244,40 @@ class DatabaseManager:
             conn.close()
     
     def save_message(self, user_id: int, role: str, content: str) -> bool:
-        """Save a message to the conversation history.
-        
-        Args:
-            user_id: Telegram user ID
-            role: Message role ('user' or 'assistant')
-            content: Message content
-            
-        Returns:
-            Success status
-        """
+        """Save a message to the conversation history and update stats/relationship."""
         conn = self._get_connection()
         try:
             timestamp = int(time.time())
-            
-            # Save the message
+            is_user = 1 if role == "user" else 0
+            # Insert to all relevant columns for compatibility
             conn.execute(
-                'INSERT INTO conversations (user_id, role, content, timestamp) VALUES (?, ?, ?, ?)',
-                (user_id, role, content, timestamp)
+                '''INSERT INTO conversations 
+                   (user_id, role, content, message, message_metadata, is_user, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (
+                    user_id,
+                    role,
+                    content,
+                    content,
+                    '{}',
+                    is_user,
+                    timestamp
+                )
             )
             
             # Update user stats and relationship progression
             if role == 'user':
-                # Update message count
                 conn.execute(
                     '''UPDATE user_stats SET total_messages = total_messages + 1
                        WHERE user_id = ?''',
                     (user_id,)
                 )
-                
-                # Update interaction count and check for relationship level progression
                 conn.execute(
                     '''UPDATE users SET 
                        interaction_count = interaction_count + 1
                        WHERE user_id = ?''',
                     (user_id,)
                 )
-                
-                # Process potential relationship increase
                 self._process_relationship_update(conn, user_id)
             
             conn.commit()
@@ -422,7 +479,7 @@ class DatabaseManager:
                     next_affection_threshold = threshold
                     break
             
-            # Format data
+            # Format data - ensure ALL fields are present with defaults
             relationship_info = {
                 "user_id": user['user_id'],
                 "name": user['first_name'],
@@ -440,12 +497,15 @@ class DatabaseManager:
                     "progress_percent": min(100, (user['affection_points'] / next_affection_threshold) * 100) if user['affection_points'] > 0 and next_affection_threshold < float('inf') else 0
                 },
                 "stats": {
-                    "total_messages": stats['total_messages'],
-                    "command_uses": stats['command_uses'],
-                    "positive_interactions": stats['positive_interactions'],
-                    "negative_interactions": stats['negative_interactions']
+                    "total_messages": stats['total_messages'] or 0,  
+                    "command_uses": stats['command_uses'] or 0,
+                    "positive_interactions": stats['positive_interactions'] or 0,
+                    "negative_interactions": stats['negative_interactions'] or 0 
                 }
             }
+            
+            # Log what we're returning to help debug
+            logger.debug(f"Relationship info for user {user_id}: {relationship_info}")
             
             return relationship_info
             

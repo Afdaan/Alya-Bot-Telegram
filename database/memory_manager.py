@@ -8,7 +8,8 @@ from typing import Dict, List, Optional, Any, Tuple
 from config.settings import MEMORY_EXPIRY_DAYS, MAX_CONTEXT_MESSAGES, SUMMARY_INTERVAL
 from core.gemini_client import GeminiClient
 from database.models import Conversation, ConversationSummary, User
-from database.session import get_db_session
+from database.session import db_session_context
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,29 @@ class MemoryManager:
             gemini_client: Optional Gemini client for summarization
         """
         self.gemini_client = gemini_client
+    
+    # Add these adapter methods to make it compatible with the conversation handler
+    def save_user_message(self, user_id: int, message: str) -> None:
+        """Store a user message in the conversation history."""
+        self.store_message(user_id, message, is_user=True)
         
+    def save_bot_response(self, user_id: int, message: str) -> None:
+        """Store a bot response in the conversation history."""
+        self.store_message(user_id, message, is_user=False)
+    
+    # Add adapter method dengan nama yang benar
+    def get_conversation_context(self, user_id: int, limit: int = MAX_CONTEXT_MESSAGES) -> List[Dict[str, Any]]:
+        """Get conversation context for a user. Alias for get_recent_context.
+        
+        Args:
+            user_id: Telegram user ID
+            limit: Maximum number of messages to retrieve
+            
+        Returns:
+            List of message dictionaries with sender and content
+        """
+        return self.get_recent_context(user_id, limit)
+    
     def store_message(self, user_id: int, message: str, is_user: bool = True, 
                       metadata: Optional[Dict[str, Any]] = None) -> None:
         """Store a message in the conversation history.
@@ -34,18 +57,15 @@ class MemoryManager:
             metadata: Additional metadata like emotions, context, etc.
         """
         try:
-            session = get_db_session()
-            with session:
-                # Create conversation entry
+            with db_session_context() as session:
                 conversation = Conversation(
                     user_id=user_id,
                     message=message,
                     is_user=is_user,
-                    metadata=metadata or {},
+                    message_metadata=json.dumps(metadata or {}),
                     timestamp=datetime.now()
                 )
                 session.add(conversation)
-                session.commit()
                 
                 # Check if we need to summarize older messages
                 self._check_and_summarize_history(user_id, session)
@@ -68,8 +88,7 @@ class MemoryManager:
             List of message dictionaries with sender and content
         """
         try:
-            session = get_db_session()
-            with session:
+            with db_session_context() as session:
                 # Get recent direct messages
                 recent_messages = session.query(Conversation)\
                     .filter(Conversation.user_id == user_id)\
@@ -117,8 +136,7 @@ class MemoryManager:
             List of relevant messages
         """
         try:
-            session = get_db_session()
-            with session:
+            with db_session_context() as session:
                 # First check summaries for the topic
                 summaries = session.query(ConversationSummary)\
                     .filter(ConversationSummary.user_id == user_id,
@@ -172,8 +190,7 @@ class MemoryManager:
             Dictionary with relationship metrics and preferences
         """
         try:
-            session = get_db_session()
-            with session:
+            with db_session_context() as session:
                 user = session.query(User).filter(User.id == user_id).first()
                 
                 if not user:
@@ -221,6 +238,37 @@ class MemoryManager:
                 "preferences": {},
                 "topics_discussed": []
             }
+    
+    def reset_conversation_context(self, user_id: int) -> bool:
+        """Reset conversation context for a user while maintaining relationship data.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            bool: True if reset was successful, False otherwise
+        """
+        try:
+            with db_session_context() as session:
+                # Delete all conversation messages for this user
+                session.query(Conversation)\
+                    .filter(Conversation.user_id == user_id)\
+                    .delete(synchronize_session=False)
+                
+                # Delete conversation summaries
+                session.query(ConversationSummary)\
+                    .filter(ConversationSummary.user_id == user_id)\
+                    .delete(synchronize_session=False)
+                
+                # Commit the changes
+                session.commit()
+                
+                logger.info(f"Reset conversation context for user {user_id}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Failed to reset conversation context: {str(e)}")
+            return False
     
     def _check_and_summarize_history(self, user_id: int, session) -> None:
         """Check if we need to summarize conversation history and do so if necessary.
@@ -355,3 +403,76 @@ class MemoryManager:
             
         except Exception as e:
             logger.error(f"Failed to clean up expired messages: {str(e)}")
+    
+    # Add adapter method for create_context_prompt
+    def create_context_prompt(self, user_id: int, query: str) -> str:
+        """Create a context-enriched prompt for AI processing.
+        
+        This adapter method gathers conversation context and formats it for prompt use.
+        
+        Args:
+            user_id: Telegram user ID
+            query: Current user query/message
+            
+        Returns:
+            Context-enriched prompt string for AI processing
+        """
+        # Get recent conversation context
+        context = self.get_conversation_context(user_id)
+        if not context:
+            # If no context available, just return the query
+            return query
+            
+        # Format context into a coherent prompt
+        prompt_parts = []
+        
+        # Include system context if available
+        system_context = next((item for item in context if item.get('role') == 'system'), None)
+        if system_context:
+            prompt_parts.append(f"Previous context: {system_context.get('content', '')}")
+            
+        # Add recent conversation turns (last 3-5 messages)
+        conversation_turns = [item for item in context if item.get('role') != 'system'][-5:]
+        for turn in conversation_turns:
+            role = "User" if turn.get('role') == 'user' else "Alya"
+            prompt_parts.append(f"{role}: {turn.get('content', '')}")
+            
+        # Add current query
+        prompt_parts.append(f"User: {query}")
+        
+        # Add system instruction to maintain continuity
+        prompt_parts.append(
+            "Based on the conversation history above, continue the conversation as Alya, "
+            "responding to the last user message."
+        )
+        
+        # Join all parts with line breaks
+        return "\n\n".join(prompt_parts)
+    
+    def get_conversation_context(self, user_id: int, limit: int = MAX_CONTEXT_MESSAGES) -> List[Dict[str, Any]]:
+        """Get conversation context for a user in format compatible with Gemini API.
+        
+        Args:
+            user_id: Telegram user ID
+            limit: Maximum number of messages to retrieve
+            
+        Returns:
+            List of message dictionaries formatted for Gemini API
+        """
+        # Get the raw context first
+        raw_context = self.get_recent_context(user_id, limit)
+        
+        # Transform to Gemini-compatible format
+        gemini_format = []
+        for item in raw_context:
+            # Extract the role and content, ignoring timestamp and metadata
+            role = item.get("role", "user")  # Default to user if missing
+            content = item.get("content", "")
+            
+            # Format in Gemini-expected structure with 'parts' array
+            gemini_format.append({
+                "role": role,
+                "parts": [{"text": content}]
+            })
+        
+        return gemini_format

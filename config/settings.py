@@ -70,12 +70,12 @@ RELATIONSHIP_LEVELS: Dict[int, str] = {
 # Relationship level progression thresholds
 RELATIONSHIP_THRESHOLDS = {
     "interaction_count": {  # Messages exchanged to reach each level
-        1: 10,   # Stranger → Acquaintance: 10 messages
-        2: 50,   # Acquaintance → Friend: 50 messages
-        3: 150,  # Friend → Close Friend: 150 messages
+        1: 50,   # Stranger → Acquaintance: 50 messages
+        2: 100,   # Acquaintance → Friend: 100 messages
+        3: 200,  # Friend → Close Friend: 200 messages
     },
     "affection_points": {  # Affection points to reach each level
-        1: 50,   # Stranger → Acquaintance: 50 points
+        1: 100,   # Stranger → Acquaintance: 50 points
         2: 200,  # Acquaintance → Friend: 200 points
         3: 500,  # Friend → Close Friend: 500 points
     }
@@ -95,7 +95,7 @@ AFFECTION_POINTS = {
 }
 
 # RAG Settings
-EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"  # SentenceTransformers model for embeddings
+EMBEDDING_MODEL: str = "paraphrase-multilingual-MiniLM-L12-v2"  # SentenceTransformers model for embeddings
 VECTOR_DIMENSION: int = 384
 RAG_RELEVANCE_THRESHOLD: float = 0.75
 RAG_MAX_RESULTS: int = 5

@@ -1,14 +1,14 @@
 """
-SQLAlchemy models for database storage.
+SQLAlchemy models for the Alya bot database.
 """
 import json
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, List, Optional
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON
+from sqlalchemy.orm import relationship, synonym
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON
-from sqlalchemy.orm import declarative_base
 
-Base = declarative_base()
+from database.session import Base
 
 class User(Base):
     """User model for storing user information."""
@@ -22,35 +22,45 @@ class User(Base):
     language_code = Column(String(10), default="id")
     last_interaction = Column(DateTime, default=datetime.now)
     
-    # Stored as JSON in db
     preferences = Column(JSON, default=lambda: {})
     topics_discussed = Column(JSON, default=lambda: [])
-    relationship_score = Column(Integer, default=0)
+    relationship_level = Column(Integer, default=0)
     
     def __repr__(self) -> str:
         """String representation of User object."""
         return f"<User(id={self.id}, username={self.username})>"
 
-
 class Conversation(Base):
-    """Model for storing conversation history."""
+    """Model for storing conversation messages."""
     
     __tablename__ = "conversations"
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    message = Column(Text, nullable=False)
-    is_user = Column(Boolean, default=True)  # True for user messages, False for bot
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True)
+    content = Column(Text, nullable=False)  # Use 'content' as it exists in DB
+    is_user = Column(Boolean, default=True)
+    # Renamed 'metadata' to 'message_metadata' to avoid conflict with SQLAlchemy's reserved name
+    message_metadata = Column(Text, default="{}")  # JSON stored as text
     timestamp = Column(DateTime, default=datetime.now)
     
-    # Stored as JSON in db - holds emotions, topics, etc.
-    metadata = Column(JSON, default=lambda: {})
+    # Make message a synonym for content (reverse mapping)
+    message = synonym('content')
     
-    def __repr__(self) -> str:
-        """String representation of Conversation object."""
-        sender = "User" if self.is_user else "Bot"
-        return f"<Conversation(id={self.id}, user_id={self.user_id}, sender={sender})>"
-
+    # Simple mapper args without complexity
+    __mapper_args__ = {
+        'polymorphic_identity': 'conversation'
+    }
+    
+    def get_metadata(self) -> Dict[str, Any]:
+        """Get metadata as parsed dict."""
+        try:
+            return json.loads(self.message_metadata) if self.message_metadata else {}
+        except json.JSONDecodeError:
+            return {}
+    
+    def set_metadata(self, metadata: Dict[str, Any]) -> None:
+        """Set metadata from dict."""
+        self.message_metadata = json.dumps(metadata) if metadata else "{}"
 
 class ConversationSummary(Base):
     """Model for storing summarized conversation history."""
