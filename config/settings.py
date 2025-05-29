@@ -105,11 +105,11 @@ RAG_MAX_RESULTS: int = 5
 NLP_MODELS_DIR: str = os.getenv("NLP_MODELS_DIR", "data/models")
 EMOTION_DETECTION_MODEL: str = os.getenv(
     "EMOTION_DETECTION_MODEL", 
-    "j-hartmann/emotion-english-distilroberta-base"  # HuggingFace hosted model
+    "AnasAlokla/multilingual_go_emotions_V1.1"  # HuggingFace hosted model
 )
 SENTIMENT_MODEL: str = os.getenv(
     "SENTIMENT_MODEL",
-    "cardiffnlp/twitter-roberta-base-sentiment"  # HuggingFace hosted #distilbert-base-uncased-finetuned-sst-2-english
+    "mdhugol/indonesia-bert-sentiment-classification"  # HuggingFace hosted #distilbert-base-uncased-finetuned-sst-2-english
 )
 # If you want to use local models, set these env vars to paths like:
 # NLP_MODELS_DIR/emotion-model or NLP_MODELS_DIR/sentiment-model
