@@ -18,7 +18,7 @@ jobs:
           git stash --include-untracked || true
 
       - name: Checkout to master branch
-        run: 
+        run: |
           cd /opt/Alya-Telegram
           git checkout master
 
