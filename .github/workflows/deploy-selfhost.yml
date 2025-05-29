@@ -45,9 +45,15 @@ jobs:
       - name: Notify via Telegram Webhook
         if: success()
         run: |
-          TELEGRAM_BOT_TOKEN=$(grep TELEGRAM_BOT_TOKEN .env | cut -d '=' -f2-)
-          RAW_DEPLOY_CHAT_ID=$(grep TELEGRAM_DEPLOY_CHAT_ID .env | cut -d '=' -f2-)
-          # Parse chat_id and topic_id if using topic group
+          # Use full path to .env
+          ENV_FILE="/opt/Alya-Telegram/.env"
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "Error: .env file not found at $ENV_FILE"
+            exit 0
+          fi
+          
+          TELEGRAM_BOT_TOKEN=$(grep TELEGRAM_BOT_TOKEN "$ENV_FILE" | cut -d '=' -f2-)
+          RAW_DEPLOY_CHAT_ID=$(grep TELEGRAM_DEPLOY_CHAT_ID "$ENV_FILE" | cut -d '=' -f2-)
           if [[ "$RAW_DEPLOY_CHAT_ID" == *_* ]]; then
             TELEGRAM_CHAT_ID=$(echo "$RAW_DEPLOY_CHAT_ID" | cut -d'_' -f1)
             TELEGRAM_TOPIC_ID=$(echo "$RAW_DEPLOY_CHAT_ID" | cut -d'_' -f2)
@@ -55,12 +61,14 @@ jobs:
             TELEGRAM_CHAT_ID="$RAW_DEPLOY_CHAT_ID"
             TELEGRAM_TOPIC_ID=""
           fi
+          cd /opt/Alya-Telegram
           LAST_COMMIT_MSG=$(git log -1 --pretty=format:"%s")
           LAST_COMMIT_HASH=$(git rev-parse --short HEAD)
           LAST_COMMIT_AUTHOR=$(git log -1 --pretty=format:"%an")
           LAST_COMMIT_TIME=$(git log -1 --pretty=format:"%ar")
           BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
           MSG="✨ AlyaBot Deploy Sukses! ✨%0A%0ABranch: <code>$BRANCH_NAME</code>%0ACommit: <code>$LAST_COMMIT_HASH</code>%0AAuthor: <b>$LAST_COMMIT_AUTHOR</b>%0ATime: $LAST_COMMIT_TIME%0A%0A<b>Changelog:</b>%0A$LAST_COMMIT_MSG"
+          
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
             if [ -n "$TELEGRAM_TOPIC_ID" ]; then
               curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
@@ -74,6 +82,7 @@ jobs:
                 -d text="$MSG" \
                 -d parse_mode="HTML"
             fi
+            echo "Deployment notification sent to Telegram"
           else
-            echo "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set in .env, skip Telegram notification"
+            echo "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set in $ENV_FILE, skip Telegram notification"
           fi
