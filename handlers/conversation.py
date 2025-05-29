@@ -173,10 +173,21 @@ class ConversationHandler:
             await update.message.reply_html(formatted_help)
             return
         
-        # Send typing action for both private and group chat
+        # Send typing action for both private and group chat, including topics
         chat = update.effective_chat
         try:
-            await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
+            # For group topics (forum), send typing to the correct message thread
+            if hasattr(update.message, "message_thread_id") and update.message.message_thread_id:
+                await context.bot.send_chat_action(
+                    chat_id=chat.id,
+                    action=ChatAction.TYPING,
+                    message_thread_id=update.message.message_thread_id
+                )
+            else:
+                await context.bot.send_chat_action(
+                    chat_id=chat.id,
+                    action=ChatAction.TYPING
+                )
         except Exception as e:
             logger.warning(f"Failed to send typing action: {e}")
         
