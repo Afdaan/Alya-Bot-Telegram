@@ -12,17 +12,32 @@ jobs:
       - name: Checkout latest code
         uses: actions/checkout@v4
 
+      - name: Stash local changes (if any)
+        run: |
+          cd /opt/Alya-Telegram
+          git stash --include-untracked || true
+
+      - name: Checkout to master branch
+        run: 
+          cd /opt/Alya-Telegram
+          git checkout master
+
+      - name: Pull latest code from remote
+        run: |
+          cd /opt/Alya-Telegram
+          git pull origin master
+
       - name: Pull latest Docker image (if using remote registry)
         run: echo "Skip pull, using local build"
 
       - name: Change to project directory
         run: cd /opt/Alya-Telegram
 
-      - name: Build Docker image
+      - name: Build Docker image (no cache)
         run: |
           cd /opt/Alya-Telegram
           export DOCKER_BUILDKIT=1
-          docker build -t alya-bot:latest .
+          docker build --no-cache -t alya-bot:latest .
 
       - name: Stop existing AlyaBot container (if running)
         run: |
