@@ -16,11 +16,11 @@ jobs:
         run: echo "Skip pull, using local build"
 
       - name: Change to project directory
-        run: cd /home/root/Alya-Bot-Telegram
+        run: cd /root/Alya-Bot-Telegram
 
       - name: Build Docker image
         run: |
-          cd /home/root/Alya-Bot-Telegram
+          cd /root/Alya-Bot-Telegram
           export DOCKER_BUILDKIT=1
           docker build -t alya-bot:latest .
 
