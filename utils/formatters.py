@@ -40,7 +40,7 @@ def escape_markdown_v2(text: str) -> str:
         return ""
         
     # Special characters that need to be escaped in MarkdownV2
-    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!', '%']
     
     # Escape each special character with a backslash
     for char in special_chars:
