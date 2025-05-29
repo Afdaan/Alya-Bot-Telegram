@@ -15,7 +15,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.9'
 
       - name: Pull latest Docker image (if using remote registry)
         run: echo "Skip pull, using local build"
@@ -45,7 +45,6 @@ jobs:
       - name: Notify via Telegram Webhook
         if: success()
         run: |
-          # Load token & chat_id dari .env
           TELEGRAM_BOT_TOKEN=$(grep TELEGRAM_BOT_TOKEN .env | cut -d '=' -f2-)
           TELEGRAM_CHAT_ID=$(grep TELEGRAM_DEPLOY_CHAT_ID .env | cut -d '=' -f2-)
           LAST_COMMIT_MSG=$(git log -1 --pretty=format:"%s")
