@@ -175,13 +175,9 @@ def format_response(
     message, existing_roleplay = detect_roleplay(message)
     paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
     main_message = paragraphs[0] if paragraphs else message
-    optional_messages = paragraphs[1:3] if len(paragraphs) > 1 else []
+    optional_messages = paragraphs[1:2] if len(paragraphs) > 1 else []  # Limit to 1 optional
 
-    # Emoji magic - lets make this more lively! ✨
-    persona_emojis = []
-    all_emojis = []
-    
-    # Dictionary of mood-appropriate emojis
+    # Emoji magic - limit to MAX_EMOJI_PER_RESPONSE per settings.py
     mood_emoji_mapping = {
         "neutral": ["✨", "💭", "🌸", "💫"],
         "happy": ["😊", "💕", "✨", "🌟"],
@@ -197,28 +193,12 @@ def format_response(
         "surprised_genuine": ["😳", "⁉️", "💫", "❗"],
         "default": ["✨", "💫"]
     }
-
-    # Get mood-appropriate emojis
     current_mood = mood if mood != "default" else "neutral"
     mood_emojis = mood_emoji_mapping.get(current_mood, mood_emoji_mapping["default"])
-    
-    # Add 1-3 random emojis, slightly weighted toward the beginning/end
-    emoji_count = random.randint(1, 3)
-    emoji_positions = []
-    
-    # Prioritize start and end positions
-    if random.random() < 0.7:  # 70% chance for emoji at start
-        emoji_positions.append("start")
-        emoji_count -= 1
-    if random.random() < 0.8 and emoji_count > 0:  # 80% chance for emoji at end
-        emoji_positions.append("end")
-        emoji_count -= 1
-    # Fill remaining positions randomly
-    while emoji_count > 0:
-        emoji_positions.append("middle")
-        emoji_count -= 1
+    emoji_count = min(MAX_EMOJI_PER_RESPONSE, max(1, random.randint(1, 2)))
+    emoji_positions = ["start", "end"][:emoji_count]
 
-    # Roleplay formatting (with emoji enhancement)
+    # Roleplay formatting (only once, not per paragraph)
     roleplay = existing_roleplay
     if not roleplay and FORMAT_ROLEPLAY:
         expressions = persona.get("emotions", {}).get(mood if mood != "default" else "neutral", {}).get("expressions", [])
@@ -226,54 +206,30 @@ def format_response(
             roleplay = random.choice(expressions)
             if "{username}" in roleplay:
                 roleplay = roleplay.replace("{username}", username)
-    
     if roleplay:
-        # Add emoji to roleplay 50% of the time
-        if random.random() < 0.5:
-            random_emoji = random.choice(mood_emojis)
-            roleplay = f"{random_emoji} <i>{escape_html(roleplay)}</i>"
-        else:
-            roleplay = f"<i>{escape_html(roleplay)}</i>"
+        roleplay = f"<i>{escape_html(roleplay)}</i>"
 
-    # Main message formatting with enhanced styling
+    # Main message formatting
     main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_message)
     main_content = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', main_content)
     main_content = escape_html(main_content) if "<i>" not in main_content and "<b>" not in main_content else main_content
 
-    # Add emojis to main content based on positions
-    formatted_main = main_content
-    
-    # Format the message with emojis at positions
+    # Add emojis only at start/end, respecting MAX_EMOJI_PER_RESPONSE
     for position in emoji_positions:
         emoji = random.choice(mood_emojis)
         if position == "start":
-            formatted_main = f"{emoji} {formatted_main}"
+            main_content = f"{emoji} {main_content}"
         elif position == "end":
-            formatted_main = f"{formatted_main} {emoji}"
-        else:
-            # For middle position, try to insert at sentence breaks
-            sentences = re.split(r'([.!?]\s+)', formatted_main)
-            if len(sentences) > 2:
-                # Insert after a random sentence break
-                insertion_point = random.randrange(1, len(sentences), 2)
-                sentences.insert(insertion_point, f" {emoji} ")
-                formatted_main = "".join(sentences)
-            else:
-                # If no good sentence breaks, just append to the end
-                formatted_main = f"{formatted_main} {emoji}"
+            main_content = f"{main_content} {emoji}"
 
-    # Optional messages with improved formatting
+    # Only 1 optional paragraph, no emoji
     formatted_optionals = []
     for opt_msg in optional_messages:
         opt_msg = re.sub(r'\*(.*?)\*', r'<i>\1</i>', opt_msg)
         opt_msg = escape_html(opt_msg) if "<i>" not in opt_msg and "<b>" not in opt_msg else opt_msg
-        # 30% chance to add emoji to optional paragraphs
-        if random.random() < 0.3:
-            random_emoji = random.choice(mood_emojis)
-            opt_msg = f"{random_emoji} {opt_msg}"
         formatted_optionals.append(opt_msg)
 
-    # Mood display with emoji
+    # Mood display (optional, only if mood != default)
     mood_display = None
     if mood != "default" and FORMAT_EMOTION:
         try:
@@ -290,20 +246,12 @@ def format_response(
         mood_emoji = random.choice(mood_emoji_mapping.get(mood, ["✨"]))
         mood_display = f"{mood_emoji} <i>{escape_html(chosen)}</i>"
 
-    # Compose result with clear section breaks
     result = []
-    
     if roleplay:
         result.append(roleplay)
-    
-    # Main content
-    result.append(formatted_main)
-    
-    # Optional paragraphs with spacing
+    result.append(main_content)
     if formatted_optionals:
         result.extend(formatted_optionals)
-    
-    # Mood indicator
     if mood_display:
         result.append(mood_display)
 

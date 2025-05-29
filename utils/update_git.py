@@ -635,7 +635,6 @@ class DeploymentManager:
             )
         else:
             error_msg = self._escape_markdown(restart_result.get("error", "Unknown error"))
-            # Buat tmux commands secara terpisah untuk menghindari backslash dalam f-string
             tmux_cmd1 = "tmux send-keys -t " + self.tmux_session + " C-c"
             tmux_cmd2 = "tmux send-keys -t " + self.tmux_session + " 'python main.py' Enter"
             safe_cmd1 = self._escape_markdown(tmux_cmd1)
@@ -663,23 +662,23 @@ class DeploymentManager:
         """Send update status message to user in HTML format."""
         if restart_result["success"]:
             status_message = (
-                "✨ <b>Update berhasil!</b> ✨<br><br>"
-                f"📂 Branch: <code>{html.escape(branch)}</code><br>"
-                f"📁 Path: <code>{html.escape(str(self.project_path))}</code><br>"
-                f"🔄 Bot direstart via tmux: <code>{html.escape(self.tmux_session)}</code><br>"
-                f"⏰ Waktu: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br><br>"
+                "✨ <b>Update berhasil!</b> ✨\n\n"
+                f"📂 Branch: <code>{html.escape(branch)}</code>\n"
+                f"📁 Path: <code>{html.escape(str(self.project_path))}</code>\n"
+                f"🔄 Bot direstart via tmux: <code>{html.escape(self.tmux_session)}</code>\n"
+                f"⏰ Waktu: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                 f"{commit_log}"
             )
         else:
             error_msg = html.escape(restart_result.get("error", "Unknown error"))
             status_message = (
-                "⚠️ <b>Update git berhasil, tapi restart gagal!</b> ⚠️<br><br>"
-                f"📂 Branch: <code>{html.escape(branch)}</code><br>"
-                f"📁 Path: <code>{html.escape(str(self.project_path))}</code><br>"
-                f"❌ Tmux error: <code>{error_msg}</code><br><br>"
-                f"{commit_log}<br><br>"
-                f"<i>Silakan restart manual dengan:</i><br>"
-                f"<code>tmux send-keys -t {html.escape(self.tmux_session)} C-c</code><br>"
+                "⚠️ <b>Update git berhasil, tapi restart gagal!</b> ⚠️\n\n"
+                f"📂 Branch: <code>{html.escape(branch)}</code>\n"
+                f"📁 Path: <code>{html.escape(str(self.project_path))}</code>\n"
+                f"❌ Tmux error: <code>{error_msg}</code>\n\n"
+                f"{commit_log}\n\n"
+                f"<i>Silakan restart manual dengan:</i>\n"
+                f"<code>tmux send-keys -t {html.escape(self.tmux_session)} C-c</code>\n"
                 f"<code>tmux send-keys -t {html.escape(self.tmux_session)} 'python main.py' Enter</code>"
             )
         
@@ -772,7 +771,7 @@ class DeploymentManager:
             if not commits or commits == ['']:
                 return "📝 Tidak ada commit terbaru"
             
-            commit_lines = ["🔄 <b>Recent Commits:</b><br>"]
+            commit_lines = ["🔄 <b>Recent Commits:</b>\n"]
             
             for commit in commits[:self.max_commit_display]:
                 if not commit.strip():
@@ -796,12 +795,12 @@ class DeploymentManager:
                     time_escaped = html.escape(time_ago)
                     
                     commit_lines.append(
-                        f"<code>{hash_escaped}</code> <b>{author_escaped}</b><br>"
-                        f"└─ {message_escaped}<br>"
-                        f"   <i>{time_escaped}</i><br>"
+                        f"<code>{hash_escaped}</code> <b>{author_escaped}</b>\n"
+                        f"└─ {message_escaped}\n"
+                        f"   <i>{time_escaped}</i>\n"
                     )
             
-            return '<br>'.join(commit_lines)
+            return ''.join(commit_lines)
             
         except Exception as e:
             logger.error(f"Failed to generate commit log: {e}")
