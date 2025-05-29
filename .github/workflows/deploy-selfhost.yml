@@ -3,7 +3,7 @@ name: Deploy AlyaBot to Self-Hosted Server
 on:
   push:
     branches:
-      - develop
+      - master
 
 jobs:
   deploy:

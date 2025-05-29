@@ -1,5 +1,5 @@
 FROM python:3.12-slim
-    
+
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     TZ=Asia/Jakarta
@@ -11,13 +11,12 @@ RUN apt-get update --allow-releaseinfo-change && \
         ca-certificates \
         git \
         ffmpeg \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && pip install -r requirements.txt
-
 
 COPY . .
 
