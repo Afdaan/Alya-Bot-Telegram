@@ -78,19 +78,21 @@ jobs:
 
           # Encode message for HTML
           MSG="✨ AlyaBot Deploy Sukses! ✨%0A%0ABranch: <code>$BRANCH_NAME</code>%0ACommit: <code>$LAST_COMMIT_HASH</code>%0AAuthor: <b>$LAST_COMMIT_AUTHOR</b>%0ATime: $LAST_COMMIT_TIME%0A%0A<b>Changelog:</b>%0A$LAST_COMMIT_MSG"
-
-          # Send notification with or without topic_id as needed
-          if [ -n "$TELEGRAM_TOPIC_ID" ]; then
-            curl -s -X POST "$TELEGRAM_API" \
-              -d chat_id="$TELEGRAM_CHAT_ID" \
-              -d message_thread_id="$TELEGRAM_TOPIC_ID" \
-              -d text="$MSG" \
-              -d parse_mode="HTML"
+          
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            if [ -n "$TELEGRAM_TOPIC_ID" ]; then
+              curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -d chat_id="$TELEGRAM_CHAT_ID" \
+                -d message_thread_id="$TELEGRAM_TOPIC_ID" \
+                -d text="$MSG" \
+                -d parse_mode="HTML"
+            else
+              curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -d chat_id="$TELEGRAM_CHAT_ID" \
+                -d text="$MSG" \
+                -d parse_mode="HTML"
+            fi
+            echo "Deployment notification sent to Telegram"
           else
-            curl -s -X POST "$TELEGRAM_API" \
-              -d chat_id="$TELEGRAM_CHAT_ID" \
-              -d text="$MSG" \
-              -d parse_mode="HTML"
+            echo "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set in $ENV_FILE, skip Telegram notification"
           fi
-
-          echo "✅ Deployment notification sent to Telegram"
