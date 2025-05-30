@@ -1,9 +1,8 @@
-import random
 import logging
 import os
 import tempfile
 import time
-from typing import Dict, Any, Optional, Callable, Awaitable, List, Union, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, Union
 
 from telegram import Update, Message
 from telegram.ext import CommandHandler, ContextTypes, MessageHandler, filters
@@ -20,79 +19,47 @@ from handlers.response.help import help_response
 from handlers.response.start import start_response
 from handlers.response.ping import ping_response
 from handlers.response.stats import stats_response
+from utils.search_engine import search_web, SearchResult
 
 logger = logging.getLogger(__name__)
 
 class CommandsHandler:
-    """A class to handle all bot commands centrally with proper structure."""
-    
     def __init__(self, application) -> None:
-        """Initialize the command handler with the application.
-        
-        Args:
-            application: Telegram bot application instance
-        """
         self.application = application
-        # Ensure handlers are registered at initialization
         self._register_handlers()
         logger.info("Command handlers initialized and registered")
     
     def _register_handlers(self) -> None:
-        """Register all command handlers with the application."""
-        # Register sauce handlers
         self.application.add_handler(
             MessageHandler(
                 filters.TEXT & filters.Regex(f"^{SAUCENAO_PREFIX}"),
                 self.handle_sauce_command
             )
         )
-        
         self.application.add_handler(
             MessageHandler(
                 filters.PHOTO & filters.CaptionRegex(f".*{SAUCENAO_PREFIX}.*"),
                 self.handle_image_auto_sauce
             )
         )
-        
-        # Additional commands
         self.application.add_handler(CommandHandler("ping", ping_command))
         self.application.add_handler(CommandHandler("stats", stats_command))
         self.application.add_handler(CommandHandler("reset", reset_command))
         self.application.add_handler(CommandHandler("start", start_command))
         self.application.add_handler(CommandHandler("help", help_command))
-        
-        # Log all registered commands
-        logger.info(f"Registered sauce and utility commands successfully")
+        logger.info("Registered sauce and utility commands successfully")
             
     async def handle_sauce_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle !sauce command for reverse image search.
-        
-        Args:
-            update: Telegram update object
-            context: Callback context
-        """
         message = update.effective_message
-        user = update.effective_user
-        
-        # Check if replying to a message with photo
         if message.reply_to_message and message.reply_to_message.photo:
-            # Get the largest photo size
             photo = message.reply_to_message.photo[-1]
-            
-            # Send initial response
             status_message = await message.reply_text("🔍 Alya sedang menganalisis gambar...")
-            
             try:
-                # Download photo to temporary file
                 photo_file = await photo.get_file()
-                
                 with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
                     await photo_file.download_to_drive(temp_file.name)
                     temp_path = temp_file.name
-                
-                # Search using SauceNAO
                 await search_with_saucenao(status_message, temp_path)
-                
             except Exception as e:
                 logger.error(f"Sauce command error: {e}")
                 await status_message.edit_text(
@@ -100,13 +67,11 @@ class CommandsHandler:
                     parse_mode='HTML'
                 )
             finally:
-                # Clean up temporary file
                 try:
                     if 'temp_path' in locals():
                         os.unlink(temp_path)
                 except Exception as cleanup_error:
                     logger.warning(f"Failed to cleanup temp file: {cleanup_error}")
-                    
         else:
             await message.reply_text(
                 "❓ <b>Cara pakai:</b>\n\n"
@@ -116,55 +81,35 @@ class CommandsHandler:
             )
     
     async def handle_image_auto_sauce(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Auto-detect images and provide sauce option.
-        
-        Args:
-            update: Telegram update object  
-            context: Callback context
-        """
         message = update.effective_message
-        
-        # Only process if message contains sauce prefix in caption or reply
         message_text = message.caption or ""
-        
         if SAUCENAO_PREFIX.lower() in message_text.lower():
-            # Get the largest photo size
             photo = message.photo[-1]
-            
-            # Send initial response
             status_message = await message.reply_text("🔍 Mencari sumber gambar...")
-            
             try:
-                # Download photo to temporary file
                 photo_file = await photo.get_file()
-                
                 with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
                     await photo_file.download_to_drive(temp_file.name)
                     temp_path = temp_file.name
-                
-                # Search using SauceNAO
                 await search_with_saucenao(status_message, temp_path)
-                
             except Exception as e:
                 logger.error(f"Auto sauce error: {e}")
                 await status_message.edit_text(
                     "❌ Gagal mencari sumber gambar. Coba lagi nanti~",
-                    parse_mode='HTML'
+                    parse_mode="HTML"
                 )
             finally:
-                # Clean up temporary file
                 try:
                     if 'temp_path' in locals():
                         os.unlink(temp_path)
                 except Exception as cleanup_error:
                     logger.warning(f"Failed to cleanup temp file: {cleanup_error}")
-                    
+
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Simple ping command to test if the bot is responsive."""
     start_time = time.time()
     message = await update.message.reply_text("Pinging...")
     end_time = time.time()
-    latency = (end_time - start_time) * 1000  # Convert to ms
+    latency = (end_time - start_time) * 1000
     response = ping_response(latency_ms=latency)
     await message.edit_text(
         format_response(response, username=update.effective_user.first_name),
@@ -172,7 +117,6 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
     
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handler for the /start command."""
     user = update.effective_user
     response = start_response(username=user.first_name or "user")
     await update.message.reply_text(
@@ -185,7 +129,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.error(f"Failed to set bot commands on /start: {e}")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handler for the /help command."""
     user = update.effective_user
     response = help_response()
     formatted_help = response.format(username=user.first_name or "user")
@@ -196,7 +139,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.error(f"Failed to set bot commands on /help: {e}")
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handler for the /reset command to clear conversation context."""
     user = update.effective_user
     memory_manager = context.bot_data.get("memory_manager")
     db_manager = context.bot_data.get("db_manager")
@@ -216,14 +158,11 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             is_user=False,
             metadata={"type": "system_notification"}
         )
-        # FIX: Use db_manager to get relationship info (raw SQL, column user_id)
         user_data = db_manager.get_user_relationship_info(user.id)
         relationship = user_data.get("relationship", {})
         friendship_level = "stranger"
         if relationship:
-            # Use mapped relationship level name if available
             friendship_level = relationship.get("name", "stranger").lower()
-            # Fallback to old logic if needed
             if friendship_level not in ["close_friend", "friend", "acquaintance", "stranger"]:
                 friendship_level = "stranger"
         if friendship_level == "close_friend":
@@ -232,7 +171,6 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             response = "Hmph! Jadi kamu ingin memulai dari awal? Baiklah, aku sudah reset percakapan kita! 😳"
         else:
             response = "Percakapan kita sudah direset. A-aku harap kita bisa bicara lebih baik kali ini... b-bukan berarti aku peduli atau apa! 💫"
-        # FIX: Remove parse_mode from format_response()
         await update.message.reply_text(format_response(response))
         memory_manager.store_message(
             user_id=user.id,
@@ -246,7 +184,6 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         ))
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handler for the /stats command to show user relationship stats."""
     user = update.effective_user
     db_manager = context.bot_data.get("db_manager")
     if not db_manager:
@@ -257,9 +194,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    # Get complete user stats with relationship info
     stats = db_manager.get_user_relationship_info(user.id)
-    
     if not stats or not stats.get("relationship"):
         await update.message.reply_text(
             "Belum ada data hubungan. Coba kirim pesan dulu ke Alya ya~ 😳",
@@ -267,49 +202,137 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    # Debug log to see what's actually in the stats
     logger.debug(f"Stats data for user {user.id}: {stats}")
-    
-    # Format response using the stats_response formatter
     response = stats_response(
         name=stats.get('name', user.first_name),
         relationship=stats.get("relationship", {}),
         affection=stats.get("affection", {}),
         stats=stats.get("stats", {})
     )
-    
-    # Send response with HTML formatting
     await update.message.reply_html(response)
 
-async def set_bot_commands(application) -> None:
-    """
-    Register bot commands with Telegram so they appear in the menu.
-    Should be called once at startup or on /start and /help.
-    """
-    from telegram import BotCommand
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    args = context.args if context.args else []
+    search_type = None
+    if args and args[0].startswith('-'):
+        flag = args[0].lower()
+        if flag in ['-p', '-profile']:
+            search_type = 'profile'
+            args = args[1:]
+        elif flag in ['-n', '-news']:
+            search_type = 'news'
+            args = args[1:]
+        elif flag in ['-i', '-image']:
+            search_type = 'image'
+            args = args[1:]
+    query = " ".join(args) if args else ""
+    if not query:
+        from handlers.response.search import search_usage_response
+        usage_text = search_usage_response()
+        await update.message.reply_text(
+            format_response(usage_text, username=user.first_name),
+            parse_mode="HTML"
+        )
+        return
+    await update.message.chat.send_action("typing")
+    try:
+        is_username_search = search_type == 'profile' and ('@' in query or ' ' not in query.strip())
+        if search_type == 'profile':
+            search_results = await search_web(
+                query=query, 
+                max_results=8, 
+                search_type="profile",
+                safe_search="off"
+            )
+        elif search_type == 'news':
+            search_results = await search_web(
+                query=query, 
+                max_results=8,
+                search_type="news",
+                safe_search="off"
+            )
+        elif search_type == 'image':
+            search_results = await search_web(
+                query=query,
+                max_results=8,
+                search_type="image", 
+                safe_search="off"
+            )
+        else:
+            search_results = await search_web(
+                query=query, 
+                max_results=8,
+                safe_search="off"
+            )
+        from handlers.response.search import format_search_results
+        show_username_tip = search_type == 'profile' and (not search_results or len(search_results) < 2)
+        response_text = format_search_results(
+            query, 
+            search_results, 
+            search_type,
+            show_username_tip=show_username_tip
+        )
+        await update.message.reply_text(
+            response_text,
+            parse_mode="HTML", 
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        logger.error(f"Search error: {str(e)}")
+        from handlers.response.search import search_error_response
+        error_text = search_error_response(str(e))
+        await update.message.reply_text(
+            format_response(error_text, username=user.first_name),
+            parse_mode="HTML"
+        )
 
-    commands = [
+async def set_bot_commands(application) -> None:
+    from telegram import BotCommand, BotCommandScope
+    from telegram.constants import BotCommandScopeType
+    all_commands = [
         BotCommand("start", "Mulai percakapan dengan Alya"),
         BotCommand("help", "Lihat semua fitur Alya"),
         BotCommand("ping", "Cek respons bot"),
         BotCommand("stats", "Lihat statistik hubungan kamu dengan Alya"),
         BotCommand("reset", "Reset percakapan dan memulai dari awal"),
+        BotCommand("search", "Cari informasi di internet"),
+        BotCommand("search_profile", "Cari profil/sosial media"),
+        BotCommand("search_news", "Cari berita terbaru"),
+        BotCommand("search_image", "Cari gambar")
     ]
     try:
-        await application.bot.set_my_commands(commands)
-        logger.info("Bot commands registered to Telegram menu successfully")
+        await application.bot.set_my_commands(all_commands)
+        private_scope = BotCommandScope(type=BotCommandScopeType.ALL_PRIVATE_CHATS)
+        await application.bot.set_my_commands(all_commands, scope=private_scope)
+        logger.info(f"Registered {len(all_commands)} bot commands to Telegram menu successfully")
     except Exception as e:
         logger.error(f"Failed to register bot commands: {e}")
 
+async def search_profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args if context.args else []
+    context.args = ["-p"] + args
+    await search_command(update, context)
+
+async def search_news_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args if context.args else []
+    context.args = ["-n"] + args
+    await search_command(update, context)
+
+async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args if context.args else []
+    context.args = ["-i"] + args
+    await search_command(update, context)
+
 def register_commands(application) -> None:
-    """Initialize and register all command handlers."""
     application.add_handler(CommandHandler("start", start_command), group=0)
     application.add_handler(CommandHandler("help", help_command), group=0)
     application.add_handler(CommandHandler("ping", ping_command), group=0)
     application.add_handler(CommandHandler("stats", stats_command), group=0)
     application.add_handler(CommandHandler("reset", reset_command), group=0)
-    # Register sauce/image handlers via CommandsHandler class
+    application.add_handler(CommandHandler("search", search_command), group=0)
+    application.add_handler(CommandHandler("search_profile", search_profile_command), group=0)
+    application.add_handler(CommandHandler("search_news", search_news_command), group=0)
+    application.add_handler(CommandHandler("search_image", search_image_command), group=0)
     CommandsHandler(application)
     logger.info("Command handlers registered successfully")
-    # Hapus pemanggilan set_bot_commands di sini, cukup di /start dan /help
-
