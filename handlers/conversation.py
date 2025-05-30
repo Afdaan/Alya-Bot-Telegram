@@ -88,11 +88,11 @@ class ConversationHandler:
         if update.message.reply_to_message:
             replied = update.message.reply_to_message
             if replied.from_user and replied.from_user.is_bot:
-                if replied.from_user.id == context.bot.id:  
+                if replied.from_user.id == context.bot.id:
                     reply_context = replied.text or ""
-                    is_reply_to_alya = True
-                    if replied.text and "<!-- alya-conv -->" in replied.text:
+                    if replied.text and replied.text.endswith("\u200B"):
                         replied_message_is_conversation = True
+                    is_reply_to_alya = True
 
         if update.message.chat.type in ["group", "supergroup"]:
             if is_reply_to_alya:
@@ -214,7 +214,7 @@ class ConversationHandler:
             intensity=intensity,
             username=user.first_name or "user"
         )
-        formatted_response = f"{formatted_response}\u200b[alya-conv]"
+        formatted_response = f"{formatted_response}\u200B"
         await update.message.reply_html(formatted_response)
     
     async def _get_user_info(self, user) -> Dict[str, Any]:

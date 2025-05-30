@@ -56,6 +56,10 @@ jobs:
             -v $PWD/data:/app/data \
             alya-bot:latest
 
+      - name: Prune unused Docker images
+        run: |
+          docker image prune -af
+
       - name: Show running containers
         run: docker ps -a
 
