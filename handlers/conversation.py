@@ -214,7 +214,7 @@ class ConversationHandler:
             intensity=intensity,
             username=user.first_name or "user"
         )
-        formatted_response = f"{formatted_response}\n<!-- alya-conv -->"
+        formatted_response = f"{formatted_response}\u200b[alya-conv]"
         await update.message.reply_html(formatted_response)
     
     async def _get_user_info(self, user) -> Dict[str, Any]:

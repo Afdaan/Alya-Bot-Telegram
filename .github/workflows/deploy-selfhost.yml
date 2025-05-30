@@ -27,32 +27,28 @@ jobs:
           cd /opt/Alya-Telegram
           git pull origin master
 
-      - name: Remove Docker Cache (optional)
+      - name: Detect dependency changes
+        id: deps
         run: |
-          docker builder prune -f || true
-          docker image prune -a -f || true
-          docker volume prune -f || true
+          cd /opt/Alya-Telegram
+          if git diff --name-only HEAD~1 HEAD | grep -E 'requirements.txt|Dockerfile'; then
+            echo "deps_changed=true" >> $GITHUB_ENV
+          else
+            echo "deps_changed=false" >> $GITHUB_ENV
+          fi
 
-      - name: Pull latest Docker image (if using remote registry)
-        run: echo "Skip pull, using local build"
-
-      - name: Change to project directory
-        run: cd /opt/Alya-Telegram
-
-      - name: Build Docker image (no cache)
+      - name: Build Docker image if dependencies changed
+        if: env.deps_changed == 'true'
         run: |
           cd /opt/Alya-Telegram
           export DOCKER_BUILDKIT=1
-          docker build --no-cache -t alya-bot:latest .
+          docker build -t alya-bot:latest .
 
-      - name: Stop existing AlyaBot container (if running)
-        run: |
-          docker stop alya-bot || true
-          docker rm alya-bot || true
-
-      - name: Start AlyaBot container
+      - name: Restart AlyaBot container (no rebuild if only code/.env changed)
         run: |
           cd /opt/Alya-Telegram
+          docker stop alya-bot || true
+          docker rm alya-bot || true
           docker run -d \
             --name alya-bot \
             --restart unless-stopped \
@@ -65,13 +61,18 @@ jobs:
 
       - name: Notify via Telegram
         if: success()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
         run: |
           cd /opt/Alya-Telegram
           set -a
-          source .env
+          if [ -f .env ]; then
+            source .env
+          fi
           set +a
 
-          # Get deployment info atomically
           GIT_INFO=$(git log -1 --pretty=format:"%s|%h|%an|%ar")
           LAST_COMMIT_MSG=$(echo "$GIT_INFO" | cut -d'|' -f1 | sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g')
           LAST_COMMIT_HASH=$(echo "$GIT_INFO" | cut -d'|' -f2)
@@ -79,26 +80,23 @@ jobs:
           LAST_COMMIT_TIME=$(echo "$GIT_INFO" | cut -d'|' -f4)
           BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD | sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g')
 
-          # Prepare Telegram endpoint
           TELEGRAM_API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
-
-          # Encode message for HTML
           MSG="✨ AlyaBot Deploy Sukses! ✨%0A%0ABranch: <code>$BRANCH_NAME</code>%0ACommit: <code>$LAST_COMMIT_HASH</code>%0AAuthor: <b>$LAST_COMMIT_AUTHOR</b>%0ATime: $LAST_COMMIT_TIME%0A%0A<b>Changelog:</b>%0A$LAST_COMMIT_MSG"
-          
+
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
             if [ -n "$TELEGRAM_TOPIC_ID" ]; then
-              curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              curl -s -X POST "$TELEGRAM_API" \
                 -d chat_id="$TELEGRAM_CHAT_ID" \
                 -d message_thread_id="$TELEGRAM_TOPIC_ID" \
                 -d text="$MSG" \
-                -d parse_mode="HTML" > dev/null 2>&1
+                -d parse_mode="HTML" > /dev/null 2>&1 || true
             else
-              curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              curl -s -X POST "$TELEGRAM_API" \
                 -d chat_id="$TELEGRAM_CHAT_ID" \
                 -d text="$MSG" \
-                -d parse_mode="HTML" > dev/null 2>&1
+                -d parse_mode="HTML" > /dev/null 2>&1 || true
             fi
             echo "Deployment notification sent to Telegram"
           else
-            echo "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set in $ENV_FILE, skip Telegram notification"
+            echo "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set, skip Telegram notification"
           fi
