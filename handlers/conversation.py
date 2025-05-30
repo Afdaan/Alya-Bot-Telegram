@@ -90,7 +90,7 @@ class ConversationHandler:
             if replied.from_user and replied.from_user.is_bot:
                 if replied.from_user.id == context.bot.id:
                     reply_context = replied.text or ""
-                    if replied.text and replied.text.endswith("\u200B"):
+                    if replied.text and replied.text.endswith("\u200C"):
                         replied_message_is_conversation = True
                     is_reply_to_alya = True
 
@@ -214,7 +214,7 @@ class ConversationHandler:
             intensity=intensity,
             username=user.first_name or "user"
         )
-        formatted_response = f"{formatted_response}\u200B"
+        formatted_response = f"{formatted_response}\u200C"
         await update.message.reply_html(formatted_response)
     
     async def _get_user_info(self, user) -> Dict[str, Any]:
