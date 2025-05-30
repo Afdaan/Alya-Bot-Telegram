@@ -12,7 +12,7 @@ jobs:
       - name: Checkout latest code
         uses: actions/checkout@v4
 
-      - name: Stash local changes (if any)
+      - name: Stash local changes
         run: |
           cd /opt/Alya-Telegram
           git stash --include-untracked || true
@@ -26,6 +26,12 @@ jobs:
         run: |
           cd /opt/Alya-Telegram
           git pull origin master
+
+      - name: Remove Docker Cache (optional)
+        run: |
+          docker builder prune -f || true
+          docker image prune -a -f || true
+          docker volume prune -f || true
 
       - name: Pull latest Docker image (if using remote registry)
         run: echo "Skip pull, using local build"
@@ -85,12 +91,12 @@ jobs:
                 -d chat_id="$TELEGRAM_CHAT_ID" \
                 -d message_thread_id="$TELEGRAM_TOPIC_ID" \
                 -d text="$MSG" \
-                -d parse_mode="HTML"
+                -d parse_mode="HTML" > dev/null 2>&1
             else
               curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
                 -d chat_id="$TELEGRAM_CHAT_ID" \
                 -d text="$MSG" \
-                -d parse_mode="HTML"
+                -d parse_mode="HTML" > dev/null 2>&1
             fi
             echo "Deployment notification sent to Telegram"
           else
