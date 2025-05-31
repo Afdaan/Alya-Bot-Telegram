@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Any, Tuple
 import html
 import re
 import emoji
+import difflib
 
 from config.settings import (
     FORMAT_ROLEPLAY, FORMAT_EMOTION, FORMAT_RUSSIAN, 
@@ -152,6 +153,42 @@ def extract_emoji_sentiment(text: str) -> Tuple[str, List[str]]:
     
     return text, emojis
 
+def _sanitize_response(response: str, username: str) -> str:
+    """Sanitize response to remove echo, self-reference, and duplicate paragraphs."""
+    # Remove "User:", "{username}:", "Alya:", "Bot:", "Assistant:" at start of any line
+    lines = response.splitlines()
+    cleaned_lines = []
+    for line in lines:
+        for prefix in [f"User:", f"{username}:", "Alya:", "Bot:", "Assistant:"]:
+            if line.strip().startswith(prefix):
+                line = line.strip()[len(prefix):].strip()
+        cleaned_lines.append(line)
+    response = "\n".join(cleaned_lines)
+
+    # Remove echo of user input at the start (if present)
+    # (Assume echo is first line and next line is the real answer)
+    if len(lines) > 1 and lines[0].strip().lower() in response.lower():
+        response = "\n".join(lines[1:])
+
+    # Remove duplicate paragraphs (very similar blocks)
+    paragraphs = [p.strip() for p in response.split('\n\n') if p.strip()]
+    unique_paragraphs = []
+    for p in paragraphs:
+        if not any(_are_paragraphs_similar(p, up) for up in unique_paragraphs):
+            unique_paragraphs.append(p)
+    response = "\n\n".join(unique_paragraphs)
+
+    # Clean up excessive whitespace
+    response = "\n".join([line.strip() for line in response.split("\n") if line.strip()])
+    return response
+
+def _are_paragraphs_similar(p1: str, p2: str) -> bool:
+    """Check if two paragraphs are very similar (for deduplication)."""
+    if not p1 or not p2:
+        return False
+    ratio = difflib.SequenceMatcher(None, p1.lower(), p2.lower()).ratio()
+    return ratio > 0.8
+
 def format_response(
     message: str,
     emotion: str = "neutral",
@@ -164,6 +201,9 @@ def format_response(
     """Format a bot response with persona, mood, and expressive emoji."""
     persona_manager = PersonaManager()
     persona = persona_manager.get_persona(persona_name)
+
+    # Sanitize message first
+    message = _sanitize_response(message, username)
 
     # Replace username/target placeholders
     if "{username}" in message:

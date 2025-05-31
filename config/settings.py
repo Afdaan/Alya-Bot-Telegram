@@ -28,7 +28,7 @@ GEMINI_API_KEYS: List[str] = [
 ]
 GEMINI_MODEL: str = "gemini-2.0-flash"
 MAX_OUTPUT_TOKENS: int = 8192
-TEMPERATURE: float = 0.8
+TEMPERATURE: float = 0.65
 TOP_K: int = 40
 TOP_P: float = 0.95
 
