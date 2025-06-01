@@ -136,8 +136,8 @@ class CommandsHandler:
         message = update.effective_message
         text = message.text.replace("!ask", "", 1).strip()
         if not text and update.effective_chat.type in ["group", "supergroup"]:
-            from handlers.response.analyze import analyze_resposne
-            await message.reply_html(analyze_resposne(), reply_to_message_id=message.message_id)
+            from handlers.response.analyze import analyze_response
+            await message.reply_html(analyze_response(), reply_to_message_id=message.message_id)
             return
         context.args = text.split() if text else []
         logger.info(f"Handling !ask text analysis from {update.effective_user.id} with query: {text[:50]}...")

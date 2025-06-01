@@ -171,9 +171,9 @@ class MediaAnalyzer:
 
             if not result or not result.get("summary"):
                 if update.effective_chat.type in ["group", "supergroup"] and not context.args:
-                    from handlers.response.analyze import analyze_resposne
+                    from handlers.response.analyze import analyze_response
                     await message.reply_html(
-                        analyze_resposne(),
+                        analyze_response(),
                         reply_to_message_id=message.message_id
                     )
                     return

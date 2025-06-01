@@ -1,68 +1,40 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     TZ=Asia/Jakarta
 
 WORKDIR /app
 
-# Use Indonesian mirror for better connectivity
 RUN echo "deb http://kartolo.sby.datautama.net.id/debian bookworm main" > /etc/apt/sources.list && \
     echo "deb http://kartolo.sby.datautama.net.id/debian-security bookworm-security main" >> /etc/apt/sources.list && \
     echo "deb http://kartolo.sby.datautama.net.id/debian bookworm-updates main" >> /etc/apt/sources.list
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        gcc \
+        ca-certificates \
+        git \
+        ffmpeg \
         build-essential \
         libjpeg-dev \
-        libpng-dev \
-        libfreetype6-dev \
-        libtiff-dev \
-        libwebp-dev \
-        libxml2-dev \
-        libxslt1-dev \
         zlib1g-dev \
-        libffi-dev \
-        libssl-dev \
+        libpng-dev \
+        libwebp-dev \
+        libtiff-dev \
+        libopenjp2-7 \
+        libmagic1 \
         poppler-utils \
-        ffmpeg \
-        unzip \
-        git \
-        curl \
-        ca-certificates \
-        && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Configure pip with direct Asia mirror (no redirects)
-RUN mkdir -p /root/.pip && \
-    echo "[global]" > /root/.pip/pip.conf && \
-    echo "timeout = 120" >> /root/.pip/pip.conf && \
-    echo "retries = 3" >> /root/.pip/pip.conf && \
-    echo "index-url = https://mirrors.aliyun.com/pypi/simple/" >> /root/.pip/pip.conf && \
-    echo "trusted-host = mirrors.aliyun.com" >> /root/.pip/pip.conf
-
-# Upgrade pip with optimized settings
-RUN pip install --upgrade pip setuptools wheel
+        tesseract-ocr \
+        libreoffice \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-
-# Install packages using Aliyun mirror (direct, no redirects)
-RUN pip install --no-cache-dir \
-    --timeout=300 \
-    --retries=3 \
-    --trusted-host mirrors.aliyun.com \
-    -i https://mirrors.aliyun.com/pypi/simple/ \
-    -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && pip install -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /app/data /app/logs /app/tmp
-
 EXPOSE 8080
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
 
 CMD ["python", "main.py"]
