@@ -1,4 +1,4 @@
-FROM python:3.12-slim AS builder
+FROM python:3.11-slim AS builder
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
     pip wheel --no-cache-dir --no-deps --wheel-dir /build/wheels -r requirements.txt
 
-FROM python:3.12-slim AS final
+FROM python:3.11-slim AS final
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
