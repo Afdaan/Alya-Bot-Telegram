@@ -13,6 +13,7 @@ RUN dnf install -y epel-release && \
     dnf install -y https://download1.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-8.noarch.rpm && \
     dnf install -y python3 python3-devel gcc \
         ca-certificates git \
+        SDL2 \
         ffmpeg \
         libjpeg-turbo-devel libpng-devel freetype-devel \
         libtiff-devel libwebp-devel poppler-utils \
