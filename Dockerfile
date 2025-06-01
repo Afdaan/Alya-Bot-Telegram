@@ -8,7 +8,6 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Use Indonesian mirror for better connectivity
 RUN echo "deb http://kartolo.sby.datautama.net.id/debian bookworm main" > /etc/apt/sources.list && \
     echo "deb http://kartolo.sby.datautama.net.id/debian-security bookworm-security main" >> /etc/apt/sources.list && \
     echo "deb http://kartolo.sby.datautama.net.id/debian bookworm-updates main" >> /etc/apt/sources.list
@@ -35,10 +34,25 @@ RUN apt-get update && \
         ca-certificates \
         && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+RUN mkdir -p /root/.pip && \
+    echo "[global]" > /root/.pip/pip.conf && \
+    echo "timeout = 120" >> /root/.pip/pip.conf && \
+    echo "retries = 5" >> /root/.pip/pip.conf && \
+    echo "index-url = https://pypi.doubanio.com/simple/" >> /root/.pip/pip.conf && \
+    echo "trusted-host = pypi.doubanio.com" >> /root/.pip/pip.conf
+
+RUN pip install --upgrade pip setuptools wheel
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt
-    
+
+# Install packages using Douban mirror
+RUN pip install --no-cache-dir \
+    --timeout=300 \
+    --retries=5 \
+    --trusted-host pypi.doubanio.com \
+    -i https://pypi.doubanio.com/simple/ \
+    -r requirements.txt
+
 COPY . .
 
 RUN mkdir -p /app/data /app/logs /app/tmp
