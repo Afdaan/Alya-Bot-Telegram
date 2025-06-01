@@ -11,6 +11,17 @@ RUN apt-get update --allow-releaseinfo-change && \
         ca-certificates \
         git \
         ffmpeg \
+        build-essential \
+        libjpeg-dev \
+        zlib1g-dev \
+        libpng-dev \
+        libwebp-dev \
+        libtiff-dev \
+        libopenjp2-7 \
+        libmagic1 \
+        poppler-utils \
+        tesseract-ocr \
+        libreoffice \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
