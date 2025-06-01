@@ -14,7 +14,7 @@ RUN apt-get update --allow-releaseinfo-change && \
         libjpeg-dev \
         libpng-dev \
         libfreetype6-dev \
-        libtiff5-dev \
+        libtiff-dev \
         libwebp-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -35,13 +35,18 @@ RUN apt-get update --allow-releaseinfo-change && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         ffmpeg \
-        # Runtime libs for Pillow
         libjpeg62-turbo \
         libpng16-16 \
         libfreetype6 \
-        libtiff5 \
+        libtiff6 \
         libwebp7 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN if [ ! -e /usr/lib/*/libtiff.so.? ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends libtiff-dev && \
+      apt-get clean && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 COPY --from=builder /build/wheels /wheels
 RUN pip install --no-cache --no-index --find-links=/wheels/ /wheels/* && \
