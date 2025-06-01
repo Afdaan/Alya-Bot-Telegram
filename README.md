@@ -22,149 +22,122 @@
   </p>
 </div>
 
-## Description
+## 🌸 Project Overview
 
-Alya-chan is an AI-powered Telegram bot based on Alya from the anime/manga series "時々ボソッとロシア語でデレる隣のアーリャさん" (Alya Sometimes Hides Her Feelings in Russian), commonly known as "Roshidere". With her unique personality and Russian-Japanese background, Alya occasionally mutters her true feelings in Russian when she can't express them directly in Japanese. This bot brings her charm to your Telegram chats while providing powerful AI features powered by Google's Gemini!
+>Alya-chan is an AI-powered Telegram bot based on Alya from the anime/manga series "時々ボソッとロシア語でデレる隣のアーリャさん" (Alya Sometimes Hides Her Feelings in Russian), commonly known as "Roshidere". The bot features Alya's unique tsundere personality with Russian expressions and provides powerful AI capabilities powered by Google's Gemini model.
 
-> 🌟 Your personal Alya AI assistant that combines the charm of Roshidere with cutting-edge AI technology
+## ✨ Key Features
 
-## Key Features
+- **🌸 Dynamic Personality** - Tsundere character with evolving relationship levels
+- **💫 Memory System** - Context-aware conversations using RAG technology
+- **🧠 Emotion Detection** - Recognizes user emotions and responds appropriately  
+- **🎭 Multi-mood Responses** - Various response styles based on context
+- **🔍 Media Analysis** - Vision capabilities for images and documents
+- **🎯 Smart Web Search** - Advanced search capabilities with multiple modes
 
-- 🌸 **Waifu Chat Mode** - Tsundere personality with Russian expressions
-- 💅 **Toxic Queen Mode** - Savage roasting capabilities
-- 🔍 **Image Analysis** - Analyze images and documents with AI
-- 🎨 **Anime Source Search** - Find anime/manga sources with SauceNAO
-- 🔍 **Web Search** - Smart search with Google Custom Search
-- 👥 **Group Chat Support** - Works in both private and group chats
-- 🧠 **Context Awareness** - Remembers conversation history
-- 🗣️ **Multi-language Support** - Primarily Indonesian with flexible language switching
+For a complete list of commands and features, see [COMMANDS.md](COMMANDS.md).
 
-## Core Features
+## 🛠️ Technology Stack
 
-### 🤖 AI-Powered Conversations
-- **Context-aware responses** using conversation memory
-- **Emotion detection** for natural interactions
-- **Relationship progression** system (stranger → friend → close friend)
-- **Russian expressions** triggered by emotional states
-- **Dynamic personality** adapting to user relationship level
+- **Python 3.8+** - Core language
+- **python-telegram-bot v21** - Telegram API wrapper with async support
+- **Google Gemini 2.5 Flash** - Primary AI language model
+- **SQLite/PostgreSQL** - Database storage
+- **ChromaDB** - Vector database for RAG implementation
+- **HuggingFace Models** - Emotion detection and NLP tasks
+- **aiohttp** - Async HTTP client for API interactions
 
-### 🔍 Enhanced Search Engine
-- **Web Search**: `/search <query>` - Search information across the web
-- **Profile Search**: `/search -p <name>` - Find social media profiles
-- **News Search**: `/search -n <topic>` - Find latest news
-- **Image Search**: `/search -i <description>` - Find images
-- **Google CSE integration** with automatic API key rotation
+## 🚀 Installation
 
-### 🎨 Media Analysis
-- **SauceNAO Integration**: `!sauce` - Find anime/manga sources
-- **Image Analysis**: `!trace` - Analyze image content with AI
-- **Document Analysis**: Upload documents for AI analysis
+### Prerequisites
+- Python 3.8 or higher
+- Git
+- A Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
+- Google Gemini API Key
 
-### 💬 Chat Modes
-- **Normal Mode**: Tsundere responses with caring undertones
-- **Roast Mode**: Savage roasting with creative insults
-- **Admin Mode**: Special treatment for bot administrators
+### Basic Setup
 
-## Installation
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/Afdaan/alya-bot-telegram.git
+   cd alya-bot-telegram
+   ```
 
-### 1. Clone Repository
-```bash
-git clone https://github.com/Afdaan/alya-bot-telegram.git
-cd alya-bot-telegram
-```
+2. **Create a virtual environment**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Windows: venv\Scripts\activate
+   ```
 
-### 2. Create Virtual Environment
-```bash
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-```
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### 3. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
+4. **Configure environment variables**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your API keys
+   ```
 
-### 4. Configure Environment
-```bash
-cp .env.example .env
-```
+5. **Run the bot**
+   ```bash
+   python main.py
+   ```
 
-Edit `.env` with your API keys:
+For detailed configuration options and deployment instructions, see the [Configuration](#-configuration) section below.
+
+## ⚙️ Configuration
+
+### Required Environment Variables
 
 ```properties
-# Required Configuration
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_from_botfather
-ADMIN_IDS=your_telegram_user_id  # Can be multiple IDs: 123456,789012
+# Telegram Bot
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 
-# Gemini AI Configuration
-GEMINI_API_KEYS=your_gemini_api_key  # Can be multiple keys: key1,key2,key3
+# Admin Settings
+ADMIN_IDS=your_telegram_id  # Comma-separated for multiple admins (e.g., 123456,789012)
+
+# Gemini AI
+GEMINI_API_KEYS=your_gemini_api_key  # Comma-separated for key rotation
 GEMINI_MODEL=gemini-2.0-flash
-
-# Optional Services
-SAUCENAO_API_KEY=your_saucenao_api_key
-GOOGLE_CSE_ID=your_google_custom_search_engine_id
-GOOGLE_API_KEYS=your_google_api_key  # Can be multiple keys: key1,key2
-
-# Optional: Self-hosted LLM (alternative to Gemini)
-LLM_PROVIDER=gemini  # Options: gemini, self
-LLM_MODEL_PATH=data/models/your_model.gguf  # Only if LLM_PROVIDER=self
 ```
 
-### 5. Run the Bot
-```bash
-python main.py
-```
-
-## Configuration Guide
-
-### API Keys Setup
-
-#### Required APIs
-1. **Telegram Bot Token**: Get from [@BotFather](https://t.me/BotFather)
-2. **Gemini API Key**: Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
-
-#### Optional APIs
-1. **SauceNAO API**: Get from [SauceNAO](https://saucenao.com/user.php)
-2. **Google Custom Search**: Setup from [Google Cloud Console](https://console.cloud.google.com/)
-
-### Multi-API Key Rotation
-
-The bot supports multiple API keys for better reliability:
+### Optional Environment Variables
 
 ```properties
-# Multiple Gemini keys (comma-separated)
-GEMINI_API_KEYS=key1,key2,key3
+# External APIs
+SAUCENAO_API_KEY=your_saucenao_api_key  # For anime image source detection
+GOOGLE_CSE_ID=your_google_search_engine_id  # For web search capabilities
+GOOGLE_API_KEYS=your_google_api_key  # For Google Custom Search Engine
 
-# Multiple Google Search keys
+# Database Settings (defaults to SQLite)
+DATABASE_URL=sqlite:///data/alya.db
+# Alternative: DATABASE_URL=postgresql://user:password@localhost/alya
+
+# Performance Settings
+MEMORY_LIMIT=200  # Maximum number of messages to remember per user
+CACHE_EXPIRY=3600  # Cache expiry time in seconds
+```
+
+### API Key Rotation System
+
+Alya supports multiple API keys to ensure reliability and handle rate limits:
+
+```properties
+# Multiple comma-separated keys for automatic rotation
+GEMINI_API_KEYS=key1,key2,key3
 GOOGLE_API_KEYS=key1,key2,key3
 ```
 
-Benefits:
-- **Automatic rotation** when rate limits are hit
-- **Seamless operation** without interruption
-- **Higher availability** and reliability
+The bot will automatically:
+- Rotate to the next key when rate limits are reached
+- Track usage and distribute load across keys
+- Fall back gracefully if all keys are exhausted
 
-### Database Configuration
+## 🚀 Deployment Options
 
-By default, the bot uses SQLite:
-```properties
-SQLITE_DB_PATH=data/alya.db  # Default location
-```
-
-### Self-hosted LLM Option
-
-Instead of Gemini, you can use a local model:
-
-```properties
-LLM_PROVIDER=self
-LLM_MODEL_PATH=data/models/your_model.gguf
-LLM_CONTEXT_SIZE=4096
-LLM_N_GPU_LAYERS=0  # 0 = CPU only, >0 = GPU layers
-```
-
-## Deployment
-
-### Development
+### Development Mode
 ```bash
 python main.py
 ```
@@ -174,6 +147,7 @@ python main.py
 tmux new-session -s alya-bot
 python main.py
 # Ctrl+B then D to detach
+# tmux attach -t alya-bot to reconnect
 ```
 
 ### Docker Deployment
@@ -190,110 +164,70 @@ docker run -d \
   alya-bot
 ```
 
-### Update Bot
-```bash
-# If using TMUX
-tmux attach -t alya-bot
-# Ctrl+C to stop
-git pull
-python main.py
-
-# Or use admin command (if you're admin)
-/update
-```
-
-## Bot Architecture
+## 🏗️ Architecture
 
 ### Core Components
-- **Core Bot**: Main bot logic and initialization
-- **Handlers**: Message and command processors
-- **Database**: User data and conversation storage
-- **Memory**: Context-aware conversation management
-- **NLP Engine**: Emotion detection and sentiment analysis
-- **Persona System**: Personality and mood management
+
+- **Bot Core** - Main initialization and command registration
+- **Handlers** - Message processors for different commands and features
+- **Memory System** - RAG-based conversation context manager
+- **NLP Engine** - Emotion detection and intent recognition
+- **Persona Manager** - Controls bot's personality and response style
+- **Database** - Stores user data, relationships and conversation history
 
 ### Database Schema
-- **Users**: User profiles and relationship data
-- **Conversations**: Message history and context
-- **Memory**: RAG-based conversation memory
-- **Stats**: Usage statistics and analytics
 
-## Features Overview
+- **Users** - User profiles with relationship progression
+- **Conversations** - Message history and context tracking
+- **Memory** - Vector embeddings for RAG implementation
+- **Settings** - User preferences and configurations
+- **Stats** - Usage statistics and analytics
 
-### Conversation System
-- **RAG-powered memory** for context awareness
-- **Emotion detection** using NLP models
-- **Relationship progression** tracking
-- **Dynamic responses** based on user relationship
-- **Russian expressions** for emotional moments
+## 🛡️ Security Features
 
-### Search Capabilities
-- **Intent detection** for different search types
-- **Profile search** across social media platforms
-- **News search** with date sorting
-- **Image search** with thumbnail display
-- **Smart query enhancement** for better results
+- Input validation and sanitization
+- Protection against prompt injection
+- Rate limiting to prevent abuse
+- Secure storage of API keys
+- Safe HTML/Markdown rendering
+- Comprehensive error handling and logging
 
-### Admin Features
-- **Bot statistics** and usage analytics
-- **User management** and admin controls
-- **System monitoring** and health checks
-- **Deployment management** with git integration
-- **Database cleanup** and maintenance
+## 🧪 Contributing
 
-## Tech Stack
-
-- **Python 3.8+** - Core programming language
-- **python-telegram-bot v21** - Telegram API wrapper
-- **Google Gemini 2.5 Flash** - AI language model
-- **SQLite/PostgreSQL** - Database storage
-- **SentenceTransformers** - Text embeddings for RAG
-- **HuggingFace Models** - Emotion detection and NLP
-- **aiohttp** - Async HTTP client
-- **Docker** - Containerization support
-
-## Performance Optimizations
-
-1. **Response Caching** - Stores frequently asked questions
-2. **API Key Rotation** - Automatic fallback for rate limits
-3. **Memory Management** - Efficient conversation history handling
-4. **Async Operations** - Non-blocking request processing
-5. **Database Indexing** - Optimized query performance
-
-## Security Features
-
-- **Input validation** for all user inputs
-- **SQL injection protection** with parameterized queries
-- **Rate limiting** to prevent abuse
-- **Admin-only commands** with proper authorization
-- **Safe HTML/Markdown** rendering
-
-## Commands
-
-See [COMMANDS.md](COMMANDS.md) for complete list of available commands and usage examples.
-
-## Contributing
+Contributions are welcome! Please follow these steps:
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Make your changes following our coding standards
+4. Test your changes thoroughly
+5. Commit your changes (`git commit -m 'Add amazing feature'`)
+6. Push to the branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
 
-## License
+Before submitting, please make sure your code follows our style guidelines as documented in the repo.
+
+## 📜 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Developer Contact
+## 👥 Contact
 
 - **Creator**: Afdaan
 - **Website**: [alif.horn-yastudio.com](https://alif.horn-yastudio.com)
 - **GitHub**: [Afdaan](https://github.com/Afdaan)
+- **Facebook**: [Afdaan](https://www.facebook.com/DanzdotTardotGz)
 
-## Acknowledgments
+## 🤖 Bot Commands
+For a complete list of commands and their usage, please refer to the [COMMANDS.md](COMMANDS.md) file.
+
+## 🙏 Acknowledgments
 
 - Alya character from "Roshidere" anime/manga series
 - Google Gemini AI for natural language processing
-- Telegram Bot API for messaging platform
-- SauceNAO for anime source identification
-- Open source community for various libraries and tools
+- Telegram for their excellent Bot API
+- SauceNAO for anime image source identification
+- The open source community for various libraries and tools
+
+---
+
+<p align="center"><i>Crafted with <code>devops && coffee</code> by Afdaan☕⚙️</i></p>
