@@ -1,4 +1,4 @@
-def analyze_resposne() -> str:
+def analyze_response() -> str:
     """Return a helpful response explaining how to use the analysis feature."""
     return """<b>🔍 Analisis dengan Alya</b>
 
