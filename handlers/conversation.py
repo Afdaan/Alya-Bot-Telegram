@@ -326,20 +326,55 @@ class ConversationHandler:
         return relationship_contexts.get(relationship_level, "")
     
     def _update_affection_from_context(self, user_id: int, message_context: Dict[str, Any]) -> None:
+        """
+        This method calculates affection changes based on detected emotions, intent, and
+        relationship signals, with a balanced approach that rewards positive interactions
+        more generously and reduces penalties for negative interactions.
+        
+        Args:
+            user_id: The user ID to update affection for
+            message_context: Dictionary containing emotion and intent analysis
+        """
         if not message_context:
             return
+            
         relationship_signals = message_context.get("relationship_signals", {})
         affection_delta = 0
-        affection_delta += relationship_signals.get("friendliness", 0) * 10
-        affection_delta += relationship_signals.get("romantic_interest", 0) * 20
-        affection_delta -= relationship_signals.get("conflict", 0) * 15
+        
+        # Increase positive rewards and reduce negative penalties
+        affection_delta += relationship_signals.get("friendliness", 0) * 15  # Was 10
+        affection_delta += relationship_signals.get("romantic_interest", 0) * 25  # Was 20
+        affection_delta -= relationship_signals.get("conflict", 0) * 10  # Was 15, reduced penalty
+        
+        # Add points for positive emotions
+        emotion = message_context.get("emotion", "")
+        if emotion in ["happy", "excited", "grateful"]:
+            affection_delta += 3
+        elif emotion in ["sad", "worried"]:
+            # Small positive for showing vulnerability - builds relationship
+            affection_delta += 1
+        
+        # More generous rewards for positive intents
         intent = message_context.get("intent", "")
         if intent == "gratitude":
-            affection_delta += 5
+            affection_delta += 8  # Was 5
         elif intent == "apology":
-            affection_delta += 3
+            affection_delta += 5  # Was 3
         elif intent == "affection":
-            affection_delta += 10
+            affection_delta += 15  # Was 10
+        elif intent == "greeting":
+            affection_delta += 2  # New: reward simple greetings
+        elif intent == "compliment":
+            affection_delta += 10  # New: reward compliments
+        elif intent == "question":
+            affection_delta += 1  # New: small reward for engaging questions
+            
+        # Reduce sensitivity by applying thresholding
+        if affection_delta < 0:
+            # Apply dampening factor to negative values
+            affection_delta = max(affection_delta * 0.7, -10)
+            
+        # Apply a minimum threshold to avoid tiny changes
         if abs(affection_delta) >= 1:
             affection_delta = round(affection_delta)
             self.db.update_affection(user_id, affection_delta)

@@ -1,9 +1,11 @@
 name: Deploy AlyaBot to Self-Hosted Server (Production)
 
 on:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
+  # Uncomment below if you want to allow manual trigger only
+  # push:
+  #   branches:
+  #     - master
 
 jobs:
   deploy:
