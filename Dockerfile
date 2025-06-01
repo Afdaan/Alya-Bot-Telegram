@@ -8,7 +8,6 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install system dependencies
 RUN apt-get update --allow-releaseinfo-change && \
     apt-get install -y --no-install-recommends \
         gcc \
@@ -20,22 +19,20 @@ RUN apt-get update --allow-releaseinfo-change && \
         libfreetype6-dev \
         libtiff-dev \
         libwebp-dev \
+        poppler-utils \
+        libxml2 \
+        libxslt1.1 \
+        unzip \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
 COPY . .
 
-# Create data directory
 RUN mkdir -p /app/data
 
 EXPOSE 8080
-
-HEALTHCHECK --interval=60s --timeout=10s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8080/health')" || exit 1
 
 CMD ["python", "main.py"]
