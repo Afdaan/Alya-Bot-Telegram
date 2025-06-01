@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM almalinux:8.10
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -8,26 +8,18 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN apt-get update --allow-releaseinfo-change && \
-    apt-get install -y --no-install-recommends \
-        gcc \
-        python3-dev \
-        ca-certificates \
-        ffmpeg \
-        libjpeg-dev \
-        libpng-dev \
-        libfreetype6-dev \
-        libtiff-dev \
-        libwebp-dev \
-        poppler-utils \
-        libxml2 \
-        libxslt1.1 \
-        unzip \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN dnf install -y python3 python3-devel gcc \
+    ca-certificates git ffmpeg \
+    libjpeg-turbo-devel libpng-devel freetype-devel \
+    libtiff-devel libwebp-devel poppler-utils \
+    libxml2 libxslt unzip && \
+    dnf clean all
+
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir -r requirements.txt
 
 COPY . .
 
@@ -35,4 +27,4 @@ RUN mkdir -p /app/data
 
 EXPOSE 8080
 
-CMD ["python", "main.py"]
+CMD ["python3", "main.py"]
