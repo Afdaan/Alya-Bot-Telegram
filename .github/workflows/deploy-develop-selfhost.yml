@@ -1,9 +1,9 @@
-name: Deploy AlyaBot to Self-Hosted Server (Production)
+name: Deploy AlyaBot to Self-Hosted Server (Develop)
 
 on:
   push:
     branches:
-      - master
+      - develop
 
 jobs:
   deploy:
@@ -16,8 +16,8 @@ jobs:
         run: |
           cd /opt/Alya-Telegram
           git stash --include-untracked || true
-          git checkout master
-          git pull origin master
+          git checkout develop
+          git pull origin develop
 
       - name: Build AlyaBot Docker image
         run: |
@@ -60,7 +60,7 @@ jobs:
           BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD | sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g')
 
           TELEGRAM_API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
-          MSG="✨ AlyaBot Deploy Sukses! ✨%0A%0ABranch: <code>$BRANCH_NAME</code>%0ACommit: <code>$LAST_COMMIT_HASH</code>%0AAuthor: <b>$LAST_COMMIT_AUTHOR</b>%0ATime: $LAST_COMMIT_TIME%0A%0A<b>Changelog:</b>%0A$LAST_COMMIT_MSG"
+          MSG="✨ AlyaBot Deploy Sukses (Develop)! ✨%0A%0ABranch: <code>$BRANCH_NAME</code>%0ACommit: <code>$LAST_COMMIT_HASH</code>%0AAuthor: <b>$LAST_COMMIT_AUTHOR</b>%0ATime: $LAST_COMMIT_TIME%0A%0A<b>Changelog:</b>%0A$LAST_COMMIT_MSG"
 
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
             if [ -n "$TELEGRAM_TOPIC_ID" ]; then

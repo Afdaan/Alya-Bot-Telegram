@@ -2,24 +2,21 @@ import logging
 import os
 import tempfile
 import time
-from typing import Dict, Any, Optional, List, Union
+from typing import Any, Dict, List, Optional
 
-from telegram import Update, Message
+from telegram import Update, Message, BotCommand, BotCommandScope
+from telegram.constants import ChatAction, BotCommandScopeType
 from telegram.ext import CommandHandler, ContextTypes, MessageHandler, filters
 
-from config.settings import SAUCENAO_PREFIX, COMMAND_PREFIX
+from config.settings import SAUCENAO_PREFIX
 from utils.saucenao import search_with_saucenao
-from core.gemini_client import GeminiClient
 from utils.formatters import format_response
-from database.session import get_db_session
-from database.memory_manager import MemoryManager
-from core.persona import PersonaManager
-from core.database import DatabaseManager
+from utils.search_engine import search_web
+from utils.analyze import MediaAnalyzer
 from handlers.response.help import help_response
 from handlers.response.start import start_response
 from handlers.response.ping import ping_response
 from handlers.response.stats import stats_response
-from utils.search_engine import search_web, SearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +25,7 @@ class CommandsHandler:
         self.application = application
         self._register_handlers()
         logger.info("Command handlers initialized and registered")
-    
+
     def _register_handlers(self) -> None:
         self.application.add_handler(
             MessageHandler(
@@ -42,13 +39,33 @@ class CommandsHandler:
                 self.handle_image_auto_sauce
             )
         )
+        analyze_prefix = "!ask"
+        self.application.add_handler(
+            MessageHandler(
+                (filters.PHOTO | filters.Document.ALL) & 
+                filters.CaptionRegex(f".*{analyze_prefix}.*"),
+                self.handle_analyze_media
+            )
+        )
+        self.application.add_handler(
+            MessageHandler(
+                filters.TEXT & filters.ChatType.PRIVATE & filters.Regex(f"^{analyze_prefix}"),
+                self.handle_analyze_text
+            )
+        )
+        self.application.add_handler(
+            MessageHandler(
+                filters.TEXT & filters.ChatType.GROUPS & filters.Regex(f"^{analyze_prefix}"),
+                self.handle_analyze_text
+            )
+        )
         self.application.add_handler(CommandHandler("ping", ping_command))
         self.application.add_handler(CommandHandler("stats", stats_command))
         self.application.add_handler(CommandHandler("reset", reset_command))
         self.application.add_handler(CommandHandler("start", start_command))
         self.application.add_handler(CommandHandler("help", help_command))
         logger.info("Registered sauce and utility commands successfully")
-            
+
     async def handle_sauce_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         message = update.effective_message
         if message.reply_to_message and message.reply_to_message.photo:
@@ -79,7 +96,7 @@ class CommandsHandler:
                 "<i>~Alya akan membantu mencari sumber gambar. Bukan karena peduli sama kamu atau apa~</i> 😳",
                 parse_mode='HTML'
             )
-    
+
     async def handle_image_auto_sauce(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         message = update.effective_message
         message_text = message.caption or ""
@@ -105,6 +122,46 @@ class CommandsHandler:
                 except Exception as cleanup_error:
                     logger.warning(f"Failed to cleanup temp file: {cleanup_error}")
 
+    async def handle_analyze_media(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await self._send_chat_action(update, context, ChatAction.TYPING)
+        message = update.effective_message
+        caption = message.caption or message.text or ""
+        caption = caption.replace("!ask", "", 1).strip()
+        context.args = caption.split() if caption else []
+        logger.info(f"Handling !ask media analysis from {update.effective_user.id} with args: {context.args}")
+        await MediaAnalyzer.handle_analysis_command(update, context)
+
+    async def handle_analyze_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await self._send_chat_action(update, context, ChatAction.TYPING)
+        message = update.effective_message
+        text = message.text.replace("!ask", "", 1).strip()
+        if not text and update.effective_chat.type in ["group", "supergroup"]:
+            from handlers.response.analyze import analyze_resposne
+            await message.reply_html(analyze_resposne(), reply_to_message_id=message.message_id)
+            return
+        context.args = text.split() if text else []
+        logger.info(f"Handling !ask text analysis from {update.effective_user.id} with query: {text[:50]}...")
+        await MediaAnalyzer.handle_analysis_command(update, context)
+
+    async def _send_chat_action(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, action: str
+    ) -> None:
+        chat = update.effective_chat
+        try:
+            if hasattr(update.message, "message_thread_id") and update.message.message_thread_id:
+                await context.bot.send_chat_action(
+                    chat_id=chat.id,
+                    action=action,
+                    message_thread_id=update.message.message_thread_id
+                )
+            else:
+                await context.bot.send_chat_action(
+                    chat_id=chat.id,
+                    action=action
+                )
+        except Exception as e:
+            logger.warning(f"Failed to send chat action: {e}")
+
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     start_time = time.time()
     message = await update.message.reply_text("Pinging...")
@@ -115,7 +172,7 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         format_response(response, username=update.effective_user.first_name),
         parse_mode="HTML"
     )
-    
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     response = start_response(username=user.first_name or "user")
@@ -160,17 +217,19 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         user_data = db_manager.get_user_relationship_info(user.id)
         relationship = user_data.get("relationship", {})
-        friendship_level = "stranger"
-        if relationship:
-            friendship_level = relationship.get("name", "stranger").lower()
-            if friendship_level not in ["close_friend", "friend", "acquaintance", "stranger"]:
-                friendship_level = "stranger"
+        friendship_level = relationship.get("name", "stranger").lower() if relationship else "stranger"
         if friendship_level == "close_friend":
-            response = "Baiklah, aku sudah melupakan percakapan kita sebelumnya~ Tapi tentu saja aku masih ingat siapa kamu! ✨"
+            response = (
+                "Baiklah, aku sudah melupakan percakapan kita sebelumnya~ Tapi tentu saja aku masih ingat siapa kamu! ✨"
+            )
         elif friendship_level == "friend":
-            response = "Hmph! Jadi kamu ingin memulai dari awal? Baiklah, aku sudah reset percakapan kita! 😳"
+            response = (
+                "Hmph! Jadi kamu ingin memulai dari awal? Baiklah, aku sudah reset percakapan kita! 😳"
+            )
         else:
-            response = "Percakapan kita sudah direset. A-aku harap kita bisa bicara lebih baik kali ini... b-bukan berarti aku peduli atau apa! 💫"
+            response = (
+                "Percakapan kita sudah direset. A-aku harap kita bisa bicara lebih baik kali ini... b-bukan berarti aku peduli atau apa! 💫"
+            )
         await update.message.reply_text(format_response(response))
         memory_manager.store_message(
             user_id=user.id,
@@ -237,17 +296,16 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     await update.message.chat.send_action("typing")
     try:
-        is_username_search = search_type == 'profile' and ('@' in query or ' ' not in query.strip())
         if search_type == 'profile':
             search_results = await search_web(
-                query=query, 
-                max_results=8, 
+                query=query,
+                max_results=8,
                 search_type="profile",
                 safe_search="off"
             )
         elif search_type == 'news':
             search_results = await search_web(
-                query=query, 
+                query=query,
                 max_results=8,
                 search_type="news",
                 safe_search="off"
@@ -256,26 +314,26 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             search_results = await search_web(
                 query=query,
                 max_results=8,
-                search_type="image", 
+                search_type="image",
                 safe_search="off"
             )
         else:
             search_results = await search_web(
-                query=query, 
+                query=query,
                 max_results=8,
                 safe_search="off"
             )
         from handlers.response.search import format_search_results
         show_username_tip = search_type == 'profile' and (not search_results or len(search_results) < 2)
         response_text = format_search_results(
-            query, 
-            search_results, 
+            query,
+            search_results,
             search_type,
             show_username_tip=show_username_tip
         )
         await update.message.reply_text(
             response_text,
-            parse_mode="HTML", 
+            parse_mode="HTML",
             disable_web_page_preview=True
         )
     except Exception as e:
@@ -288,8 +346,6 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
 
 async def set_bot_commands(application) -> None:
-    from telegram import BotCommand, BotCommandScope
-    from telegram.constants import BotCommandScopeType
     all_commands = [
         BotCommand("start", "Mulai percakapan dengan Alya"),
         BotCommand("help", "Lihat semua fitur Alya"),
