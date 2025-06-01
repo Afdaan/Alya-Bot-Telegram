@@ -12,3 +12,4 @@ aiohttp>=3.12.2
 emoji>=2.8.0
 sqlalchemy>=2.0.41
 psutil>=3.0.0
+pillow>=10.0.0

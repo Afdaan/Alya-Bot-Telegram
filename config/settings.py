@@ -28,7 +28,7 @@ GEMINI_API_KEYS: List[str] = [
 ]
 GEMINI_MODEL: str = "gemini-2.0-flash"
 MAX_OUTPUT_TOKENS: int = 8192
-TEMPERATURE: float = 0.65
+TEMPERATURE: float = 0.7
 TOP_K: int = 40
 TOP_P: float = 0.95
 
@@ -118,11 +118,13 @@ SUPPORTED_EMOTIONS: List[str] = ["joy", "sadness", "anger", "fear", "surprise", 
 EMOTION_CONFIDENCE_THRESHOLD: float = 0.4  # Minimum confidence to assign an emotion
 
 # Response Formatting
-FORMAT_ROLEPLAY: bool = True
-FORMAT_EMOTION: bool = True
-FORMAT_RUSSIAN: bool = True
-MAX_EMOJI_PER_RESPONSE: int = 15
+FORMAT_ROLEPLAY: bool = True  # Show roleplay actions in italics
+FORMAT_EMOTION: bool = True   # Show mood description at the end
+FORMAT_RUSSIAN: bool = True   # Use Russian expressions for emotions
+MAX_EMOJI_PER_RESPONSE: int = 7  # Limit emojis to keep responses clean
 RESPONSE_BREVITY: float = 0.7  # 0.0 = very verbose, 1.0 = extremely brief
+MAX_RESPONSE_PARAGRAPHS: int = 3  # Maximum number of paragraphs to include
+MAX_RESPONSE_LENGTH: int = 1098  # Target length in characters
 
 # Russian Expressions
 RUSSIAN_EXPRESSIONS: Dict[str, Dict[str, List[str]]] = {

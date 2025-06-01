@@ -199,14 +199,71 @@ class ConversationHandler:
         response: str, 
         message_context: Dict[str, Any]
     ) -> None:
+        # Store messages in DB first
         self.db.save_message(user.id, "assistant", response)
         self.memory.save_bot_response(user.id, response)
+        
+        # Update user relationship based on detected context
         if message_context:
             self._update_affection_from_context(user.id, message_context)
+            
+        # Get emotion context for formatting
         emotion = message_context.get("emotion", "neutral") if message_context else "neutral"
         intensity = message_context.get("intensity", 0.5) if message_context else 0.5
+        
+        # Get a relationship-appropriate mood
         relationship_level = self._get_relationship_level(user.id)
+        
+        # Get suggested mood for response based on context analysis
         suggested_mood = self.nlp.suggest_mood_for_response(message_context, relationship_level) if self.nlp else "neutral"
+        
+        # Determine response length treatment using contextual analysis
+        # Rather than hardcoding keywords, use the message context for natural handling
+        long_response = len(response) > 500
+        
+        # Use the full NLP context to make a deeper, more human-like decision
+        should_keep_full_response = False
+        
+        # Use the complete message context to determine when full responses are appropriate
+        if message_context:
+            # Messages with emotional depth or personal topics often deserve longer responses
+            topics = message_context.get("semantic_topics", [])
+            intent = message_context.get("intent", "")
+            emotion_value = message_context.get("emotion", "")
+            intensity_value = message_context.get("intensity", 0.5)
+            
+            # Consider emotional intensity for personal topics - humans give more detailed responses
+            # to personally meaningful or emotional conversations
+            if intensity_value > 0.7:  # Strong emotional messages deserve fuller responses
+                should_keep_full_response = True
+            
+            # Keep full responses for meaningful conversation topics regardless of length
+            meaningful_topics = ["personal", "relationship", "departure", "serious_discussion"]
+            if any(topic in meaningful_topics for topic in topics):
+                should_keep_full_response = True
+                
+            # Special intents that deserve detailed responses regardless of length
+            important_intents = ["personal_sharing", "emotional_support", "departure", 
+                                "deep_question", "apology", "vulnerability"]
+            if intent in important_intents:
+                should_keep_full_response = True
+                
+            # High emotional stakes conversations (fear, sadness, deeply personal)
+            if emotion_value in ["sadness", "fear"] and intensity_value > 0.4:
+                should_keep_full_response = True
+                
+            # High relationship impact messages always get full responses
+            relationship_signals = message_context.get("relationship_signals", {})
+            if relationship_signals.get("intimacy", 0) > 0.7 or relationship_signals.get("romantic_interest", 0) > 0.7:
+                should_keep_full_response = True
+        
+        # Apply response format based on context - this is what humans do
+        if long_response and not should_keep_full_response:
+            # Only truncate when appropriate based on context
+            response = response.split("\n\n")[0] 
+            suggested_mood = "tsundere_cold"  # Briefer mode for mundane topics
+        
+        # Format and send the response
         formatted_response = format_response(
             response, 
             emotion=emotion,
@@ -214,6 +271,8 @@ class ConversationHandler:
             intensity=intensity,
             username=user.first_name or "user"
         )
+        
+        # Add invisible marker to identify chat messages
         formatted_response = f"{formatted_response}\u200C"
         await update.message.reply_html(formatted_response)
     

@@ -101,6 +101,11 @@ class NLPEngine:
             return None
             
         try:
+            MAX_CHARS = 450  # Roughly estimate chars instead of tokens for simplicity
+            if len(text) > MAX_CHARS:
+                logger.debug(f"Text too long ({len(text)} chars), truncating to {MAX_CHARS} chars")
+                text = text[:MAX_CHARS] + "..."
+                
             # Get prediction
             result = self.emotion_classifier(text)
             
@@ -147,6 +152,12 @@ class NLPEngine:
             return "NEUTRAL", 0.5
             
         try:
+            # Truncate text to avoid sequence length errors (most models have 512 token limit)
+            MAX_CHARS = 450
+            if len(text) > MAX_CHARS:
+                logger.debug(f"Text too long for sentiment analysis ({len(text)} chars), truncating to {MAX_CHARS} chars")
+                text = text[:MAX_CHARS] + "..."
+                
             result = self.sentiment_analyzer(text)
             if result and len(result) > 0:
                 sentiment = result[0]['label']
@@ -262,6 +273,12 @@ class NLPEngine:
             "opinion_request": [
                 r'\b(menurutmu|pendapatmu|what do you think|how do you feel)\b',
                 r'\b(agree|setuju|disagree|tidak setuju)\b'
+            ],
+            # Add departure/leaving intent detection
+            "departure": [
+                r'\b(pergi|leave|leaving|berangkat|meninggalkan|tinggal)\b',
+                r'\b(goodbye|selamat tinggal|sampai jumpa|dadah|bye|pamit)\b',
+                r'\b(pulang|go home|keluar)\b'
             ]
         }
         
@@ -485,7 +502,11 @@ class NLPEngine:
             "anime": ["anime", "manga", "character", "karakter", "episode", "season",
                      "otaku", "waifu", "husbando", "cosplay"],
             "tech": ["computer", "komputer", "phone", "hp", "laptop", "internet",
-                    "app", "aplikasi", "software", "hardware", "code", "kode"]
+                    "app", "aplikasi", "software", "hardware", "code", "kode"],
+            # Add departure/leaving topic
+            "departure": ["pergi", "leave", "leaving", "tinggal", "berangkat", "meninggalkan", 
+                         "departure", "goodbye", "selamat tinggal", "sampai jumpa", "dadah", 
+                         "bye", "pamit", "pulang", "go home", "keluar"]
         }
         
         for topic, keywords in topic_keywords.items():
@@ -649,3 +670,111 @@ class NLPEngine:
         selected_mood = max(mood_probs.items(), key=lambda x: x[1])[0]
             
         return selected_mood
+
+    def suggest_emojis(self, message: str, mood: str, count: int = 4) -> List[str]:
+        """Suggest contextually appropriate emojis based on message and mood.
+        
+        Args:
+            message: Text message to analyze for context
+            mood: Current emotional mood
+            count: Maximum number of emojis to suggest
+            
+        Returns:
+            List of emoji strings appropriate for the context
+        """
+        # Dictionary of mood-emoji mapping with contextual awareness
+        mood_emoji_mapping = {
+            # Basic moods
+            "neutral": ["✨", "💭", "🌸", "💫"],
+            "happy": ["😊", "💕", "✨", "🌟"],
+            "sad": ["😔", "💔", "🥺", "💧"],
+            "surprised": ["😳", "⁉️", "🙀", "❗"],
+            "angry": ["😤", "💢", "😠", "🔥"],
+            
+            # Complex moods
+            "dere_caring": ["💕", "🥰", "💖", "✨"],
+            "tsundere_cold": ["😒", "💢", "❄️", "🙄"],
+            "tsundere_defensive": ["😳", "💥", "🔥", "❗"],
+            "academic_serious": ["📝", "🎓", "📚", "🧐"],
+            "apologetic_sincere": ["🙇‍♀️", "😔", "🙏", "💔"],
+            "happy_genuine": ["🥰", "💓", "✨", "🌟"],
+            "surprised_genuine": ["😳", "⁉️", "💫", "❗"],
+        }
+        
+        # Topic-based emoji mappings
+        topic_emoji_mapping = {
+            "school": ["📚", "✏️", "🎓", "📝", "🧠"],
+            "relationship": ["💕", "💘", "💞", "💓", "💗"],
+            "food": ["🍜", "🍙", "🍱", "🍵", "🍡"],
+            "entertainment": ["🎮", "🎵", "🎬", "📺", "🎧"],
+            "personal": ["💭", "💫", "✨", "💝", "🌟"],
+            "anime": ["✨", "🌸", "💫", "🎌", "🌟"],
+            "tech": ["💻", "📱", "⚙️", "🤖", "🔍"],
+        }
+        
+        # Detect topics in message
+        topics = self._extract_semantic_topics(message)
+        
+        # Build candidate emoji pool
+        emoji_candidates = []
+        
+        # 1. Add mood-based emojis (highest priority)
+        mood_key = mood.split('_')[0] if '_' in mood else mood
+        if mood in mood_emoji_mapping:
+            emoji_candidates.extend(mood_emoji_mapping[mood])
+        elif mood_key in mood_emoji_mapping:
+            emoji_candidates.extend(mood_emoji_mapping[mood_key])
+        
+        # 2. Add topic-based emojis
+        for topic in topics:
+            if topic in topic_emoji_mapping:
+                emoji_candidates.extend(topic_emoji_mapping[topic])
+        
+        # 3. Add default emojis if needed
+        if not emoji_candidates:
+            emoji_candidates = ["✨", "💫", "🌸", "💭"]
+        
+        # Ensure uniqueness and randomness
+        unique_candidates = list(set(emoji_candidates))
+        if len(unique_candidates) >= count:
+            return random.sample(unique_candidates, count)
+        else:
+            return random.choices(unique_candidates, k=count)  # Allow repetition if needed
+
+    def get_emotion_description(self, emotion: str) -> str:
+        """Get a natural language description for an emotion.
+        
+        Args:
+            emotion: Emotion identifier string
+            
+        Returns:
+            Natural language description of the emotion
+        """
+        emotion_descriptions = {
+            # Basic emotions
+            "neutral": ["sedang tenang", "dalam mode normal", "santai"],
+            "happy": ["terlihat senang", "sedang bahagia", "tampak ceria"],
+            "sad": ["terlihat sedih", "agak murung", "sedikit kecewa"],
+            "surprised": ["sangat terkejut", "mata terbelalak", "tercengang"],
+            "angry": ["agak kesal", "sedikit marah", "tidak senang"],
+            
+            # Complex emotions
+            "tsundere_cold": ["bersikap dingin", "pura-pura tidak peduli", "menjaga jarak"],
+            "tsundere_defensive": ["jadi defensif", "malu-malu", "tidak jujur pada perasaan"],
+            "dere_caring": ["jadi perhatian", "sangat peduli", "mulai lembut"],
+            "academic_serious": ["mode serius", "penuh konsentrasi", "fokus analitis"],
+            "happy_genuine": ["sangat bahagia", "benar-benar senang", "gembira sekali"],
+            "surprised_genuine": ["benar-benar kaget", "sangat terkejut", "tak menyangka"],
+            "apologetic_sincere": ["merasa bersalah", "ingin minta maaf", "menyesal"]
+        }
+        
+        if emotion in emotion_descriptions:
+            return random.choice(emotion_descriptions[emotion])
+        
+        # Handle compound emotions by splitting
+        if "_" in emotion:
+            parts = emotion.split("_")
+            if parts[0] in emotion_descriptions:
+                return random.choice(emotion_descriptions[parts[0]])
+                
+        return emotion.replace("_", " ")  # Fallback
