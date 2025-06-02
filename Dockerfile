@@ -6,9 +6,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN echo "deb http://kartolo.sby.datautama.net.id/debian/ buster main contrib non-free\n\
-deb http://kartolo.sby.datautama.net.id/debian/ buster-updates main contrib non-free\n\
-deb http://kartolo.sby.datautama.net.id/debian-security/ buster/updates main contrib non-free" > /etc/apt/sources.list && \
+RUN echo "deb http://kartolo.sby.datautama.net.id/debian/ bookworm main contrib non-free\n\
+deb http://kartolo.sby.datautama.net.id/debian/ bookworm-updates main contrib non-free\n\
+deb http://kartolo.sby.datautama.net.id/debian-security/ bookworm-security main contrib non-free" > /etc/apt/sources.list && \
     apt-get update --allow-releaseinfo-change && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
