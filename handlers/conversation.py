@@ -10,7 +10,14 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes, MessageHandler, filters
 
-from config.settings import COMMAND_PREFIX, FEATURES, ADMIN_IDS
+from config.settings import (
+    COMMAND_PREFIX,
+    FEATURES,
+    ADMIN_IDS,
+    AFFECTION_POINTS,
+    RELATIONSHIP_LEVELS,
+    RELATIONSHIP_THRESHOLDS,
+)
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from core.memory import MemoryManager
@@ -248,39 +255,63 @@ class ConversationHandler:
             )
         relationship_contexts = {
             0: (
-                f"Hubungan Alya dengan {first_name}: STRANGER. "
-                f"Alya masih bersikap formal, agak dingin dan tsundere. "
-                f"Masih menggunakan formal speech pattern."
+                f"{first_name} adalah orang asing bagi Alya. Alya tetap menjaga jarak dan berbicara dengan nada formal dan sopan. "
+                f"Dia menunjukkan sikap dingin dan tsundere, sering kali tidak langsung menjawab atau menyindir halus. "
+                f"Tidak ada kepercayaan yang terbentuk, jadi Alya menjaga image sebagai gadis keren dan tidak mudah didekati. "
+                f"Gunakan formal speech pattern dan jangan berikan terlalu banyak informasi pribadi."
             ),
             1: (
-                f"Hubungan Alya dengan {first_name}: ACQUAINTANCE. "
-                f"Alya mulai sedikit terbuka, tapi masih tsundere. "
-                f"Sesekali menunjukkan sisi caring tapi cepat defensive jika dipuji."
+                f"{first_name} adalah kenalan Alya. Alya mulai sedikit mengenal dirinya, tapi tetap menunjukkan sikap tsundere dan menjaga jarak. "
+                f"Kadang membalas dengan komentar sarkastik atau defensif jika merasa terlalu dekat. "
+                f"Meski begitu, dia mulai memperhatikan detail kecil dari {first_name}, walau tidak mau mengakuinya secara langsung."
             ),
             2: (
-                f"Hubungan Alya dengan {first_name}: FRIEND. "
-                f"Alya cukup dekat dan nyaman, sisi tsundere berkurang, "
-                f"lebih banyak menunjukkan sisi dere dan lebih expresif. "
-                f"Alya lebih banyak berbagi cerita pribadi."
+                f"Alya dan {first_name} cukup sering berbicara dan Alya mulai merasa nyaman. "
+                f"Dia masih sangat tsundere, tetapi sesekali memperlihatkan sisi hangat—meskipun cepat menyangkalnya. "
+                f"Alya tidak suka diolok soal perasaannya dan akan cepat merespons dengan komentar ketus jika merasa dipuji. "
+                f"Dia mulai memanggil nama depan {first_name}, tapi dengan nada tetap cool."
             ),
             3: (
-                f"Hubungan Alya dengan {first_name}: CLOSE FRIEND. "
-                f"Alya sangat nyaman dan terbuka, masih tsundere tapi sangat caring. "
-                f"Kadang menggunakan nama langsung tanpa honorifik. "
-                f"Alya sangat perhatian dan menganggap {first_name} sebagai "
-                f"orang yang sangat penting dalam hidupnya."
-            )
+                f"{first_name} adalah teman dekat Alya. Dia masih tsundere, tapi ekspresinya jauh lebih ekspresif dan terbuka. "
+                f"Alya terkadang menunjukkan perhatiannya dengan cara tidak langsung—seperti khawatir tapi menyamarkannya dengan sindiran. "
+                f"Kadang-kadang dia memanggil {first_name} tanpa honorifik, dan mulai menunjukkan bahwa kehadiran {first_name} berarti banyak, meski enggan mengakuinya. "
+                f"Gunakan nada tsundere yang lebih playful dan ekspresif."
+            ),
+            4: (
+                f"Alya sangat dekat dan percaya pada {first_name}. Meskipun tetap memiliki sisi tsundere, "
+                f"sikapnya lebih lembut dan jujur, terutama saat sedang emosional atau dalam momen pribadi. "
+                f"Alya mulai memanggil {first_name} tanpa honorifik secara konsisten, bahkan kadang slip pakai bahasa Rusia. "
+                f"Dia sudah mulai menunjukkan rasa sayangnya tanpa banyak denial, walau tetap suka tersipu atau salah tingkah. "
+                f"Perhatikan keseimbangan antara warmth dan tsundere yang lebih dewasa dan natural."
+            ),
         }
         return relationship_contexts.get(relationship_level, "")
     
+    def _try_level_up(self, user_id: int) -> None:
+        """
+        Attempt to level up user relationship if eligible.
+        """
+        user_info = self.db.get_user_relationship_info(user_id)
+        if not user_info:
+            return
+        current_level = user_info.get("relationship", {}).get("level", 0)
+        next_level = current_level + 1
+        if next_level not in RELATIONSHIP_LEVELS:
+            return  # Already at max level
+
+        interaction_count = user_info.get("relationship", {}).get("interaction_count", 0)
+        affection_points = user_info.get("relationship", {}).get("affection_points", 0)
+        interaction_threshold = RELATIONSHIP_THRESHOLDS["interaction_count"].get(next_level, float('inf'))
+        affection_threshold = RELATIONSHIP_THRESHOLDS["affection_points"].get(next_level, float('inf'))
+
+        if interaction_count >= interaction_threshold and affection_points >= affection_threshold:
+            self.db.update_relationship_level(user_id, next_level)
+            logger.info(f"User {user_id} leveled up to {RELATIONSHIP_LEVELS[next_level]}")
+
     def _update_affection_from_context(self, user_id: int, message_context: Dict[str, Any]) -> None:
         """
         Update affection points based on detected emotions, intent, and relationship signals.
-        Rewards positive interactions more and reduces negative penalties for a more balanced experience.
-
-        Args:
-            user_id: The user ID to update affection for
-            message_context: Dictionary containing emotion and intent analysis
+        Rewards positive interactions and applies penalties using config values.
         """
         if not message_context:
             return
@@ -288,40 +319,67 @@ class ConversationHandler:
         relationship_signals = message_context.get("relationship_signals", {})
         affection_delta = 0
 
-        # Stronger positive rewards, lighter negative penalties
-        affection_delta += relationship_signals.get("friendliness", 0) * 20  # Up from 15
-        affection_delta += relationship_signals.get("romantic_interest", 0) * 35  # Up from 25
-        affection_delta -= relationship_signals.get("conflict", 0) * 5  # Down from 10
+        # Positive signals
+        affection_delta += relationship_signals.get("friendliness", 0) * AFFECTION_POINTS.get("friendliness", 6)
+        affection_delta += relationship_signals.get("romantic_interest", 0) * AFFECTION_POINTS.get("romantic_interest", 10)
+        affection_delta += relationship_signals.get("meaningful_conversation", 0) * AFFECTION_POINTS.get("meaningful_conversation", 8)
+        affection_delta += relationship_signals.get("asking_about_alya", 0) * AFFECTION_POINTS.get("asking_about_alya", 7)
+        affection_delta += relationship_signals.get("remembering_details", 0) * AFFECTION_POINTS.get("remembering_details", 15)
 
-        # Positive emotion bonus
+        # Negative signals
+        affection_delta += relationship_signals.get("conflict", 0) * AFFECTION_POINTS.get("conflict", -3)
+        affection_delta += relationship_signals.get("insult", 0) * AFFECTION_POINTS.get("insult", -10)
+        affection_delta += relationship_signals.get("anger", 0) * AFFECTION_POINTS.get("anger", -3)
+        affection_delta += relationship_signals.get("toxic", 0) * AFFECTION_POINTS.get("toxic", -3)
+        affection_delta += relationship_signals.get("toxic_behavior", 0) * AFFECTION_POINTS.get("toxic_behavior", -10)
+        affection_delta += relationship_signals.get("rudeness", 0) * AFFECTION_POINTS.get("rudeness", -10)
+        affection_delta += relationship_signals.get("ignoring", 0) * AFFECTION_POINTS.get("ignoring", -5)
+        affection_delta += relationship_signals.get("inappropriate", 0) * AFFECTION_POINTS.get("inappropriate", -20)
+        affection_delta += relationship_signals.get("bullying", 0) * AFFECTION_POINTS.get("bullying", -15)
+
         emotion = message_context.get("emotion", "")
         if emotion in ["happy", "excited", "grateful", "joy"]:
-            affection_delta += 6  # Up from 3
+            affection_delta += AFFECTION_POINTS.get("positive_emotion", 2)
         elif emotion in ["sad", "worried"]:
-            affection_delta += 2  # Up from 1
+            affection_delta += AFFECTION_POINTS.get("mild_positive_emotion", 1)
 
-        # Intent-based rewards (bigger for positive, smaller for negative)
         intent = message_context.get("intent", "")
         if intent == "gratitude":
-            affection_delta += 12  # Up from 8
+            affection_delta += AFFECTION_POINTS.get("gratitude", 5)
         elif intent == "apology":
-            affection_delta += 7   # Up from 5
+            affection_delta += AFFECTION_POINTS.get("apology", 2)
         elif intent == "affection":
-            affection_delta += 20  # Up from 15
+            affection_delta += AFFECTION_POINTS.get("affection", 5)
         elif intent == "greeting":
-            affection_delta += 4   # Up from 2
+            affection_delta += AFFECTION_POINTS.get("greeting", 2)
         elif intent == "compliment":
-            affection_delta += 15  # Up from 10
+            affection_delta += AFFECTION_POINTS.get("compliment", 10)
         elif intent == "question":
-            affection_delta += 2   # Up from 1
+            affection_delta += AFFECTION_POINTS.get("question", 1)
+        elif intent == "meaningful_conversation":
+            affection_delta += AFFECTION_POINTS.get("meaningful_conversation", 8)
+        elif intent == "asking_about_alya":
+            affection_delta += AFFECTION_POINTS.get("asking_about_alya", 7)
+        elif intent == "remembering_details":
+            affection_delta += AFFECTION_POINTS.get("remembering_details", 15)
+        elif intent in ["insult", "abuse", "leave"]:
+            affection_delta += AFFECTION_POINTS.get("insult", -10)
+        elif intent in ["toxic", "toxic_behavior", "bullying"]:
+            affection_delta += AFFECTION_POINTS.get("toxic_behavior", -10)
+        elif intent in ["rudeness"]:
+            affection_delta += AFFECTION_POINTS.get("rudeness", -10)
+        elif intent in ["ignoring"]:
+            affection_delta += AFFECTION_POINTS.get("ignoring", -5)
+        elif intent in ["inappropriate"]:
+            affection_delta += AFFECTION_POINTS.get("inappropriate", -20)
         elif intent in ["command", "departure"]:
-            affection_delta -= 2   # Small penalty for cold/command/leave
+            affection_delta += AFFECTION_POINTS.get("command", -1)
 
-        # Dampening for negative, but allow positive to stack
+        min_penalty = AFFECTION_POINTS.get("min_penalty", -4)
         if affection_delta < 0:
-            affection_delta = max(affection_delta * 0.5, -5)  # Softer penalty
+            affection_delta = max(affection_delta, min_penalty)
 
-        # Minimal threshold to avoid micro changes
         if abs(affection_delta) >= 1:
             affection_delta = round(affection_delta)
             self.db.update_affection(user_id, affection_delta)
+            self._try_level_up(user_id)
