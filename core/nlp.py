@@ -17,6 +17,7 @@ from config.settings import (
     EMOTION_CONFIDENCE_THRESHOLD,
     FEATURES
 )
+from core.database import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -778,3 +779,88 @@ class NLPEngine:
                 return random.choice(emotion_descriptions[parts[0]])
                 
         return emotion.replace("_", " ")  # Fallback
+
+class ContextManager:
+    """Manages conversation context and memory with DB-backed sliding window."""
+
+    def __init__(self, db_manager: DatabaseManager) -> None:
+        """Initialize context manager with DB manager."""
+        self.db_manager = db_manager
+        self.summaries: Dict[int, List[Dict[str, Any]]] = {}
+
+    def get_context_window(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get last 30 messages from DB and summaries for context window.
+
+        Args:
+            user_id: The user ID to get context for
+
+        Returns:
+            List of conversation messages formatted for Gemini API
+        """
+        messages = self.db_manager.get_conversation_history(user_id, limit=30)
+        summaries = self.get_conversation_summaries(user_id)
+
+        context_window = []
+        # Add summaries as system message if any
+        if summaries:
+            for summary in summaries:
+                context_window.append({
+                    "role": "user",
+                    "parts": [{"text": f"Ringkasan percakapan sebelumnya: {summary['content']}"}]
+                })
+        # Add last 30 messages, mapping to Gemini format
+        for msg in messages:
+            role = msg.get("role", "user")
+            # Gemini expects "user" or "model"
+            if role == "assistant":
+                role = "model"
+            elif role != "user":
+                role = "user"
+            content = msg.get("content", "")
+            context_window.append({
+                "role": role,
+                "parts": [{"text": content}]
+            })
+        return context_window
+
+    def get_conversation_summaries(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get conversation summaries for a user (from DB or memory).
+
+        Args:
+            user_id: The user ID
+
+        Returns:
+            List of summaries (dict with 'content')
+        """
+        # Example: If you store summaries in a DB table, fetch here.
+        # For now, fallback to in-memory summaries if available.
+        return self.summaries.get(user_id, [])
+
+    def add_summary(self, user_id: int, summary: Dict[str, Any]) -> None:
+        """Add a summary for a user (in-memory or persist to DB)."""
+        if user_id not in self.summaries:
+            self.summaries[user_id] = []
+        self.summaries[user_id].append(summary)
+
+    def apply_sliding_window(self, user_id: int) -> None:
+        """Apply sliding window: keep 30 recent messages, summarize the rest."""
+        # Get all messages for user
+        all_messages = self.db_manager.get_conversation_history(user_id, limit=1000)
+        if len(all_messages) > 30:
+            # Messages to summarize: all except last 30
+            to_summarize = all_messages[:-30]
+            if to_summarize:
+                summary_content = self._summarize_messages(to_summarize)
+                if summary_content:
+                    self.add_summary(user_id, {"content": summary_content})
+            # Delete old messages from DB, keep only last 30
+            self.db_manager.apply_sliding_window(user_id, keep_recent=30)
+
+    def _summarize_messages(self, messages: List[Dict[str, Any]]) -> str:
+        """Summarize a list of messages (simple join or use LLM for prod)."""
+        # For now, join first/last and key points (replace with LLM summary for prod)
+        if not messages:
+            return ""
+        first = messages[0].get("content", "")
+        last = messages[-1].get("content", "")
+        return f"Ringkasan: Mulai dari '{first[:40]}...' hingga '{last[:40]}...'."

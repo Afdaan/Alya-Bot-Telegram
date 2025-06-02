@@ -15,7 +15,7 @@ from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from core.memory import MemoryManager
 from core.database import DatabaseManager
-from core.nlp import NLPEngine
+from core.nlp import NLPEngine, ContextManager
 from utils.formatters import format_response, format_error_response
 from utils.roast import RoastHandler
 
@@ -34,8 +34,9 @@ class ConversationHandler:
         self.gemini = gemini_client
         self.persona = persona_manager
         self.memory = memory_manager
-        self.nlp = nlp_engine or NLPEngine()
         self.db = DatabaseManager()
+        self.context_manager = ContextManager(self.db)  # <-- DB-backed context manager
+        self.nlp = nlp_engine or NLPEngine()
         self.roast_handler = RoastHandler(gemini_client, persona_manager)
     
     def get_handlers(self) -> List:
@@ -148,11 +149,15 @@ class ConversationHandler:
             self._create_or_update_user(user)
             self.db.save_message(user.id, "user", query)
             self.memory.save_user_message(user.id, query)
+            # Apply sliding window after saving message
+            self.context_manager.apply_sliding_window(user.id)
             user_context = await self._prepare_conversation_context(user, query)
+            # Use DB-backed context window for Gemini history
+            history = self.context_manager.get_context_window(user.id)
             response = await self.gemini.generate_content(
                 user_input=user_context["enhanced_query"],
                 system_prompt=user_context["system_prompt"],
-                history=user_context["history"]
+                history=history
             )
             if response:
                 await self._process_and_send_response(update, user, response, user_context["message_context"])
@@ -169,7 +174,8 @@ class ConversationHandler:
         message_context = {}
         if FEATURES.get("emotion_detection", False) and self.nlp:
             message_context = self.nlp.get_message_context(query, user.id)
-        history = self._call_method_safely(self.memory.get_conversation_context, user.id)
+        # Use DB-backed context window for Gemini/NLP context
+        history = self.context_manager.get_context_window(user.id)
         enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
         system_prompt = self.persona.get_system_prompt()
         relationship_context = self._get_relationship_context(user, relationship_level, user.id in ADMIN_IDS)
@@ -199,71 +205,14 @@ class ConversationHandler:
         response: str, 
         message_context: Dict[str, Any]
     ) -> None:
-        # Store messages in DB first
         self.db.save_message(user.id, "assistant", response)
         self.memory.save_bot_response(user.id, response)
-        
-        # Update user relationship based on detected context
         if message_context:
             self._update_affection_from_context(user.id, message_context)
-            
-        # Get emotion context for formatting
         emotion = message_context.get("emotion", "neutral") if message_context else "neutral"
         intensity = message_context.get("intensity", 0.5) if message_context else 0.5
-        
-        # Get a relationship-appropriate mood
         relationship_level = self._get_relationship_level(user.id)
-        
-        # Get suggested mood for response based on context analysis
         suggested_mood = self.nlp.suggest_mood_for_response(message_context, relationship_level) if self.nlp else "neutral"
-        
-        # Determine response length treatment using contextual analysis
-        # Rather than hardcoding keywords, use the message context for natural handling
-        long_response = len(response) > 500
-        
-        # Use the full NLP context to make a deeper, more human-like decision
-        should_keep_full_response = False
-        
-        # Use the complete message context to determine when full responses are appropriate
-        if message_context:
-            # Messages with emotional depth or personal topics often deserve longer responses
-            topics = message_context.get("semantic_topics", [])
-            intent = message_context.get("intent", "")
-            emotion_value = message_context.get("emotion", "")
-            intensity_value = message_context.get("intensity", 0.5)
-            
-            # Consider emotional intensity for personal topics - humans give more detailed responses
-            # to personally meaningful or emotional conversations
-            if intensity_value > 0.7:  # Strong emotional messages deserve fuller responses
-                should_keep_full_response = True
-            
-            # Keep full responses for meaningful conversation topics regardless of length
-            meaningful_topics = ["personal", "relationship", "departure", "serious_discussion"]
-            if any(topic in meaningful_topics for topic in topics):
-                should_keep_full_response = True
-                
-            # Special intents that deserve detailed responses regardless of length
-            important_intents = ["personal_sharing", "emotional_support", "departure", 
-                                "deep_question", "apology", "vulnerability"]
-            if intent in important_intents:
-                should_keep_full_response = True
-                
-            # High emotional stakes conversations (fear, sadness, deeply personal)
-            if emotion_value in ["sadness", "fear"] and intensity_value > 0.4:
-                should_keep_full_response = True
-                
-            # High relationship impact messages always get full responses
-            relationship_signals = message_context.get("relationship_signals", {})
-            if relationship_signals.get("intimacy", 0) > 0.7 or relationship_signals.get("romantic_interest", 0) > 0.7:
-                should_keep_full_response = True
-        
-        # Apply response format based on context - this is what humans do
-        if long_response and not should_keep_full_response:
-            # Only truncate when appropriate based on context
-            response = response.split("\n\n")[0] 
-            suggested_mood = "tsundere_cold"  # Briefer mode for mundane topics
-        
-        # Format and send the response
         formatted_response = format_response(
             response, 
             emotion=emotion,
@@ -271,8 +220,6 @@ class ConversationHandler:
             intensity=intensity,
             username=user.first_name or "user"
         )
-        
-        # Add invisible marker to identify chat messages
         formatted_response = f"{formatted_response}\u200C"
         await update.message.reply_html(formatted_response)
     
@@ -327,54 +274,53 @@ class ConversationHandler:
     
     def _update_affection_from_context(self, user_id: int, message_context: Dict[str, Any]) -> None:
         """
-        This method calculates affection changes based on detected emotions, intent, and
-        relationship signals, with a balanced approach that rewards positive interactions
-        more generously and reduces penalties for negative interactions.
-        
+        Update affection points based on detected emotions, intent, and relationship signals.
+        Rewards positive interactions more and reduces negative penalties for a more balanced experience.
+
         Args:
             user_id: The user ID to update affection for
             message_context: Dictionary containing emotion and intent analysis
         """
         if not message_context:
             return
-            
+
         relationship_signals = message_context.get("relationship_signals", {})
         affection_delta = 0
-        
-        # Increase positive rewards and reduce negative penalties
-        affection_delta += relationship_signals.get("friendliness", 0) * 15  # Was 10
-        affection_delta += relationship_signals.get("romantic_interest", 0) * 25  # Was 20
-        affection_delta -= relationship_signals.get("conflict", 0) * 10  # Was 15, reduced penalty
-        
-        # Add points for positive emotions
+
+        # Stronger positive rewards, lighter negative penalties
+        affection_delta += relationship_signals.get("friendliness", 0) * 20  # Up from 15
+        affection_delta += relationship_signals.get("romantic_interest", 0) * 35  # Up from 25
+        affection_delta -= relationship_signals.get("conflict", 0) * 5  # Down from 10
+
+        # Positive emotion bonus
         emotion = message_context.get("emotion", "")
-        if emotion in ["happy", "excited", "grateful"]:
-            affection_delta += 3
+        if emotion in ["happy", "excited", "grateful", "joy"]:
+            affection_delta += 6  # Up from 3
         elif emotion in ["sad", "worried"]:
-            # Small positive for showing vulnerability - builds relationship
-            affection_delta += 1
-        
-        # More generous rewards for positive intents
+            affection_delta += 2  # Up from 1
+
+        # Intent-based rewards (bigger for positive, smaller for negative)
         intent = message_context.get("intent", "")
         if intent == "gratitude":
-            affection_delta += 8  # Was 5
+            affection_delta += 12  # Up from 8
         elif intent == "apology":
-            affection_delta += 5  # Was 3
+            affection_delta += 7   # Up from 5
         elif intent == "affection":
-            affection_delta += 15  # Was 10
+            affection_delta += 20  # Up from 15
         elif intent == "greeting":
-            affection_delta += 2  # New: reward simple greetings
+            affection_delta += 4   # Up from 2
         elif intent == "compliment":
-            affection_delta += 10  # New: reward compliments
+            affection_delta += 15  # Up from 10
         elif intent == "question":
-            affection_delta += 1  # New: small reward for engaging questions
-            
-        # Reduce sensitivity by applying thresholding
+            affection_delta += 2   # Up from 1
+        elif intent in ["command", "departure"]:
+            affection_delta -= 2   # Small penalty for cold/command/leave
+
+        # Dampening for negative, but allow positive to stack
         if affection_delta < 0:
-            # Apply dampening factor to negative values
-            affection_delta = max(affection_delta * 0.7, -10)
-            
-        # Apply a minimum threshold to avoid tiny changes
+            affection_delta = max(affection_delta * 0.5, -5)  # Softer penalty
+
+        # Minimal threshold to avoid micro changes
         if abs(affection_delta) >= 1:
             affection_delta = round(affection_delta)
             self.db.update_affection(user_id, affection_delta)

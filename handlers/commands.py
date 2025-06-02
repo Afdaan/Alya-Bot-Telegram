@@ -17,6 +17,7 @@ from handlers.response.help import help_response
 from handlers.response.start import start_response
 from handlers.response.ping import ping_response
 from handlers.response.stats import stats_response
+from handlers.response.analyze import analyze_response  # Fixed from analyze_resposne
 
 logger = logging.getLogger(__name__)
 
@@ -136,8 +137,8 @@ class CommandsHandler:
         message = update.effective_message
         text = message.text.replace("!ask", "", 1).strip()
         if not text and update.effective_chat.type in ["group", "supergroup"]:
-            from handlers.response.analyze import analyze_response
-            await message.reply_html(analyze_response(), reply_to_message_id=message.message_id)
+            response = await analyze_response()
+            await message.reply_html(response, reply_to_message_id=message.message_id)
             return
         context.args = text.split() if text else []
         logger.info(f"Handling !ask text analysis from {update.effective_user.id} with query: {text[:50]}...")

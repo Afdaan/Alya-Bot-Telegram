@@ -1,17 +1,12 @@
 FROM python:3.12-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     TZ=Asia/Jakarta
 
 WORKDIR /app
 
-RUN echo "deb http://kartolo.sby.datautama.net.id/debian bookworm main" > /etc/apt/sources.list && \
-    echo "deb http://kartolo.sby.datautama.net.id/debian-security bookworm-security main" >> /etc/apt/sources.list && \
-    echo "deb http://kartolo.sby.datautama.net.id/debian bookworm-updates main" >> /etc/apt/sources.list
-
-RUN apt-get update && \
+RUN apt-get update --allow-releaseinfo-change && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         git \
