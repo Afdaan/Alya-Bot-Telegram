@@ -94,3 +94,7 @@ FEATURES: Dict[str, bool] = {
 
 # Security
 MAX_MESSAGE_LENGTH: int = 4096  # Telegram limit
+
+# Logging Settings
+LOG_LEVEL: str = os.getenv("LOG_LEVEL", "WARNING")
+LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
