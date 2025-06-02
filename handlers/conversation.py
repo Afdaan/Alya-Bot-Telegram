@@ -16,7 +16,7 @@ from core.persona import PersonaManager
 from core.memory import MemoryManager
 from core.database import DatabaseManager
 from core.nlp import NLPEngine, ContextManager
-from utils.formatters import format_response, format_error_response
+from utils.formatters import format_response, format_error_response, format_paragraphs
 from utils.roast import RoastHandler
 
 logger = logging.getLogger(__name__)
@@ -220,6 +220,7 @@ class ConversationHandler:
             intensity=intensity,
             username=user.first_name or "user"
         )
+        formatted_response = format_paragraphs(formatted_response, markdown=False)
         formatted_response = f"{formatted_response}\u200C"
         await update.message.reply_html(formatted_response)
     

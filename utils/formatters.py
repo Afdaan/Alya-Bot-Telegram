@@ -18,15 +18,26 @@ from core.persona import PersonaManager
 logger = logging.getLogger(__name__)
 
 def escape_html(text: str) -> str:
-    """Escape HTML special characters in text.
-    
-    Args:
-        text: Text to escape
-        
-    Returns:
-        Escaped text safe for HTML parsing
-    """
-    return html.escape(text)
+    """Escape HTML special characters in text, except inside allowed tags."""
+    if not text:
+        return ""
+    # Only escape outside <b>, <i>, <u>, <s>, <a href="">, <code>, <pre>
+    # Simple approach: escape everything, then unescape inside allowed tags
+    allowed_tags = ["b", "i", "u", "s", "code", "pre"]
+    # Escape all first
+    text = html.escape(text)
+    # Unescape allowed tags
+    for tag in allowed_tags:
+        text = re.sub(
+            f"&lt;{tag}&gt;", f"<{tag}>", text, flags=re.IGNORECASE
+        )
+        text = re.sub(
+            f"&lt;/{tag}&gt;", f"</{tag}>", text, flags=re.IGNORECASE
+        )
+    # Allow <a href="">...</a>
+    text = re.sub(r"&lt;a href=['\"](.*?)['\"]&gt;", r"<a href='\1'>", text)
+    text = re.sub(r"&lt;/a&gt;", r"</a>", text)
+    return text
 
 def escape_markdown_v2(text: str) -> str:
     """Escape special characters for Telegram's MarkdownV2 format.
@@ -78,6 +89,42 @@ def escape_markdown_v2_safe(text: str) -> str:
     for char in special_chars:
         text = text.replace(char, f'\\{char}')
     
+    return text
+
+def format_paragraphs(text: str, markdown: bool = True) -> str:
+    """Format multi-paragraph text for Telegram by adding spacing and escaping if needed.
+
+    Args:
+        text: The original multi-paragraph string.
+        markdown: Whether to escape for MarkdownV2 (default True). If False, treat as HTML.
+
+    Returns:
+        Formatted string with clear paragraph separation and safe for Telegram.
+    """
+    # Pisahkan paragraf dengan 2 newline atau 1 newline diapit teks
+    paragraphs = re.split(r'(?:\n\s*\n|(?<=[^\n])\n(?=[^\n]))', text.strip())
+    paragraphs = [p.strip() for p in paragraphs if p.strip()]
+    formatted = '\n\n'.join(paragraphs)
+    if markdown:
+        formatted = escape_markdown_v2(formatted)
+    else:
+        formatted = clean_html_entities(formatted)
+    return formatted
+
+def clean_html_entities(text: str) -> str:
+    """Clean up invalid HTML tags/entities for Telegram HTML parse_mode."""
+    # Remove unsupported/typo tags like <i\">, <b\">, etc.
+    text = re.sub(r'<([bius])\\">', r'<\1>', text)
+    text = re.sub(r'</([bius])\\">', r'</\1>', text)
+    # Remove any stray backslashes in tags
+    text = re.sub(r'<([bius])\\>', r'<\1>', text)
+    text = re.sub(r'</([bius])\\>', r'</\1>', text)
+    # Remove unsupported tags/entities
+    text = re.sub(r'<i\\', '<i', text)
+    text = re.sub(r'</i\\', '</i', text)
+    # Remove any tag with invalid chars
+    text = re.sub(r'<([a-z]+)[^>]*>', lambda m: f"<{m.group(1)}>", text)
+    text = re.sub(r'</([a-z]+)[^>]*>', lambda m: f"</{m.group(1)}>", text)
     return text
 
 def format_markdown_response(text: str, username: Optional[str] = None,
@@ -198,7 +245,7 @@ def format_response(
     target_name: Optional[str] = None,
     persona_name: str = "waifu"
 ) -> str:
-    """Format a bot response with persona, mood, and expressive emoji."""
+    """Format a bot response with persona, mood, and expressive emoji. Output is valid HTML."""
     persona_manager = PersonaManager()
     persona = persona_manager.get_persona(persona_name)
 
@@ -247,26 +294,26 @@ def format_response(
             if "{username}" in roleplay:
                 roleplay = roleplay.replace("{username}", username)
     if roleplay:
-        roleplay = f"<i>{escape_html(roleplay)}</i>"
+        roleplay = f"<i>{roleplay}</i>"
 
     # Main message formatting
     main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_message)
     main_content = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', main_content)
-    main_content = escape_html(main_content) if "<i>" not in main_content and "<b>" not in main_content else main_content
+    main_content = escape_html(main_content)
 
     # Add emojis only at start/end, respecting MAX_EMOJI_PER_RESPONSE
     for position in emoji_positions:
-        emoji = random.choice(mood_emojis)
+        emoji_ = random.choice(mood_emojis)
         if position == "start":
-            main_content = f"{emoji} {main_content}"
+            main_content = f"{emoji_} {main_content}"
         elif position == "end":
-            main_content = f"{main_content} {emoji}"
+            main_content = f"{main_content} {emoji_}"
 
     # Only 1 optional paragraph, no emoji
     formatted_optionals = []
     for opt_msg in optional_messages:
         opt_msg = re.sub(r'\*(.*?)\*', r'<i>\1</i>', opt_msg)
-        opt_msg = escape_html(opt_msg) if "<i>" not in opt_msg and "<b>" not in opt_msg else opt_msg
+        opt_msg = escape_html(opt_msg)
         formatted_optionals.append(opt_msg)
 
     # Mood display (optional, only if mood != default)
@@ -295,41 +342,24 @@ def format_response(
     if mood_display:
         result.append(mood_display)
 
-    return "\n\n".join(result)
+    # Gabungkan dan bersihkan HTML entity/tag
+    return clean_html_entities('\n\n'.join(result))
 
 def format_error_response(error_message: str, username: str = "user") -> str:
-    """Format an error response with appropriate tone.
-    
-    Args:
-        error_message: Error message to format
-        username: User's name for personalization
-        
-    Returns:
-        Formatted HTML error response
-    """
-    # Replace username placeholder with bold formatting
+    """Format an error response with appropriate tone. Output is valid HTML."""
     if "{username}" in error_message:
         error_message = error_message.replace("{username}", f"<b>{escape_html(username)}</b>")
-        
-    # Initialize persona manager to get persona-appropriate error expressions
     persona_manager = PersonaManager()
     persona = persona_manager.get_persona()
-    
-    # Get roleplay from persona if possible
-    roleplay = "terlihat bingung dan khawatir"  # Default fallback
-    
-    # Try to get an apologetic expression from persona
+    roleplay = "terlihat bingung dan khawatir"
     apologetic_mood = persona.get("emotions", {}).get("apologetic_sincere", {})
     expressions = apologetic_mood.get("expressions", [])
     if expressions:
         roleplay = random.choice(expressions)
         if "{username}" in roleplay:
             roleplay = roleplay.replace("{username}", username)
-    
-    # Format according to the specified pattern
     result = [
-        f"<i>{escape_html(roleplay)}</i>",
+        f"<i>{roleplay}</i>",
         f"{escape_html(error_message)} 😳"
     ]
-    
-    return "\n\n".join(result)
+    return clean_html_entities('\n\n'.join(result))
