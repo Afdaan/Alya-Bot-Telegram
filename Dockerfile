@@ -6,7 +6,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN apt-get update --allow-releaseinfo-change && \
+RUN echo "deb http://kartolo.sby.datautama.net.id/debian/ buster main contrib non-free\n\
+deb http://kartolo.sby.datautama.net.id/debian/ buster-updates main contrib non-free\n\
+deb http://kartolo.sby.datautama.net.id/debian-security/ buster/updates main contrib non-free" > /etc/apt/sources.list && \
+    apt-get update --allow-releaseinfo-change && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         git \
@@ -24,9 +27,11 @@ RUN apt-get update --allow-releaseinfo-change && \
         libreoffice \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Use local PyPI mirror (Kartolo Surabaya) for faster dependency install
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip && pip install -r requirements.txt
+    pip install --upgrade pip && \
+    pip install -r requirements.txt
 
 COPY . .
 
