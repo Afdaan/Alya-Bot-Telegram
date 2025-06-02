@@ -39,6 +39,10 @@ def stats_response(
         3: [
             "A-alya senang bisa mengobrol denganmu sejauh ini! 💕",
             "Kamu spesial banget buat Alya... tapi jangan bilang siapa-siapa! 😳"
+        ],
+        4: [
+            "Alya merasa kita sudah sangat dekat... 💖",
+            "Kamu sudah jadi soulmate Alya, jangan sakiti hati Alya ya! 💞"
         ]
     }
     level = relationship.get('level', 0)
