@@ -61,6 +61,15 @@ RELATIONSHIP_LEVELS: Dict[int, str] = {
     4: "Soulmate"
 }
 
+# Relationship Role Names (for roleplay/handler mapping)
+RELATIONSHIP_ROLE_NAMES: Dict[int, str] = {
+    0: "Outsider",
+    1: "Acquaintance",
+    2: "Companion",
+    3: "Confidant",
+    4: "Heartbound"
+}
+
 # Relationship level progression thresholds
 RELATIONSHIP_THRESHOLDS = {
     "interaction_count": {  # Messages exchanged to reach each level

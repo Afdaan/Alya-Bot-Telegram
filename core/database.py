@@ -14,10 +14,25 @@ from config.settings import (
     MEMORY_EXPIRY_DAYS,
     RELATIONSHIP_THRESHOLDS,
     RELATIONSHIP_LEVELS,
-    AFFECTION_POINTS
+    AFFECTION_POINTS,
+    RELATIONSHIP_ROLE_NAMES
 )
 
 logger = logging.getLogger(__name__)
+
+def get_role_by_relationship_level(relationship_level: int, is_admin: bool = False) -> str:
+    """Return role name based on relationship level and admin status.
+
+    Args:
+        relationship_level: Relationship level (0-4)
+        is_admin: Whether the user is admin
+
+    Returns:
+        Role name as string
+    """
+    if is_admin:
+        return "Master-sama"
+    return RELATIONSHIP_ROLE_NAMES.get(relationship_level, "Alyanation")
 
 class DatabaseManager:
     """SQLite database manager for conversation history and RAG functionality."""
@@ -94,7 +109,7 @@ class DatabaseManager:
                 )
             ''')
             
-            # Create user stats table
+            # Create user stats table (add role column)
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS user_stats (
                     user_id INTEGER PRIMARY KEY,
@@ -103,6 +118,7 @@ class DatabaseManager:
                     positive_interactions INTEGER DEFAULT 0,
                     negative_interactions INTEGER DEFAULT 0,
                     last_mood TEXT DEFAULT 'neutral',
+                    role TEXT DEFAULT 'Alyanation',
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )
             ''')
@@ -123,9 +139,9 @@ class DatabaseManager:
             
     def _ensure_table_columns(self, conn: sqlite3.Connection) -> None:
         """Ensure all tables have the expected columns.
-        
+
         This method checks each table against the expected schema and adds any missing columns.
-        
+
         Args:
             conn: Database connection
         """
@@ -142,23 +158,29 @@ class DatabaseManager:
                     'is_user': 'BOOLEAN DEFAULT 0',
                     'timestamp': 'INTEGER'
                 },
+                'user_stats': {
+                    'user_id': 'INTEGER PRIMARY KEY',
+                    'total_messages': 'INTEGER DEFAULT 0',
+                    'command_uses': 'INTEGER DEFAULT 0',
+                    'positive_interactions': 'INTEGER DEFAULT 0',
+                    'negative_interactions': 'INTEGER DEFAULT 0',
+                    'last_mood': "TEXT DEFAULT 'neutral'",
+                    'role': "TEXT DEFAULT 'Alyanation'"
+                }
                 # Add other tables if needed
             }
-            
+
             # Check and add missing columns for each table
             for table_name, columns in expected_columns.items():
-                # Check if table exists
                 cursor = conn.cursor()
                 cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
                 if not cursor.fetchone():
                     logger.info(f"Table {table_name} doesn't exist yet, will be created")
                     continue
-                
-                # Get existing columns
+
                 cursor.execute(f"PRAGMA table_info({table_name})")
                 existing_columns = {column[1] for column in cursor.fetchall()}
-                
-                # Add missing columns
+
                 for column_name, column_def in columns.items():
                     if column_name not in existing_columns:
                         logger.info(f"Adding missing column {column_name} to {table_name}")
@@ -169,9 +191,9 @@ class DatabaseManager:
                         except Exception as e:
                             logger.error(f"Error adding column {column_name} to {table_name}: {e}")
                             # Continue with other columns even if one fails
-                
+
             logger.info("Column verification completed")
-                
+
         except Exception as e:
             logger.error(f"Error ensuring table columns: {e}")
             conn.rollback()
@@ -295,47 +317,46 @@ class DatabaseManager:
     
     def _process_relationship_update(self, conn: sqlite3.Connection, user_id: int) -> None:
         """Process potential relationship level update.
-        
+
         Args:
             conn: Database connection
             user_id: User ID to update
         """
         try:
-            # Get current relationship info
             user_info = conn.execute(
-                '''SELECT relationship_level, interaction_count, affection_points
+                '''SELECT relationship_level, interaction_count, affection_points, is_admin
                    FROM users WHERE user_id = ?''',
                 (user_id,)
             ).fetchone()
-            
+
             if not user_info:
                 return
-                
+
             relationship_level = user_info['relationship_level']
             interaction_count = user_info['interaction_count']
-            
-            # Check for level progression based on interaction count
+            is_admin = bool(user_info['is_admin'])
+
             new_level = relationship_level
-            
-            # Use thresholds from settings.py
             interaction_thresholds = RELATIONSHIP_THRESHOLDS["interaction_count"]
-            
-            # Check if current interaction count meets the threshold for next level
+
             for level, threshold in sorted(interaction_thresholds.items()):
                 if interaction_count >= threshold and relationship_level < level:
                     new_level = level
-            
-            # Update if progression occurred
+
             if new_level > relationship_level:
                 conn.execute(
                     'UPDATE users SET relationship_level = ? WHERE user_id = ?',
                     (new_level, user_id)
                 )
-                logger.info(f"User {user_id} relationship progressed to level {new_level}")
-                
+                new_role = get_role_by_relationship_level(new_level, is_admin)
+                conn.execute(
+                    'UPDATE user_stats SET role = ? WHERE user_id = ?',
+                    (new_role, user_id)
+                )
+                logger.info(f"User {user_id} relationship progressed to level {new_level} and role '{new_role}'")
         except Exception as e:
             logger.error(f"Error processing relationship update: {e}")
-    
+
     def update_affection(self, user_id: int, points: int) -> bool:
         """Update user's affection points.
         
@@ -383,50 +404,51 @@ class DatabaseManager:
     
     def _check_affection_level_change(self, user_id: int) -> None:
         """Check if affection points warrant relationship level change.
-        
+
         Args:
             user_id: Telegram user ID
         """
         conn = self._get_connection()
         try:
             user_info = conn.execute(
-                'SELECT relationship_level, affection_points FROM users WHERE user_id = ?',
+                'SELECT relationship_level, affection_points, is_admin FROM users WHERE user_id = ?',
                 (user_id,)
             ).fetchone()
-            
+
             if not user_info:
                 return
-                
+
             level = user_info['relationship_level']
             points = user_info['affection_points']
-            
-            # Thresholds from settings.py
+            is_admin = bool(user_info['is_admin'])
+
             affection_thresholds = RELATIONSHIP_THRESHOLDS["affection_points"]
-            
-            # Check if current affection points meet the threshold for next level
+
             new_level = level
             for next_level, threshold in sorted(affection_thresholds.items()):
                 if points >= threshold and level < next_level:
                     new_level = next_level
-                
-            # Possible demotion for negative affection (not from settings as it's a special case)
+
             if points < -100 and level > 0:
-                new_level = max(0, level - 1)  # Demote one level, but not below 0
-                
-            # Update if needed
+                new_level = max(0, level - 1)
+
             if new_level != level:
                 conn.execute(
                     'UPDATE users SET relationship_level = ? WHERE user_id = ?',
                     (new_level, user_id)
                 )
+                new_role = get_role_by_relationship_level(new_level, is_admin)
+                conn.execute(
+                    'UPDATE user_stats SET role = ? WHERE user_id = ?',
+                    (new_role, user_id)
+                )
                 conn.commit()
-                logger.info(f"User {user_id} relationship changed to level {new_level} due to affection")
-                
+                logger.info(f"User {user_id} relationship changed to level {new_level} and role '{new_role}' due to affection")
         except Exception as e:
             logger.error(f"Error checking affection level change: {e}")
         finally:
             conn.close()
-    
+
     def get_user_relationship_info(self, user_id: int) -> Dict[str, Any]:
         """Get relationship info for user.
         
@@ -447,7 +469,7 @@ class DatabaseManager:
             
             stats = conn.execute(
                 '''SELECT total_messages, command_uses, 
-                          positive_interactions, negative_interactions
+                          positive_interactions, negative_interactions, role
                    FROM user_stats WHERE user_id = ?''',
                 (user_id,)
             ).fetchone()
@@ -500,7 +522,8 @@ class DatabaseManager:
                     "total_messages": stats['total_messages'] or 0,  
                     "command_uses": stats['command_uses'] or 0,
                     "positive_interactions": stats['positive_interactions'] or 0,
-                    "negative_interactions": stats['negative_interactions'] or 0 
+                    "negative_interactions": stats['negative_interactions'] or 0,
+                    "role": stats['role'] if 'role' in stats.keys() else "user"
                 }
             }
             
