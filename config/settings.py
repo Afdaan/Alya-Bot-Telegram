@@ -45,6 +45,12 @@ SLIDING_WINDOW_SIZE: int = 25  # Number of messages before sliding the window
 MEMORY_EXPIRY_DAYS: int = 7
 RAG_CHUNK_SIZE: int = 3000
 RAG_CHUNK_OVERLAP: int = 300
+MAX_CONTEXT_MESSAGES: int = 30  # Max messages to include in context window
+SUMMARY_INTERVAL: int = 3  # Days between conversation summarizations
+
+# Persona Settings
+PERSONA_DIR: str = "config/persona"
+DEFAULT_PERSONA: str = "waifu"
 
 # Relationship Levels - Configurable thresholds
 RELATIONSHIP_LEVELS: Dict[int, str] = {
@@ -66,6 +72,19 @@ RELATIONSHIP_THRESHOLDS = {
         2: 200,  # Acquaintance → Friend: 200 points
         3: 500,  # Friend → Close Friend: 500 points
     }
+}
+
+# Affection Points
+AFFECTION_POINTS: Dict[str, int] = {
+    "greeting": 2,
+    "gratitude": 5,
+    "compliment": 10,
+    "meaningful_conversation": 8,
+    "asking_about_alya": 7,
+    "remembering_details": 15,
+    "rudeness": -10,
+    "ignoring": -5,
+    "inappropriate": -20
 }
 
 # NLP Settings
@@ -92,9 +111,43 @@ FEATURES: Dict[str, bool] = {
     "use_huggingface_models": os.getenv("USE_HUGGINGFACE_MODELS", "true").lower() == "false"  # Toggle between HF models and custom NLP
 }
 
+# Response Formatting
+FORMAT_ROLEPLAY: bool = True
+FORMAT_EMOTION: bool = True
+FORMAT_RUSSIAN: bool = True
+MAX_EMOJI_PER_RESPONSE: int = 8
+
+# Russian Expressions
+RUSSIAN_EXPRESSIONS: Dict[str, Dict[str, List[str]]] = {
+    "happy": {
+        "expressions": ["счастливый", "рада", "хорошо"],
+        "romaji": ["schastlivy", "rada", "khorosho"]
+    },
+    "angry": {
+        "expressions": ["бака", "дурак", "что ты делаешь"],
+        "romaji": ["baka", "durak", "chto ty delayesh"]
+    },
+    "sad": {
+        "expressions": ["грустный", "печально", "извини"],
+        "romaji": ["grustnyy", "pechal'no", "izvini"]
+    },
+    "surprised": {
+        "expressions": ["что", "вау", "неужели"],
+        "romaji": ["chto", "vau", "neuzheli"]
+    }
+}
+
+# RAG Settings
+RAG_MAX_RESULTS: int = 25
+
 # Security
 MAX_MESSAGE_LENGTH: int = 4096  # Telegram limit
 
 # Logging Settings
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "WARNING")
 LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# PTB Settings - python-telegram-bot defaults
+PTB_DEFAULTS = {
+    'parse_mode': 'HTML',
+}
