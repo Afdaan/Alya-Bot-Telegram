@@ -17,6 +17,7 @@ from config.settings import (
     EMOTION_CONFIDENCE_THRESHOLD,
     FEATURES
 )
+from core.database import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,11 @@ class NLPEngine:
             return None
             
         try:
+            MAX_CHARS = 450  # Roughly estimate chars instead of tokens for simplicity
+            if len(text) > MAX_CHARS:
+                logger.debug(f"Text too long ({len(text)} chars), truncating to {MAX_CHARS} chars")
+                text = text[:MAX_CHARS] + "..."
+                
             # Get prediction
             result = self.emotion_classifier(text)
             
@@ -147,6 +153,12 @@ class NLPEngine:
             return "NEUTRAL", 0.5
             
         try:
+            # Truncate text to avoid sequence length errors (most models have 512 token limit)
+            MAX_CHARS = 450
+            if len(text) > MAX_CHARS:
+                logger.debug(f"Text too long for sentiment analysis ({len(text)} chars), truncating to {MAX_CHARS} chars")
+                text = text[:MAX_CHARS] + "..."
+                
             result = self.sentiment_analyzer(text)
             if result and len(result) > 0:
                 sentiment = result[0]['label']
@@ -262,6 +274,12 @@ class NLPEngine:
             "opinion_request": [
                 r'\b(menurutmu|pendapatmu|what do you think|how do you feel)\b',
                 r'\b(agree|setuju|disagree|tidak setuju)\b'
+            ],
+            # Add departure/leaving intent detection
+            "departure": [
+                r'\b(pergi|leave|leaving|berangkat|meninggalkan|tinggal)\b',
+                r'\b(goodbye|selamat tinggal|sampai jumpa|dadah|bye|pamit)\b',
+                r'\b(pulang|go home|keluar)\b'
             ]
         }
         
@@ -485,7 +503,11 @@ class NLPEngine:
             "anime": ["anime", "manga", "character", "karakter", "episode", "season",
                      "otaku", "waifu", "husbando", "cosplay"],
             "tech": ["computer", "komputer", "phone", "hp", "laptop", "internet",
-                    "app", "aplikasi", "software", "hardware", "code", "kode"]
+                    "app", "aplikasi", "software", "hardware", "code", "kode"],
+            # Add departure/leaving topic
+            "departure": ["pergi", "leave", "leaving", "tinggal", "berangkat", "meninggalkan", 
+                         "departure", "goodbye", "selamat tinggal", "sampai jumpa", "dadah", 
+                         "bye", "pamit", "pulang", "go home", "keluar"]
         }
         
         for topic, keywords in topic_keywords.items():
@@ -649,3 +671,196 @@ class NLPEngine:
         selected_mood = max(mood_probs.items(), key=lambda x: x[1])[0]
             
         return selected_mood
+
+    def suggest_emojis(self, message: str, mood: str, count: int = 4) -> List[str]:
+        """Suggest contextually appropriate emojis based on message and mood.
+        
+        Args:
+            message: Text message to analyze for context
+            mood: Current emotional mood
+            count: Maximum number of emojis to suggest
+            
+        Returns:
+            List of emoji strings appropriate for the context
+        """
+        # Dictionary of mood-emoji mapping with contextual awareness
+        mood_emoji_mapping = {
+            # Basic moods
+            "neutral": ["✨", "💭", "🌸", "💫"],
+            "happy": ["😊", "💕", "✨", "🌟"],
+            "sad": ["😔", "💔", "🥺", "💧"],
+            "surprised": ["😳", "⁉️", "🙀", "❗"],
+            "angry": ["😤", "💢", "😠", "🔥"],
+            
+            # Complex moods
+            "dere_caring": ["💕", "🥰", "💖", "✨"],
+            "tsundere_cold": ["😒", "💢", "❄️", "🙄"],
+            "tsundere_defensive": ["😳", "💥", "🔥", "❗"],
+            "academic_serious": ["📝", "🎓", "📚", "🧐"],
+            "apologetic_sincere": ["🙇‍♀️", "😔", "🙏", "💔"],
+            "happy_genuine": ["🥰", "💓", "✨", "🌟"],
+            "surprised_genuine": ["😳", "⁉️", "💫", "❗"],
+        }
+        
+        # Topic-based emoji mappings
+        topic_emoji_mapping = {
+            "school": ["📚", "✏️", "🎓", "📝", "🧠"],
+            "relationship": ["💕", "💘", "💞", "💓", "💗"],
+            "food": ["🍜", "🍙", "🍱", "🍵", "🍡"],
+            "entertainment": ["🎮", "🎵", "🎬", "📺", "🎧"],
+            "personal": ["💭", "💫", "✨", "💝", "🌟"],
+            "anime": ["✨", "🌸", "💫", "🎌", "🌟"],
+            "tech": ["💻", "📱", "⚙️", "🤖", "🔍"],
+        }
+        
+        # Detect topics in message
+        topics = self._extract_semantic_topics(message)
+        
+        # Build candidate emoji pool
+        emoji_candidates = []
+        
+        # 1. Add mood-based emojis (highest priority)
+        mood_key = mood.split('_')[0] if '_' in mood else mood
+        if mood in mood_emoji_mapping:
+            emoji_candidates.extend(mood_emoji_mapping[mood])
+        elif mood_key in mood_emoji_mapping:
+            emoji_candidates.extend(mood_emoji_mapping[mood_key])
+        
+        # 2. Add topic-based emojis
+        for topic in topics:
+            if topic in topic_emoji_mapping:
+                emoji_candidates.extend(topic_emoji_mapping[topic])
+        
+        # 3. Add default emojis if needed
+        if not emoji_candidates:
+            emoji_candidates = ["✨", "💫", "🌸", "💭"]
+        
+        # Ensure uniqueness and randomness
+        unique_candidates = list(set(emoji_candidates))
+        if len(unique_candidates) >= count:
+            return random.sample(unique_candidates, count)
+        else:
+            return random.choices(unique_candidates, k=count)  # Allow repetition if needed
+
+    def get_emotion_description(self, emotion: str) -> str:
+        """Get a natural language description for an emotion.
+        
+        Args:
+            emotion: Emotion identifier string
+            
+        Returns:
+            Natural language description of the emotion
+        """
+        emotion_descriptions = {
+            # Basic emotions
+            "neutral": ["sedang tenang", "dalam mode normal", "santai"],
+            "happy": ["terlihat senang", "sedang bahagia", "tampak ceria"],
+            "sad": ["terlihat sedih", "agak murung", "sedikit kecewa"],
+            "surprised": ["sangat terkejut", "mata terbelalak", "tercengang"],
+            "angry": ["agak kesal", "sedikit marah", "tidak senang"],
+            
+            # Complex emotions
+            "tsundere_cold": ["bersikap dingin", "pura-pura tidak peduli", "menjaga jarak"],
+            "tsundere_defensive": ["jadi defensif", "malu-malu", "tidak jujur pada perasaan"],
+            "dere_caring": ["jadi perhatian", "sangat peduli", "mulai lembut"],
+            "academic_serious": ["mode serius", "penuh konsentrasi", "fokus analitis"],
+            "happy_genuine": ["sangat bahagia", "benar-benar senang", "gembira sekali"],
+            "surprised_genuine": ["benar-benar kaget", "sangat terkejut", "tak menyangka"],
+            "apologetic_sincere": ["merasa bersalah", "ingin minta maaf", "menyesal"]
+        }
+        
+        if emotion in emotion_descriptions:
+            return random.choice(emotion_descriptions[emotion])
+        
+        # Handle compound emotions by splitting
+        if "_" in emotion:
+            parts = emotion.split("_")
+            if parts[0] in emotion_descriptions:
+                return random.choice(emotion_descriptions[parts[0]])
+                
+        return emotion.replace("_", " ")  # Fallback
+
+class ContextManager:
+    """Manages conversation context and memory with DB-backed sliding window."""
+
+    def __init__(self, db_manager: DatabaseManager) -> None:
+        """Initialize context manager with DB manager."""
+        self.db_manager = db_manager
+        self.summaries: Dict[int, List[Dict[str, Any]]] = {}
+
+    def get_context_window(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get last 30 messages from DB and summaries for context window.
+
+        Args:
+            user_id: The user ID to get context for
+
+        Returns:
+            List of conversation messages formatted for Gemini API
+        """
+        messages = self.db_manager.get_conversation_history(user_id, limit=30)
+        summaries = self.get_conversation_summaries(user_id)
+
+        context_window = []
+        # Add summaries as system message if any
+        if summaries:
+            for summary in summaries:
+                context_window.append({
+                    "role": "user",
+                    "parts": [{"text": f"Ringkasan percakapan sebelumnya: {summary['content']}"}]
+                })
+        # Add last 30 messages, mapping to Gemini format
+        for msg in messages:
+            role = msg.get("role", "user")
+            # Gemini expects "user" or "model"
+            if role == "assistant":
+                role = "model"
+            elif role != "user":
+                role = "user"
+            content = msg.get("content", "")
+            context_window.append({
+                "role": role,
+                "parts": [{"text": content}]
+            })
+        return context_window
+
+    def get_conversation_summaries(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get conversation summaries for a user (from DB or memory).
+
+        Args:
+            user_id: The user ID
+
+        Returns:
+            List of summaries (dict with 'content')
+        """
+        # Example: If you store summaries in a DB table, fetch here.
+        # For now, fallback to in-memory summaries if available.
+        return self.summaries.get(user_id, [])
+
+    def add_summary(self, user_id: int, summary: Dict[str, Any]) -> None:
+        """Add a summary for a user (in-memory or persist to DB)."""
+        if user_id not in self.summaries:
+            self.summaries[user_id] = []
+        self.summaries[user_id].append(summary)
+
+    def apply_sliding_window(self, user_id: int) -> None:
+        """Apply sliding window: keep 30 recent messages, summarize the rest."""
+        # Get all messages for user
+        all_messages = self.db_manager.get_conversation_history(user_id, limit=1000)
+        if len(all_messages) > 30:
+            # Messages to summarize: all except last 30
+            to_summarize = all_messages[:-30]
+            if to_summarize:
+                summary_content = self._summarize_messages(to_summarize)
+                if summary_content:
+                    self.add_summary(user_id, {"content": summary_content})
+            # Delete old messages from DB, keep only last 30
+            self.db_manager.apply_sliding_window(user_id, keep_recent=30)
+
+    def _summarize_messages(self, messages: List[Dict[str, Any]]) -> str:
+        """Summarize a list of messages (simple join or use LLM for prod)."""
+        # For now, join first/last and key points (replace with LLM summary for prod)
+        if not messages:
+            return ""
+        first = messages[0].get("content", "")
+        last = messages[-1].get("content", "")
+        return f"Ringkasan: Mulai dari '{first[:40]}...' hingga '{last[:40]}...'."
