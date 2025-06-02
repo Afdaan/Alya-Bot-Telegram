@@ -1,20 +1,46 @@
 version: "3.9"
+
 services:
+  # =============================================
+  # PRODUCTION SERVICE
+  # =============================================
   alya-bot:
     build:
       context: .
-      # No build cache for always fresh build
       args:
         - BUILDKIT_INLINE_CACHE=0
+        - ENV=production
+    image: alya-bot:${TAG:-latest}
     container_name: alya-bot
     restart: unless-stopped
     env_file:
       - .env
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
     networks:
       - alya-network
-    # Always pull latest image and code before start (for CI/CD)
+    pull_policy: always
+
+  # =============================================
+  # STAGING SERVICE
+  # =============================================
+  alya-bot-staging:
+    build:
+      context: .
+      args:
+        - BUILDKIT_INLINE_CACHE=0
+        - ENV=staging
+    image: alya-bot:${STAGING_TAG:-staging}
+    container_name: alya-bot-staging
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - alya-network
     pull_policy: always
 
 networks:
