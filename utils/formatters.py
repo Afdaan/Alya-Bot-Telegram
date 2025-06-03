@@ -264,6 +264,17 @@ def format_response(
     main_message = paragraphs[0] if paragraphs else message
     optional_messages = paragraphs[1:] if len(paragraphs) > 1 else []
 
+    # --- PATCH: Remove optional paragraphs that are similar to main_message ---
+    filtered_optionals = []
+    for opt_msg in optional_messages:
+        # Use similarity ratio, threshold 0.85
+        ratio = difflib.SequenceMatcher(None, main_message.lower(), opt_msg.lower()).ratio()
+        if ratio < 0.85:
+            filtered_optionals.append(opt_msg)
+    # Only keep the first non-duplicate optional
+    optional_messages = filtered_optionals[:1]
+    # --- END PATCH ---
+
     # Emoji magic - limit to MAX_EMOJI_PER_RESPONSE per settings.py
     mood_emoji_mapping = {
         "neutral": ["✨", "💭", "🌸", "💫"],
