@@ -39,6 +39,10 @@ def stats_response(
         3: [
             "A-alya senang bisa mengobrol denganmu sejauh ini! 💕",
             "Kamu spesial banget buat Alya... tapi jangan bilang siapa-siapa! 😳"
+        ],
+        4: [
+            "Alya merasa kita sudah sangat dekat... 💖",
+            "Kamu sudah jadi soulmate Alya, jangan sakiti hati Alya ya! 💞"
         ]
     }
     level = relationship.get('level', 0)
@@ -49,15 +53,18 @@ def stats_response(
     positive_interactions = stats.get('positive_interactions', 0)
     negative_interactions = stats.get('negative_interactions', 0)
 
+    # Fetch user role from stats, fallback to "User" if not present
+    role = stats.get('role', 'User')
+
     return (
-        f"<b>Statistik Hubungan {name}</b>\n\n"
-        f"<b>Level:</b> {relationship['level']} - {relationship['name']}\n"
+        f"<b>🌸 Statistik Hubungan {name} [{role}] 🌸</b>\n\n"
+        f"<b>Level:</b> {relationship['level']} - {relationship['name']} 💫\n"
         f"{progress_bar(relationship['progress_percent'])} {relationship['progress_percent']:.1f}%\n"
-        f"<b>Interaksi:</b> {relationship['interactions']}/{relationship['next_level_at']}\n\n"
-        f"<b>Affection Points:</b> {affection['points']}\n"
+        f"<b>Interaksi:</b> {relationship['interactions']}/{relationship['next_level_at']} ✨\n\n"
+        f"<b>Affection Points:</b> {affection['points']} 😳\n"
         f"{progress_bar(affection['progress_percent'])}\n\n"
-        f"<b>Total Pesan:</b> {total_messages}\n"
-        f"<b>Interaksi Positif:</b> {positive_interactions}\n"
-        f"<b>Interaksi Negatif:</b> {negative_interactions}\n\n"
+        f"<b>Total Pesan:</b> {total_messages} 📨\n"
+        f"<b>Interaksi Positif:</b> {positive_interactions} 😊\n"
+        f"<b>Interaksi Negatif:</b> {negative_interactions} 😠\n\n"
         f"{footer}"
     )

@@ -1,21 +1,21 @@
-# Alya-chan Bot Commands 💕
+# 🌸 Alya-chan Bot Commands Guide 💕
 
-This guide covers all available commands and features for Alya Bot. Commands are organized by category for easy reference.
+This document contains a comprehensive guide to all available commands and features for Alya Bot, organized by category.
 
-## Table of Contents
-- [Basic Commands](#basic-commands)
-- [Chat & Conversation](#chat--conversation)
-- [Search Commands](#search-commands)
-- [Media Analysis](#media-analysis)
-- [Roasting Commands](#roasting-commands)
-- [Admin Commands](#admin-commands)
-- [Usage Examples](#usage-examples)
+## 📑 Table of Contents
+- [Basic Commands](#-basic-commands)
+- [Chat & Conversation](#-chat--conversation)
+- [Search Commands](#-search-commands)
+- [Media Analysis](#-media-analysis)
+- [Roasting Features](#-roasting-features)
+- [Admin Commands](#-admin-commands)
+- [Usage Examples](#-usage-examples)
+- [Tips & Troubleshooting](#-tips--troubleshooting)
 
 ---
 
-## Basic Commands
+## 🌱 Basic Commands
 
-### Core Bot Commands
 | Command | Description | Usage |
 |---------|-------------|--------|
 | `/start` | Initialize bot and show welcome menu | `/start` |
@@ -23,35 +23,30 @@ This guide covers all available commands and features for Alya Bot. Commands are
 | `/ping` | Check bot response time and status | `/ping` |
 | `/reset` | Clear conversation history and start fresh | `/reset` |
 | `/stats` | View your relationship statistics with Alya | `/stats` |
-
-### Language & Settings
-| Command | Description | Usage |
-|---------|-------------|--------|
 | `/lang` | Change default language (currently id/en) | `/lang id` or `/lang en` |
 
 ---
 
-## Chat & Conversation
+## 💬 Chat & Conversation
 
 ### Private Chat
-- **Direct messaging**: Send any message directly to chat with Alya
-- **Context awareness**: Alya remembers previous conversations
-- **Follow-up questions**: Ask related questions without repeating context
+In direct messages, you can chat naturally with Alya without any prefix:
+```
+You: Hi Alya, how are you?
+Alya: I'm doing great, thank you! How about you?
+```
 
 ### Group Chat
-- **Command prefix**: Use `!ai` prefix for all commands
-- **Reply to bot**: Reply to Alya's messages for direct interaction
-- **Examples**:
-  ```
-  !ai Hello Alya-chan!
-  !ai How are you today?
-  ```
+In group chats, use the `!ai` prefix for commands or reply directly to Alya's messages:
+```
+!ai What's the weather like today?
+Reply to Alya: What about tomorrow?
+```
 
 ### Conversation Features
 
 #### Context Awareness
 Alya maintains conversation context across multiple messages:
-
 ```
 You: What causes common cold?
 Alya: *explains about cold causes*
@@ -84,9 +79,8 @@ Alya's personality evolves based on your interaction:
 
 ---
 
-## Search Commands
+## 🔍 Search Commands
 
-### Web Search
 | Command | Description | Example |
 |---------|-------------|---------|
 | `/search <query>` | General web search | `/search latest AI technology` |
@@ -112,15 +106,15 @@ Get latest news and articles:
 ```bash
 /search -n technology trends    # Latest tech news
 /search -n indonesia politics   # Indonesian political news
-/search -n global economy      # Economic updates
+/search -n global economy       # Economic updates
 ```
 
 #### Image Search
 Find high-quality images:
 ```bash
-/search -i anime wallpaper     # Anime wallpapers
-/search -i nature photography  # Nature photos
-/search -i logo design         # Logo designs
+/search -i anime wallpaper      # Anime wallpapers
+/search -i nature photography   # Nature photos
+/search -i logo design          # Logo designs
 ```
 
 ### Smart Search Features
@@ -140,25 +134,18 @@ Bot automatically understands search intent:
 
 ---
 
-## Media Analysis
+## 🖼️ Media Analysis
 
-### Image Source Search
 | Command | Description | Usage |
 |---------|-------------|--------|
 | `!sauce` | Find anime/manga source using SauceNAO | Reply to image with `!sauce` |
-| `!sauce` | Search image source | Send image with `!sauce` caption |
+| `!ask` | Analyze image content with AI | Reply to image with `!ask` |
 
 #### SauceNAO Features
 - **Anime/manga focus**: Best for anime, manga, and fan art
 - **Similarity scoring**: Shows accuracy percentage
 - **Multiple sources**: Displays various possible sources
 - **Detailed info**: Title, artist, series information
-
-### Image Analysis
-| Command | Description | Usage |
-|---------|-------------|--------|
-| `!trace` | Analyze image content with AI | Reply to image with `!trace` |
-| `!trace` | Analyze uploaded image | Send image with `!trace` caption |
 
 #### Analysis Capabilities
 - **Object detection**: Identify objects, people, animals
@@ -169,22 +156,13 @@ Bot automatically understands search intent:
 
 ---
 
-## Roasting Commands
+## 🔥 Roasting Features
 
-### Personal Roasting
 | Command | Description | Example |
 |---------|-------------|---------|
 | `!roast @username` | Basic roasting | `!roast @someone` |
 | `!roast @username wibu` | Keyword-based roast | `!roast @user weeb` |
 | `!gitroast username` | GitHub profile roast | `!gitroast afdaan` |
-
-### Available Keywords
-Customize roasts with specific themes:
-- `wibu/weeb` - Anime/manga enthusiast roasts
-- `nolep/nolife` - Lifestyle roasts  
-- `jomblo/single` - Relationship status roasts
-- `gaming` - Gaming-related roasts
-- `coding` - Programming/developer roasts
 
 ### GitHub Roasting
 Special roasting mode for developers:
@@ -202,33 +180,24 @@ Special roasting mode for developers:
 
 ---
 
-## Admin Commands
+## 🔧 Admin Commands
 
 *These commands are restricted to authorized administrators only.*
 
-### System Management
 | Command | Description | Usage |
 |---------|-------------|--------|
 | `/statsall` | View comprehensive bot statistics | `/statsall` |
 | `/spek` | Show system specifications and health | `/spek` |
 | `/cleanup` | Clean up database and temporary files | `/cleanup` |
-
-### User Management  
-| Command | Description | Usage |
-|---------|-------------|--------|
 | `/addadmin <user_id>` | Grant admin privileges | `/addadmin 123456789` |
 | `/removeadmin <user_id>` | Remove admin privileges | `/removeadmin 123456789` |
 | `/broadcast <message>` | Send message to all users | `/broadcast Important update!` |
-
-### Deployment & Updates
-| Command | Description | Usage |
-|---------|-------------|--------|
 | `/update [branch]` | Pull updates and restart bot | `/update` or `/update dev` |
 | `/status` | Check deployment status | `/status` |
 | `/restart` | Restart bot service | `/restart` |
 
 #### Update Command Features
-- **Automatic branch detection**: Defaults to `main` branch
+- **Automatic branch detection**: Defaults to `master` branch
 - **Multiple branch support**: Specify branch name
 - **Git integration**: Shows commit log and changes
 - **Safe restart**: Graceful bot restart process
@@ -236,14 +205,14 @@ Special roasting mode for developers:
 
 **Examples**:
 ```bash
-/update              # Update from main branch
+/update              # Update from master branch
 /update dev          # Update from dev branch  
 /update stable       # Update from stable branch
 ```
 
 ---
 
-## Usage Examples
+## 📖 Usage Examples
 
 ### Basic Conversation
 ```bash
@@ -282,11 +251,11 @@ What about tomorrow?
 !sauce
 
 # Analyze image content (reply to image)  
-!trace
+!ask
 
 # Or send image with caption
 [Upload image with caption: !sauce]
-[Upload image with caption: !trace What's in this image?]
+[Upload image with caption: !ask What's in this image?]
 ```
 
 ### Roasting Examples
@@ -320,31 +289,31 @@ What about tomorrow?
 
 ---
 
-## Tips & Best Practices
+## 🛠️ Tips & Troubleshooting
 
-### For Users
+### Tips & Best Practices
+
+#### For Users
 1. **Be specific** in search queries for better results
 2. **Use context** - ask follow-up questions naturally
 3. **Try different keywords** if roasts aren't hitting right
 4. **Check image quality** for better SauceNAO results
 
-### For Admins  
+#### For Admins  
 1. **Monitor stats** regularly with `/statsall`
 2. **Test updates** on dev branch before main
 3. **Schedule maintenance** during low-activity hours
 4. **Keep backups** before major updates
 
-### Search Optimization
+#### Search Optimization
 1. **Use natural language** - bot understands context
 2. **Be specific** for profile searches (include platform)
 3. **Try multiple approaches** if first search doesn't work
 4. **Use quotation marks** for exact phrase matching
 
----
+### Troubleshooting
 
-## Troubleshooting
-
-### Common Issues
+#### Common Issues
 
 **Bot not responding in groups?**
 - Use `!ai` prefix or reply to bot messages
@@ -363,7 +332,7 @@ What about tomorrow?
 - Try specific keywords like `weeb`, `nolife`
 - GitHub roasts work better with active profiles
 
-### Getting Help
+#### Getting Help
 
 1. Use `/help` command for quick reference
 2. Check this documentation for detailed usage

@@ -55,26 +55,38 @@ DEFAULT_PERSONA: str = "waifu"
 # Relationship Levels - Configurable thresholds
 RELATIONSHIP_LEVELS: Dict[int, str] = {
     0: "Stranger",
-    1: "Acquaintance", 
+    1: "Acquaintance",
     2: "Friend",
-    3: "Close Friend"
+    3: "Close Friend",
+    4: "Soulmate"
+}
+
+# Relationship Role Names (for roleplay/handler mapping)
+RELATIONSHIP_ROLE_NAMES: Dict[int, str] = {
+    0: "Outsider",
+    1: "Acquaintance",
+    2: "Companion",
+    3: "Confidant",
+    4: "Heartbound"
 }
 
 # Relationship level progression thresholds
 RELATIONSHIP_THRESHOLDS = {
     "interaction_count": {  # Messages exchanged to reach each level
-        1: 50,   # Stranger → Acquaintance: 50 messages
-        2: 100,   # Acquaintance → Friend: 100 messages
-        3: 200,  # Friend → Close Friend: 200 messages
+        1: 100,      # Stranger → Acquaintance
+        2: 300,      # Acquaintance → Friend
+        3: 500,      # Friend → Close Friend
+        4: 1000      # Close Friend → Soulmate
     },
     "affection_points": {  # Affection points to reach each level
-        1: 100,   # Stranger → Acquaintance: 50 points
-        2: 200,  # Acquaintance → Friend: 200 points
-        3: 500,  # Friend → Close Friend: 500 points
+        1: 200,      # Stranger → Acquaintance
+        2: 600,      # Acquaintance → Friend
+        3: 1000,     # Friend → Close Friend
+        4: 2000      # Close Friend → Soulmate
     }
 }
 
-# Affection Points
+# Affection Points (all configurable for handler logic)
 AFFECTION_POINTS: Dict[str, int] = {
     "greeting": 2,
     "gratitude": 5,
@@ -82,9 +94,23 @@ AFFECTION_POINTS: Dict[str, int] = {
     "meaningful_conversation": 8,
     "asking_about_alya": 7,
     "remembering_details": 15,
+    "affection": 5,
+    "apology": 2,
+    "question": 1,
+    "friendliness": 6,
+    "romantic_interest": 10,
+    "conflict": -3,
+    "insult": -10,
+    "anger": -3,
+    "toxic": -3,
+    "toxic_behavior": -10,
     "rudeness": -10,
     "ignoring": -5,
-    "inappropriate": -20
+    "inappropriate": -20,
+    "bullying": -15,
+    "positive_emotion": 2,
+    "mild_positive_emotion": 1,
+    "min_penalty": -4
 }
 
 # NLP Settings
