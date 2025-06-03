@@ -262,7 +262,7 @@ def format_response(
     message, existing_roleplay = detect_roleplay(message)
     paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
     main_message = paragraphs[0] if paragraphs else message
-    optional_messages = paragraphs[1:2] if len(paragraphs) > 1 else []  # Limit to 1 optional
+    optional_messages = paragraphs[1:] if len(paragraphs) > 1 else []
 
     # Emoji magic - limit to MAX_EMOJI_PER_RESPONSE per settings.py
     mood_emoji_mapping = {
@@ -282,7 +282,7 @@ def format_response(
     }
     current_mood = mood if mood != "default" else "neutral"
     mood_emojis = mood_emoji_mapping.get(current_mood, mood_emoji_mapping["default"])
-    emoji_count = min(MAX_EMOJI_PER_RESPONSE, max(1, random.randint(1, 2)))
+    emoji_count = min(MAX_EMOJI_PER_RESPONSE, 2)
     emoji_positions = ["start", "end"][:emoji_count]
 
     # Roleplay formatting (only once, not per paragraph)
@@ -294,24 +294,25 @@ def format_response(
             if "{username}" in roleplay:
                 roleplay = roleplay.replace("{username}", username)
     if roleplay:
-        roleplay = f"<i>{roleplay}</i>"
+        roleplay = f"<i>{escape_html(roleplay)}</i>"
 
-    # Main message formatting
+    # Main message formatting (emoji only here)
     main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_message)
     main_content = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', main_content)
     main_content = escape_html(main_content)
 
     # Add emojis only at start/end, respecting MAX_EMOJI_PER_RESPONSE
-    for position in emoji_positions:
-        emoji_ = random.choice(mood_emojis)
+    for idx, position in enumerate(emoji_positions):
+        emoji_ = mood_emojis[idx % len(mood_emojis)]
         if position == "start":
             main_content = f"{emoji_} {main_content}"
         elif position == "end":
             main_content = f"{main_content} {emoji_}"
 
-    # Only 1 optional paragraph, no emoji
+    # Only 1 optional paragraph, no emoji, no roleplay
     formatted_optionals = []
-    for opt_msg in optional_messages:
+    if optional_messages:
+        opt_msg = optional_messages[0]
         opt_msg = re.sub(r'\*(.*?)\*', r'<i>\1</i>', opt_msg)
         opt_msg = escape_html(opt_msg)
         formatted_optionals.append(opt_msg)
@@ -342,8 +343,9 @@ def format_response(
     if mood_display:
         result.append(mood_display)
 
-    # Gabungkan dan bersihkan HTML entity/tag
-    return clean_html_entities('\n\n'.join(result))
+    # Gabungkan dan bersihkan HTML entity/tag, hapus duplikat/whitespace
+    final = '\n\n'.join([r for r in result if r and r.strip()])
+    return clean_html_entities(final)
 
 def format_error_response(error_message: str, username: str = "user") -> str:
     """Format an error response with appropriate tone. Output is valid HTML."""
