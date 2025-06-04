@@ -40,12 +40,12 @@ DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///data/alya.db")
 SQLITE_DB_PATH: str = os.getenv("SQLITE_DB_PATH", "data/alya.db")
 
 # Memory Settings
-MAX_MEMORY_ITEMS: int = 30
-SLIDING_WINDOW_SIZE: int = 25  # Number of messages before sliding the window
+MAX_MEMORY_ITEMS: int = 80
+SLIDING_WINDOW_SIZE: int = 85  # Number of messages before sliding the window
 MEMORY_EXPIRY_DAYS: int = 7
 RAG_CHUNK_SIZE: int = 3000
 RAG_CHUNK_OVERLAP: int = 300
-MAX_CONTEXT_MESSAGES: int = 30  # Max messages to include in context window
+MAX_CONTEXT_MESSAGES: int = 80  # Max messages to include in context window
 SUMMARY_INTERVAL: int = 3  # Days between conversation summarizations
 
 # Persona Settings
@@ -134,7 +134,7 @@ FEATURES: Dict[str, bool] = {
     "roleplay": True,
     "russian_expressions": True,
     "relationship_levels": True,
-    "use_huggingface_models": os.getenv("USE_HUGGINGFACE_MODELS", "true").lower() == "false"  # Toggle between HF models and custom NLP
+    "use_huggingface_models": os.getenv("USE_HUGGINGFACE_MODELS", "true").lower() == "true"  # Toggle between HF models and custom NLP
 }
 
 # Response Formatting

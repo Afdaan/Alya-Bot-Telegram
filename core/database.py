@@ -6,6 +6,7 @@ import sqlite3
 import logging
 import json
 import time
+import hashlib
 from typing import Dict, List, Optional, Tuple, Any, Union
 from pathlib import Path
 
@@ -43,10 +44,9 @@ class DatabaseManager:
         Args:
             db_path: Path to the SQLite database file
         """
-        # Ensure data directory exists
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        
         self.db_path = db_path
+        self.recent_message_hashes = {}  # Cache for recent message hashes
         self._initialize_db()
         
     def _get_connection(self) -> sqlite3.Connection:
@@ -56,14 +56,14 @@ class DatabaseManager:
             SQLite connection object
         """
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row  # Return rows as dictionaries
+        conn.row_factory = sqlite3.Row
         return conn
         
     def _initialize_db(self) -> None:
         """Initialize database tables with the correct schema."""
         conn = self._get_connection()
         try:
-            # Create users table with relationship fields
+            # Create users table
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
@@ -81,7 +81,7 @@ class DatabaseManager:
                 )
             ''')
             
-            # Create conversation history table with clean schema
+            # Create conversations table
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS conversations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,7 +109,7 @@ class DatabaseManager:
                 )
             ''')
             
-            # Create user stats table (add role column)
+            # Create user stats table
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS user_stats (
                     user_id INTEGER PRIMARY KEY,
@@ -123,12 +123,17 @@ class DatabaseManager:
                 )
             ''')
             
-            # Create index for faster retrieval
+            # Create indexes for faster queries
             conn.execute('CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_embeddings_user_id ON embeddings(user_id)')
             
-            # Ensure all tables have the expected columns
-            self._ensure_table_columns(conn)
+            # Add message_hash column for deduplication
+            self._add_column_if_not_exists(conn, "conversations", "message_hash", "TEXT")
+            
+            try:
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_conversations_message_hash ON conversations(message_hash)')
+            except sqlite3.OperationalError:
+                logger.warning("Could not create index for message_hash - column might not exist yet")
             
             conn.commit()
             logger.info("Database initialized successfully")
@@ -136,46 +141,51 @@ class DatabaseManager:
             logger.error(f"Error initializing database: {e}")
         finally:
             conn.close()
-            
-    def _ensure_table_columns(self, conn: sqlite3.Connection) -> None:
-        """Ensure all tables have the expected columns.
-
-        This method checks each table against the expected schema and adds any missing columns.
-
+    
+    def _add_column_if_not_exists(self, conn: sqlite3.Connection, table: str, column: str, type_def: str) -> bool:
+        """Add a column to a table if it doesn't exist.
+        
         Args:
-            conn: Database connection
+            conn: The database connection
+            table: Table name
+            column: Column to add
+            type_def: Column type definition
+            
+        Returns:
+            True if column was added or already exists, False if error
         """
         try:
-            # Define expected columns for each table
+            cursor = conn.cursor()
+            cursor.execute(f"PRAGMA table_info({table})")
+            columns = [info[1] for info in cursor.fetchall()]
+            
+            if column not in columns:
+                logger.info(f"Adding missing column '{column}' to table '{table}'")
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {type_def}")
+                conn.commit()
+                logger.info(f"Successfully added column '{column}' to '{table}'")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error adding column {column} to {table}: {e}")
+            return False
+            
+    def _ensure_table_columns(self, conn: sqlite3.Connection) -> None:
+        """Ensure all tables have the expected columns."""
+        try:
             expected_columns = {
                 'conversations': {
-                    'id': 'INTEGER PRIMARY KEY AUTOINCREMENT',
-                    'user_id': 'INTEGER',
-                    'role': 'TEXT',
-                    'content': 'TEXT',
-                    'message': 'TEXT',
-                    'message_metadata': 'TEXT DEFAULT "{}"',
-                    'is_user': 'BOOLEAN DEFAULT 0',
-                    'timestamp': 'INTEGER'
+                    'message_hash': 'TEXT'
                 },
                 'user_stats': {
-                    'user_id': 'INTEGER PRIMARY KEY',
-                    'total_messages': 'INTEGER DEFAULT 0',
-                    'command_uses': 'INTEGER DEFAULT 0',
-                    'positive_interactions': 'INTEGER DEFAULT 0',
-                    'negative_interactions': 'INTEGER DEFAULT 0',
-                    'last_mood': "TEXT DEFAULT 'neutral'",
                     'role': "TEXT DEFAULT 'Alyanation'"
                 }
-                # Add other tables if needed
             }
 
-            # Check and add missing columns for each table
             for table_name, columns in expected_columns.items():
                 cursor = conn.cursor()
                 cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
                 if not cursor.fetchone():
-                    logger.info(f"Table {table_name} doesn't exist yet, will be created")
                     continue
 
                 cursor.execute(f"PRAGMA table_info({table_name})")
@@ -187,13 +197,10 @@ class DatabaseManager:
                         try:
                             cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
                             conn.commit()
-                            logger.info(f"Successfully added {column_name} column to {table_name}")
                         except Exception as e:
                             logger.error(f"Error adding column {column_name} to {table_name}: {e}")
-                            # Continue with other columns even if one fails
 
             logger.info("Column verification completed")
-
         except Exception as e:
             logger.error(f"Error ensuring table columns: {e}")
             conn.rollback()
@@ -214,7 +221,6 @@ class DatabaseManager:
         """
         conn = self._get_connection()
         try:
-            # Check if user exists
             user = conn.execute(
                 'SELECT * FROM users WHERE user_id = ?', 
                 (user_id,)
@@ -231,7 +237,6 @@ class DatabaseManager:
                     (user_id, username, first_name, last_name, current_time, current_time, 1 if is_admin else 0)
                 )
                 
-                # Initialize user stats
                 conn.execute(
                     'INSERT INTO user_stats (user_id) VALUES (?)',
                     (user_id,)
@@ -244,7 +249,7 @@ class DatabaseManager:
                     (user_id,)
                 ).fetchone()
             else:
-                # Update user information and last interaction
+                # Update existing user
                 conn.execute(
                     '''UPDATE users SET 
                        username = ?, 
@@ -258,7 +263,6 @@ class DatabaseManager:
                 conn.commit()
             
             return dict(user)
-            
         except Exception as e:
             logger.error(f"Error getting/creating user: {e}")
             return {}
@@ -271,40 +275,66 @@ class DatabaseManager:
         try:
             timestamp = int(time.time())
             is_user = 1 if role == "user" else 0
-            # Insert to all relevant columns for compatibility
-            conn.execute(
-                '''INSERT INTO conversations 
-                   (user_id, role, content, message, message_metadata, is_user, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (
-                    user_id,
-                    role,
-                    content,
-                    content,
-                    '{}',
-                    is_user,
-                    timestamp
-                )
-            )
             
-            # Update user stats and relationship progression
+            # Deduplication
+            message = {
+                'user_id': user_id,
+                'content': content,
+                'role': role
+            }
+            
+            message_hash = self._calculate_message_hash(message)
+            has_message_hash = self._check_column_exists(conn, "conversations", "message_hash")
+            
+            # Check duplicates in memory cache
+            if user_id in self.recent_message_hashes and message_hash in self.recent_message_hashes[user_id]:
+                logger.warning(f"Skipping duplicate message for user {user_id} (memory cache hit)")
+                return False
+                
+            # Check duplicates in database
+            if has_message_hash and self._check_db_for_duplicate(conn, user_id, message_hash):
+                logger.warning(f"Skipping duplicate message for user {user_id} (database hit)")
+                return False
+                
+            # Update recent message cache
+            if user_id not in self.recent_message_hashes:
+                self.recent_message_hashes[user_id] = set()
+                
+            self.recent_message_hashes[user_id].add(message_hash)
+            if len(self.recent_message_hashes[user_id]) > 100:
+                self.recent_message_hashes[user_id].pop()
+                
+            # Insert message with dynamic column handling
+            if has_message_hash:
+                conn.execute(
+                    '''INSERT INTO conversations 
+                       (user_id, role, content, message, message_metadata, is_user, timestamp, message_hash)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (user_id, role, content, content, '{}', is_user, timestamp, message_hash)
+                )
+            else:
+                conn.execute(
+                    '''INSERT INTO conversations 
+                       (user_id, role, content, message, message_metadata, is_user, timestamp)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                    (user_id, role, content, content, '{}', is_user, timestamp)
+                )
+            
+            # Update stats for user messages
             if role == 'user':
                 conn.execute(
-                    '''UPDATE user_stats SET total_messages = total_messages + 1
-                       WHERE user_id = ?''',
+                    'UPDATE user_stats SET total_messages = total_messages + 1 WHERE user_id = ?',
                     (user_id,)
                 )
                 conn.execute(
-                    '''UPDATE users SET 
-                       interaction_count = interaction_count + 1
-                       WHERE user_id = ?''',
+                    'UPDATE users SET interaction_count = interaction_count + 1 WHERE user_id = ?',
                     (user_id,)
                 )
                 self._process_relationship_update(conn, user_id)
             
             conn.commit()
             
-            # If this is a significant message, also save it for RAG
+            # Store significant messages for RAG
             if len(content) > 20:
                 self.save_for_rag(user_id, content, {"role": role, "timestamp": timestamp})
                 
@@ -316,12 +346,7 @@ class DatabaseManager:
             conn.close()
     
     def _process_relationship_update(self, conn: sqlite3.Connection, user_id: int) -> None:
-        """Process potential relationship level update.
-
-        Args:
-            conn: Database connection
-            user_id: User ID to update
-        """
+        """Process potential relationship level update."""
         try:
             user_info = conn.execute(
                 '''SELECT relationship_level, interaction_count, affection_points, is_admin
@@ -339,10 +364,12 @@ class DatabaseManager:
             new_level = relationship_level
             interaction_thresholds = RELATIONSHIP_THRESHOLDS["interaction_count"]
 
+            # Check if user meets threshold for next level
             for level, threshold in sorted(interaction_thresholds.items()):
                 if interaction_count >= threshold and relationship_level < level:
                     new_level = level
 
+            # Apply level update if needed
             if new_level > relationship_level:
                 conn.execute(
                     'UPDATE users SET relationship_level = ? WHERE user_id = ?',
@@ -358,43 +385,28 @@ class DatabaseManager:
             logger.error(f"Error processing relationship update: {e}")
 
     def update_affection(self, user_id: int, points: int) -> bool:
-        """Update user's affection points.
-        
-        Args:
-            user_id: Telegram user ID
-            points: Points to add (positive) or subtract (negative)
-            
-        Returns:
-            Success status
-        """
+        """Update user's affection points."""
         conn = self._get_connection()
         try:
-            # Update affection points
             conn.execute(
-                '''UPDATE users SET affection_points = affection_points + ?
-                   WHERE user_id = ?''',
+                'UPDATE users SET affection_points = affection_points + ? WHERE user_id = ?',
                 (points, user_id)
             )
             
-            # Update interaction stats
+            # Track interaction type
             if points > 0:
                 conn.execute(
-                    '''UPDATE user_stats SET positive_interactions = positive_interactions + 1
-                       WHERE user_id = ?''',
+                    'UPDATE user_stats SET positive_interactions = positive_interactions + 1 WHERE user_id = ?',
                     (user_id,)
                 )
             elif points < 0:
                 conn.execute(
-                    '''UPDATE user_stats SET negative_interactions = negative_interactions + 1
-                       WHERE user_id = ?''',
+                    'UPDATE user_stats SET negative_interactions = negative_interactions + 1 WHERE user_id = ?',
                     (user_id,)
                 )
                 
             conn.commit()
-            
-            # Check for relationship level changes based on affection
             self._check_affection_level_change(user_id)
-            
             return True
         except Exception as e:
             logger.error(f"Error updating affection: {e}")
@@ -403,11 +415,7 @@ class DatabaseManager:
             conn.close()
     
     def _check_affection_level_change(self, user_id: int) -> None:
-        """Check if affection points warrant relationship level change.
-
-        Args:
-            user_id: Telegram user ID
-        """
+        """Check if affection points warrant relationship level change."""
         conn = self._get_connection()
         try:
             user_info = conn.execute(
@@ -421,17 +429,19 @@ class DatabaseManager:
             level = user_info['relationship_level']
             points = user_info['affection_points']
             is_admin = bool(user_info['is_admin'])
-
             affection_thresholds = RELATIONSHIP_THRESHOLDS["affection_points"]
 
+            # Check for level up
             new_level = level
             for next_level, threshold in sorted(affection_thresholds.items()):
                 if points >= threshold and level < next_level:
                     new_level = next_level
 
+            # Check for level down (negative affection)
             if points < -100 and level > 0:
                 new_level = max(0, level - 1)
 
+            # Apply level change if needed
             if new_level != level:
                 conn.execute(
                     'UPDATE users SET relationship_level = ? WHERE user_id = ?',
@@ -450,14 +460,7 @@ class DatabaseManager:
             conn.close()
 
     def get_user_relationship_info(self, user_id: int) -> Dict[str, Any]:
-        """Get relationship info for user.
-        
-        Args:
-            user_id: Telegram user ID
-            
-        Returns:
-            Dictionary with relationship information
-        """
+        """Get relationship info for user."""
         conn = self._get_connection()
         try:
             user = conn.execute(
@@ -477,31 +480,27 @@ class DatabaseManager:
             if not user or not stats:
                 return {}
                 
-            # Map relationship level to name using settings
+            # Calculate relationship data
             level_number = user['relationship_level']
             level_name = RELATIONSHIP_LEVELS.get(level_number, "Unknown")
-            
-            # Get thresholds from settings
             interaction_thresholds = RELATIONSHIP_THRESHOLDS["interaction_count"]
             affection_thresholds = RELATIONSHIP_THRESHOLDS["affection_points"]
             
-            # Calculate next level threshold for interactions
+            # Find next level thresholds
             next_interaction_threshold = float('inf')
             next_affection_threshold = float('inf')
             
-            # Find next level thresholds
             for next_level, threshold in sorted(interaction_thresholds.items()):
                 if level_number < next_level:
                     next_interaction_threshold = threshold
                     break
                     
-            # Same for affection  
             for next_level, threshold in sorted(affection_thresholds.items()):
                 if level_number < next_level:
                     next_affection_threshold = threshold
                     break
             
-            # Format data - ensure ALL fields are present with defaults
+            # Format data with all fields
             relationship_info = {
                 "user_id": user['user_id'],
                 "name": user['first_name'],
@@ -527,9 +526,6 @@ class DatabaseManager:
                 }
             }
             
-            # Log what we're returning to help debug
-            logger.debug(f"Relationship info for user {user_id}: {relationship_info}")
-            
             return relationship_info
             
         except Exception as e:
@@ -539,15 +535,7 @@ class DatabaseManager:
             conn.close()
     
     def get_conversation_history(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get recent conversation history for a user.
-        
-        Args:
-            user_id: Telegram user ID
-            limit: Maximum number of messages to retrieve
-            
-        Returns:
-            List of conversation messages
-        """
+        """Get recent conversation history for a user."""
         conn = self._get_connection()
         try:
             rows = conn.execute(
@@ -568,14 +556,7 @@ class DatabaseManager:
             conn.close()
     
     def reset_conversation(self, user_id: int) -> bool:
-        """Reset a user's conversation history.
-        
-        Args:
-            user_id: Telegram user ID
-            
-        Returns:
-            Success status
-        """
+        """Reset a user's conversation history."""
         conn = self._get_connection()
         try:
             conn.execute('DELETE FROM conversations WHERE user_id = ?', (user_id,))
@@ -588,40 +569,27 @@ class DatabaseManager:
             conn.close()
     
     def apply_sliding_window(self, user_id: int, keep_recent: int) -> bool:
-        """Keep only the most recent messages and delete older ones.
-        
-        Args:
-            user_id: Telegram user ID
-            keep_recent: Number of most recent messages to keep
-            
-        Returns:
-            Success status
-        """
+        """Keep only the most recent messages and delete older ones."""
         conn = self._get_connection()
         try:
-            # First get the timestamp of the oldest message to keep
+            # Get timestamp of the oldest message to keep
             oldest_to_keep = conn.execute(
                 '''SELECT timestamp FROM conversations
                    WHERE user_id = ?
                    ORDER BY timestamp DESC
                    LIMIT 1 OFFSET ?''',
-                (user_id, keep_recent - 1)  # -1 because OFFSET is 0-indexed
+                (user_id, keep_recent - 1)
             ).fetchone()
             
-            # If we have enough messages to apply the window
             if oldest_to_keep:
-                # Delete older messages
                 conn.execute(
-                    '''DELETE FROM conversations
-                       WHERE user_id = ? AND timestamp < ?''',
+                    'DELETE FROM conversations WHERE user_id = ? AND timestamp < ?',
                     (user_id, oldest_to_keep['timestamp'])
                 )
                 conn.commit()
-                
                 logger.info(f"Applied sliding window for user {user_id}, keeping {keep_recent} recent messages")
                 return True
             else:
-                # Not enough messages yet
                 logger.debug(f"Not enough messages to apply sliding window for user {user_id}")
                 return False
                 
@@ -632,24 +600,9 @@ class DatabaseManager:
             conn.close()
     
     def save_for_rag(self, user_id: int, text: str, metadata: Dict[str, Any]) -> bool:
-        """Save text with embeddings for RAG.
-        
-        Note: In a production environment, you would use a proper embedding model.
-        For simplicity, we're storing the text and we'll implement the embedding 
-        functionality in the memory manager.
-        
-        Args:
-            user_id: Telegram user ID
-            text: Text to save
-            metadata: Additional metadata
-            
-        Returns:
-            Success status
-        """
+        """Save text for RAG processing."""
         conn = self._get_connection()
         try:
-            # In a real implementation, you would generate embeddings here
-            # For now, we'll just store the text and implement vector search separately
             conn.execute(
                 '''INSERT INTO embeddings 
                    (user_id, text, embedding, metadata, timestamp)
@@ -657,7 +610,7 @@ class DatabaseManager:
                 (
                     user_id, 
                     text, 
-                    "[]",  # Placeholder for real embeddings
+                    "[]",  # Placeholder for embeddings
                     json.dumps(metadata), 
                     int(time.time())
                 )
@@ -671,17 +624,9 @@ class DatabaseManager:
             conn.close()
     
     def get_rag_texts(self, user_id: int) -> List[Dict[str, Any]]:
-        """Get stored texts for RAG processing.
-        
-        Args:
-            user_id: Telegram user ID
-            
-        Returns:
-            List of stored texts with metadata
-        """
+        """Get stored texts for RAG processing."""
         conn = self._get_connection()
         try:
-            # Get texts from the last X days
             cutoff_time = int(time.time()) - (MEMORY_EXPIRY_DAYS * 24 * 60 * 60)
             
             rows = conn.execute(
@@ -707,15 +652,7 @@ class DatabaseManager:
             conn.close()
     
     def update_last_mood(self, user_id: int, mood: str) -> bool:
-        """Update the last detected mood for a user.
-        
-        Args:
-            user_id: Telegram user ID
-            mood: Mood string
-            
-        Returns:
-            Success status
-        """
+        """Update the last detected mood for a user."""
         conn = self._get_connection()
         try:
             conn.execute(
@@ -731,11 +668,7 @@ class DatabaseManager:
             conn.close()
     
     def track_command_use(self, user_id: int) -> None:
-        """Track command usage for stats.
-        
-        Args:
-            user_id: Telegram user ID
-        """
+        """Track command usage for stats."""
         conn = self._get_connection()
         try:
             conn.execute(
@@ -754,13 +687,11 @@ class DatabaseManager:
         try:
             cutoff_time = int(time.time()) - (MEMORY_EXPIRY_DAYS * 24 * 60 * 60)
             
-            # Delete old conversations
             deleted_convos = conn.execute(
                 'DELETE FROM conversations WHERE timestamp < ?',
                 (cutoff_time,)
             ).rowcount
             
-            # Delete old embeddings
             deleted_embeds = conn.execute(
                 'DELETE FROM embeddings WHERE timestamp < ?',
                 (cutoff_time,)
@@ -774,14 +705,7 @@ class DatabaseManager:
             conn.close()
             
     def is_admin(self, user_id: int) -> bool:
-        """Check if a user is an admin.
-        
-        Args:
-            user_id: Telegram user ID
-            
-        Returns:
-            True if user is admin, False otherwise
-        """
+        """Check if a user is an admin."""
         conn = self._get_connection()
         try:
             result = conn.execute(
@@ -795,3 +719,67 @@ class DatabaseManager:
             return False
         finally:
             conn.close()
+    
+    def _calculate_message_hash(self, message: Dict[str, Any]) -> str:
+        """Calculate a hash for the message to prevent duplicates."""
+        user_id = message.get('user_id', 0)
+        content = message.get('content', '')
+        role = message.get('role', 1)
+        
+        hash_input = f"{user_id}:{content}:{role}"
+        return hashlib.md5(hash_input.encode()).hexdigest()
+    
+    def _is_duplicate_message(self, message_hash: str, user_id: int) -> bool:
+        """Check if a message with this hash was recently added."""
+        # Check memory cache first
+        user_hashes = self.recent_message_hashes.get(user_id, set())
+        if message_hash in user_hashes:
+            return True
+            
+        # Check database for recent duplicates
+        conn = None
+        try:
+            conn = self._get_connection()
+            
+            if self._check_column_exists(conn, "conversations", "message_hash"):
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id FROM conversations 
+                    WHERE user_id = ? AND message_hash = ? 
+                    AND timestamp >= ?
+                ''', (user_id, message_hash, int(time.time()) - 10))
+                
+                return cursor.fetchone() is not None
+        except Exception as e:
+            logger.error(f"Error checking for duplicates in DB: {e}")
+        finally:
+            if conn:
+                conn.close()
+                
+        return False
+    
+    def _check_column_exists(self, conn: sqlite3.Connection, table: str, column: str) -> bool:
+        """Check if a column exists in a table."""
+        try:
+            cursor = conn.cursor()
+            cursor.execute(f"PRAGMA table_info({table})")
+            columns = [info[1] for info in cursor.fetchall()]
+            return column in columns
+        except Exception as e:
+            logger.error(f"Error checking if column exists: {e}")
+            return False
+            
+    def _check_db_for_duplicate(self, conn: sqlite3.Connection, user_id: int, message_hash: str) -> bool:
+        """Check database for duplicate message."""
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id FROM conversations 
+                WHERE user_id = ? AND message_hash = ? 
+                AND timestamp >= ?
+            ''', (user_id, message_hash, int(time.time()) - 10))
+            
+            return cursor.fetchone() is not None
+        except Exception as e:
+            logger.error(f"Error checking for duplicates: {e}")
+            return False

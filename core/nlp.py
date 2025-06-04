@@ -15,7 +15,9 @@ from config.settings import (
     NLP_MODELS_DIR,
     SUPPORTED_EMOTIONS,
     EMOTION_CONFIDENCE_THRESHOLD,
-    FEATURES
+    FEATURES,
+    MAX_CONTEXT_MESSAGES,
+    SLIDING_WINDOW_SIZE
 )
 from core.database import DatabaseManager
 
@@ -789,7 +791,7 @@ class ContextManager:
         self.summaries: Dict[int, List[Dict[str, Any]]] = {}
 
     def get_context_window(self, user_id: int) -> List[Dict[str, Any]]:
-        """Get last 30 messages from DB and summaries for context window.
+        """Get last messages from DB and summaries for context window.
 
         Args:
             user_id: The user ID to get context for
@@ -797,7 +799,7 @@ class ContextManager:
         Returns:
             List of conversation messages formatted for Gemini API
         """
-        messages = self.db_manager.get_conversation_history(user_id, limit=30)
+        messages = self.db_manager.get_conversation_history(user_id, limit=MAX_CONTEXT_MESSAGES)
         summaries = self.get_conversation_summaries(user_id)
 
         context_window = []
@@ -808,7 +810,7 @@ class ContextManager:
                     "role": "user",
                     "parts": [{"text": f"Ringkasan percakapan sebelumnya: {summary['content']}"}]
                 })
-        # Add last 30 messages, mapping to Gemini format
+        # Add last messages
         for msg in messages:
             role = msg.get("role", "user")
             # Gemini expects "user" or "model"
@@ -843,18 +845,17 @@ class ContextManager:
         self.summaries[user_id].append(summary)
 
     def apply_sliding_window(self, user_id: int) -> None:
-        """Apply sliding window: keep 30 recent messages, summarize the rest."""
+        """Apply sliding window: keep recent messages, summarize the rest."""
         # Get all messages for user
         all_messages = self.db_manager.get_conversation_history(user_id, limit=1000)
-        if len(all_messages) > 30:
-            # Messages to summarize: all except last 30
-            to_summarize = all_messages[:-30]
+        if len(all_messages) > SLIDING_WINDOW_SIZE:
+            to_summarize = all_messages[:-SLIDING_WINDOW_SIZE]
             if to_summarize:
                 summary_content = self._summarize_messages(to_summarize)
                 if summary_content:
                     self.add_summary(user_id, {"content": summary_content})
-            # Delete old messages from DB, keep only last 30
-            self.db_manager.apply_sliding_window(user_id, keep_recent=30)
+            # Delete old messages from DB, keep only recent ones
+            self.db_manager.apply_sliding_window(user_id, keep_recent=SLIDING_WINDOW_SIZE)
 
     def _summarize_messages(self, messages: List[Dict[str, Any]]) -> str:
         """Summarize a list of messages (simple join or use LLM for prod)."""
