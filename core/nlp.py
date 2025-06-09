@@ -479,7 +479,7 @@ class NLPEngine:
         return min(max(intensity, 0.0), 1.0)
     
     def _extract_semantic_topics(self, text: str) -> List[str]:
-        """Extract key semantic topics from text.
+        """Extract key semantic topics from text using more natural detection.
         
         Args:
             text: Input text
@@ -487,37 +487,85 @@ class NLPEngine:
         Returns:
             List of detected semantic topics
         """
-        # Simple keyword-based topic extraction
-        # In production, would use topic modeling or embeddings
+        # Towards a more semantic approach rather than keyword-based
         topics = []
         
-        topic_keywords = {
-            "school": ["school", "sekolah", "kelas", "class", "study", "belajar", 
-                      "homework", "pr", "assignment", "tugas", "exam", "ujian"],
-            "relationship": ["relationship", "hubungan", "couple", "pasangan", 
-                           "love", "cinta", "dating", "date", "kencan"],
-            "food": ["food", "makanan", "eat", "makan", "hungry", "lapar", 
-                    "restaurant", "restoran", "cook", "masak"],
-            "entertainment": ["movie", "film", "music", "musik", "game", "permainan",
-                             "play", "main", "watch", "nonton", "listen", "dengar"],
-            "personal": ["feel", "feeling", "merasa", "perasaan", "think", "pikir",
-                        "life", "hidup", "dream", "mimpi", "hope", "harapan"],
-            "anime": ["anime", "manga", "character", "karakter", "episode", "season",
-                     "otaku", "waifu", "husbando", "cosplay"],
-            "tech": ["computer", "komputer", "phone", "hp", "laptop", "internet",
-                    "app", "aplikasi", "software", "hardware", "code", "kode"],
-            # Add departure/leaving topic
-            "departure": ["pergi", "leave", "leaving", "tinggal", "berangkat", "meninggalkan", 
-                         "departure", "goodbye", "selamat tinggal", "sampai jumpa", "dadah", 
-                         "bye", "pamit", "pulang", "go home", "keluar"]
+        # 1. Use a more comprehensive topic model (this is just a placeholder)
+        # In production would use embeddings similarity to topic vectors
+        
+        # Common conversation categories
+        topic_categories = {
+            "academic": {
+                "patterns": [
+                    r'\b(sekolah|pelajaran|kelas|nilai|ujian|tugas|belajar|pr|guru)\b',
+                    r'\b(school|study|class|exam|teacher|homework|assignment)\b',
+                    r'\b(matematika|fisika|kimia|biologi|sejarah|geografi)\b'
+                ],
+                "topics": ["school work", "academics", "studying"]
+            },
+            "personal_feelings": {
+                "patterns": [
+                    r'\b(perasaan|rasa|suka|cinta|sayang|sedih|senang|bahagia|marah)\b',
+                    r'\b(feel|feeling|happy|sad|angry|love|like|emotion)\b',
+                    r'\b(hati|pikiran|mood|perasaan|emosi)\b'
+                ],
+                "topics": ["emotions", "feelings", "personal state"]
+            },
+            "relationship": {
+                "patterns": [
+                    r'\b(pacar|hubungan|cinta|suka|sayang|kencan|date|pasangan|jalan|berdua)\b',
+                    r'\b(boyfriend|girlfriend|relationship|dating|couple|together|love)\b',
+                    r'\b(romantis|peluk|cium|kangen|rindu|sayang)\b'
+                ],
+                "topics": ["relationships", "romance", "dating"]
+            },
+            "daily_life": {
+                "patterns": [
+                    r'\b(makan|tidur|bangun|jalan|main|hobby|film|musik|lagu|baca|buku)\b',
+                    r'\b(eat|sleep|walk|play|hobby|movie|music|song|read|book)\b',
+                    r'\b(restoran|cafe|mall|taman|rumah|kamar)\b'
+                ],
+                "topics": ["daily activities", "entertainment", "lifestyle"]
+            },
+            "future_plans": {
+                "patterns": [
+                    r'\b(rencana|plan|masa depan|future|cita-cita|mimpi|harapan|goal)\b',
+                    r'\b(kuliah|kerja|karir|bisnis|university|job|career|business)\b',
+                    r'\b(nanti|besok|minggu depan|bulan depan|tahun depan)\b'
+                ],
+                "topics": ["future plans", "goals", "aspirations"]
+            }
         }
         
-        for topic, keywords in topic_keywords.items():
-            if any(keyword in text.lower() for keyword in keywords):
-                topics.append(topic)
-                
-        return topics
+        # Check each topic category
+        text_lower = text.lower()
+        for category, data in topic_categories.items():
+            for pattern in data["patterns"]:
+                if re.search(pattern, text_lower):
+                    topics.extend(data["topics"])
+                    break
         
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_topics = [topic for topic in topics if not (topic in seen or seen.add(topic))]
+        
+        # 2. Sentiment Analysis Integration (if model available)
+        if self.sentiment_analyzer:
+            sentiment, _ = self.analyze_sentiment(text)
+            if sentiment.lower() in ["positive", "neutral", "negative"]:
+                sentiment_topic = f"{sentiment.lower()} tone"
+                unique_topics.append(sentiment_topic)
+        
+        # 3. Conversation Analysis
+        if "?" in text:
+            unique_topics.append("question")
+        if len(text) > 100:
+            unique_topics.append("detailed message")
+        elif len(text) < 20:
+            unique_topics.append("brief message")
+            
+        return unique_topics[:3]  # Limit to top 3 topics
+    
     def _analyze_linguistic_style(self, text: str) -> Dict[str, float]:
         """Analyze the linguistic style of text.
         
