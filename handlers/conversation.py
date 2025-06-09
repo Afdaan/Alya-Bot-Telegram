@@ -207,7 +207,7 @@ class ConversationHandler:
         }
         
         enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
-        system_prompt = self.persona.get_system_prompt()
+        system_prompt = self.persona.get_full_system_prompt()
         
         # Add rich relationship and conversation context
         relationship_context = self._get_relationship_context(user, relationship_level, user.id in ADMIN_IDS)
