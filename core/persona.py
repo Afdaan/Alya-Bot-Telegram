@@ -265,6 +265,20 @@ class PersonaManager:
             )
             
         return system_prompt
+
+    def get_full_system_prompt(self, persona_name: Optional[str] = None) -> str:
+        """Return the merged system prompt and enhanced instructions from persona YAML.
+
+        Args:
+            persona_name: Name of the persona to use, or None for default
+
+        Returns:
+            Full system prompt string (system_prompt + enhanced_system_instructions)
+        """
+        persona = self.get_persona(persona_name)
+        base_prompt = persona.get("system_prompt", "")
+        enhanced = persona.get("enhanced_system_instructions", "")
+        return f"{base_prompt}\n\n{enhanced}".strip()
     
     def get_roleplay_action(self, emotion: str, mood: str = None, 
                            persona_name: Optional[str] = None) -> Optional[str]:

@@ -164,7 +164,8 @@ class ConversationHandler:
             response = await self.gemini.generate_content(
                 user_input=user_context["enhanced_query"],
                 system_prompt=user_context["system_prompt"],
-                history=history
+                history=history,
+                user_id=user.id
             )
             if response:
                 await self._process_and_send_response(update, user, response, user_context["message_context"])
@@ -178,26 +179,83 @@ class ConversationHandler:
         user_task = asyncio.create_task(self._get_user_info(user))
         self.memory.save_user_message(user.id, query)
         relationship_level = self._get_relationship_level(user.id)
+        
+        # Improved context extraction
         message_context = {}
+        semantic_topics = []
+        
         if FEATURES.get("emotion_detection", False) and self.nlp:
             message_context = self.nlp.get_message_context(query, user.id)
-        # Use DB-backed context window for Gemini/NLP context
+            semantic_topics = message_context.get("semantic_topics", [])
+            
+        # Use DB-backed context for richer history
         history = self.context_manager.get_context_window(user.id)
+        
+        # Get previous messages to establish conversation theme
+        prev_messages = self.db.get_conversation_history(user.id, limit=5)
+        prev_content = "\n".join([msg.get("content", "") for msg in prev_messages if msg.get("role") == "user"])
+        
+        summaries = self.context_manager.get_conversation_summaries(user.id)
+        conversation_summary = summaries[0].get('content', '') if summaries else "No previous context"
+        
+        # Create richer context with conversation theme awareness 
+        conversation_context = {
+            "current_topic": ", ".join(semantic_topics) if semantic_topics else "general conversation",
+            "user_emotion": message_context.get("emotion", "neutral"),
+            "conversation_history_summary": conversation_summary,
+            "previous_user_messages": prev_content
+        }
+        
         enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
-        system_prompt = self.persona.get_system_prompt()
+        system_prompt = self.persona.get_full_system_prompt()
+        
+        # Add rich relationship and conversation context
         relationship_context = self._get_relationship_context(user, relationship_level, user.id in ADMIN_IDS)
+        conversation_theme = self._get_conversation_theme_context(conversation_context)
+        
         if relationship_context:
             system_prompt += f"\n\n{relationship_context}"
+        if conversation_theme:
+            system_prompt += f"\n\n{conversation_theme}"
+        
         await user_task
-        if message_context:
-            logger.debug(f"Message context: {message_context}")
+        
         return {
             "history": history,
             "enhanced_query": enhanced_query,
             "system_prompt": system_prompt,
             "message_context": message_context,
-            "relationship_level": relationship_level
+            "relationship_level": relationship_level,
+            "conversation_context": conversation_context
         }
+
+    def _get_conversation_theme_context(self, conversation_context: Dict[str, Any]) -> str:
+        """Generate conversation theme context for more natural responses.
+        
+        Args:
+            conversation_context: Current conversation context
+        
+        Returns:
+            Conversation theme context string
+        """
+        topic = conversation_context.get("current_topic", "general conversation")
+        emotion = conversation_context.get("user_emotion", "neutral")
+        
+        # Create more natural, context-aware prompt
+        context = f"""
+CONTEXT AWARENESS:
+- Current topic appears to be about: {topic}
+- User's detected emotion: {emotion}
+- Recent conversation history: {conversation_context.get("conversation_history_summary", "No recent history")}
+
+Based on this context:
+1. Respond naturally to the topic at hand
+2. Show appropriate emotional awareness and empathy
+3. Reference previous parts of the conversation when relevant
+4. Use roleplay that fits the mood and topic
+5. Show understanding of the conversational flow
+"""
+        return context
     
     def _call_method_safely(self, method, *args, **kwargs):
         if asyncio.iscoroutinefunction(method):
