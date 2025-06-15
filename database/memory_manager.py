@@ -24,7 +24,6 @@ class MemoryManager:
         """
         self.gemini_client = gemini_client
     
-    # Add these adapter methods to make it compatible with the conversation handler
     def save_user_message(self, user_id: int, message: str) -> None:
         """Store a user message in the conversation history."""
         self.store_message(user_id, message, is_user=True)
@@ -33,22 +32,9 @@ class MemoryManager:
         """Store a bot response in the conversation history."""
         self.store_message(user_id, message, is_user=False)
     
-    # Add adapter method dengan nama yang benar
-    def get_conversation_context(self, user_id: int, limit: int = MAX_CONTEXT_MESSAGES) -> List[Dict[str, Any]]:
-        """Get conversation context for a user. Alias for get_recent_context.
-        
-        Args:
-            user_id: Telegram user ID
-            limit: Maximum number of messages to retrieve
-            
-        Returns:
-            List of message dictionaries with sender and content
-        """
-        return self.get_recent_context(user_id, limit)
-    
     def store_message(self, user_id: int, message: str, is_user: bool = True, 
                       metadata: Optional[Dict[str, Any]] = None) -> None:
-        """Store a message in the conversation history.
+        """Store a message in the conversation history with duplicate prevention.
         
         Args:
             user_id: Telegram user ID
@@ -58,20 +44,30 @@ class MemoryManager:
         """
         try:
             with db_session_context() as session:
-                conversation = Conversation(
-                    user_id=user_id,
-                    message=message,
-                    is_user=is_user,
-                    message_metadata=json.dumps(metadata or {}),
-                    timestamp=datetime.now()
-                )
-                session.add(conversation)
+                # Check for recent duplicate within 1 second window
+                recent = session.query(Conversation)\
+                    .filter(
+                        Conversation.user_id == user_id,
+                        Conversation.message == message,
+                        Conversation.timestamp >= datetime.now() - timedelta(seconds=1)
+                    ).first()
                 
-                # Check if we need to summarize older messages
-                self._check_and_summarize_history(user_id, session)
-                
-                # Clean up expired messages
-                self._cleanup_expired_memories(user_id, session)
+                if recent is None:
+                    conversation = Conversation(
+                        user_id=user_id,
+                        message=message,
+                        is_user=is_user,
+                        message_metadata=json.dumps(metadata or {}),
+                        timestamp=datetime.now()
+                    )
+                    session.add(conversation)
+                    session.commit()
+                    
+                    # Only run these if we actually added a new message
+                    self._check_and_summarize_history(user_id, session)
+                    self._cleanup_expired_memories(user_id, session)
+                else:
+                    logger.debug(f"Prevented duplicate message for user {user_id}")
             
         except Exception as e:
             logger.error(f"Failed to store message: {str(e)}")
@@ -404,7 +400,6 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Failed to clean up expired messages: {str(e)}")
     
-    # Add adapter method for create_context_prompt
     def create_context_prompt(self, user_id: int, query: str) -> str:
         """Create a context-enriched prompt for AI processing.
         
