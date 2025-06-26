@@ -14,29 +14,48 @@ jobs:
 
       - name: Prepare and update codebase
         run: |
-          cd /opt/Alya-Telegram
+          cd /opt/Alya-Bot-Telegram
           git stash --include-untracked || true
           git checkout develop
           git pull origin develop
 
-      - name: Build AlyaBot Docker image
+      - name: Install Python dependencies
         run: |
-          cd /opt/Alya-Telegram
-          export DOCKER_BUILDKIT=1
-          docker compose build --no-cache
+          cd /opt/Alya-Bot-Telegram
+          pip install -r requirements.txt
 
-      - name: Restart AlyaBot with Docker Compose
+      - name: Stop existing AlyaBot process
         run: |
-          cd /opt/Alya-Telegram
-          docker compose down || true
-          docker compose up -d
+          cd /opt/Alya-Bot-Telegram
+          pkill -f "python main.py" || true
 
-      - name: Prune unused Docker images
+      - name: Start AlyaBot
         run: |
-          docker image prune -af
+          cd /opt/Alya-Bot-Telegram
+          nohup python main.py > bot.log 2>&1 &
+          echo "AlyaBot started in background"
 
-      - name: Show running containers
-        run: docker ps -a
+      - name: Stop existing AlyaBot process
+        run: |
+          cd /opt/Alya-Bot-Telegram
+          tmux kill-session -t alya-bot-develop || true
+          echo "Previous tmux session terminated (if existed)"
+
+      - name: Start AlyaBot in tmux
+        run: |
+          cd /opt/Alya-Bot-Telegram
+          tmux new-session -d -s alya-bot-develop "python main.py > bot.log 2>&1"
+          echo "AlyaBot started in tmux session: alya-bot-develop"
+
+      - name: Check if AlyaBot is running
+        run: |
+          sleep 5
+          if tmux has-session -t alya-bot-develop 2>/dev/null; then
+            echo "AlyaBot is running successfully in tmux session"
+          else
+            echo "Failed to start AlyaBot in tmux"
+            exit 1
+          fi
 
       - name: Notify via Telegram
         if: success()
@@ -45,7 +64,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
         run: |
-          cd /opt/Alya-Telegram
+          cd /opt/Alya-Bot-Telegram
           set -a
           if [ -f .env ]; then
             source .env
