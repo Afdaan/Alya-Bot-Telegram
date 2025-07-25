@@ -17,7 +17,7 @@ from telegram.ext import CallbackContext, MessageHandler, filters
 from core.gemini_client import GeminiClient
 from utils.formatters import escape_markdown_v2
 from core.persona import PersonaManager
-from core.database import DatabaseManager
+from database.database_manager import db_manager, DatabaseManager
 
 # Need to import time here for rate limiter
 import time

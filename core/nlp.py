@@ -19,7 +19,7 @@ from config.settings import (
     MAX_CONTEXT_MESSAGES,
     SLIDING_WINDOW_SIZE
 )
-from core.database import DatabaseManager
+from database.database_manager import db_manager, DatabaseManager
 
 logger = logging.getLogger(__name__)
 

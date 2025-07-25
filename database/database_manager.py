@@ -1,0 +1,597 @@
+"""
+Enterprise-grade MySQL database manager for Alya Bot.
+Handles all database operations with proper connection pooling, error handling, and transaction management.
+"""
+import logging
+import hashlib
+import json
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Union
+
+from database.session import db_session_context, execute_with_session, health_check
+from database.models import User, Conversation, ConversationSummary, ApiUsage
+from config.settings import (
+    MEMORY_EXPIRY_DAYS,
+    RELATIONSHIP_THRESHOLDS,
+    RELATIONSHIP_LEVELS,
+    AFFECTION_POINTS,
+    RELATIONSHIP_ROLE_NAMES,
+    ADMIN_IDS
+)
+
+logger = logging.getLogger(__name__)
+
+
+def get_role_by_relationship_level(relationship_level: int, is_admin: bool = False) -> str:
+    """
+    Get user role name based on relationship level.
+    
+    Args:
+        relationship_level: Current relationship level (0-10)
+        is_admin: Whether user is admin
+        
+    Returns:
+        str: Role name for display purposes
+    """
+    if is_admin:
+        return "Admin-sama"
+    
+    return RELATIONSHIP_ROLE_NAMES.get(relationship_level, "Stranger")
+
+
+class DatabaseManager:
+    """
+    Enterprise-grade MySQL database manager using SQLAlchemy.
+    
+    Handles all database operations for Alya Bot including:
+    - User management and relationship tracking
+    - Conversation history with RAG support
+    - Memory management and summarization
+    - API usage tracking
+    - Performance optimization with caching
+    """
+    
+    def __init__(self) -> None:
+        """Initialize the database manager with caching and health monitoring."""
+        self.recent_message_hashes = {}  # Cache for recent message hashes
+        self._last_health_check = datetime.now()
+        self._health_check_interval = timedelta(minutes=5)
+        
+        # Perform initial health check
+        if health_check():
+            logger.info("Database manager initialized successfully")
+        else:
+            logger.error("Database connection failed during initialization")
+            raise ConnectionError("Unable to connect to MySQL database")
+    
+    def _check_health_periodically(self) -> None:
+        """Perform periodic health checks to ensure database connectivity."""
+        now = datetime.now()
+        if now - self._last_health_check > self._health_check_interval:
+            if not health_check():
+                logger.warning("Database health check failed - connection may be unstable")
+            self._last_health_check = now
+    
+    def get_or_create_user(self, user_id: int, username: str = "", first_name: str = "", 
+                           last_name: str = "", is_admin: bool = False) -> Dict[str, Any]:
+        """
+        Get or create a user in the database with proper error handling.
+        
+        Args:
+            user_id: Telegram user ID
+            username: Username (without @)
+            first_name: User's first name
+            last_name: User's last name
+            is_admin: Whether user has admin privileges
+            
+        Returns:
+            Dict containing user data, empty dict on error
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                
+                if not user:
+                    # Create new user with default values
+                    user = User(
+                        id=user_id,
+                        username=username or None,
+                        first_name=first_name or None,
+                        last_name=last_name or None,
+                        language_code="id",
+                        created_at=datetime.now(),
+                        last_interaction=datetime.now(),
+                        is_active=True,
+                        relationship_level=0,
+                        affection_points=0,
+                        interaction_count=0,
+                        preferences={
+                            "notification_enabled": True,
+                            "preferred_language": "id",
+                            "persona": "waifu",
+                            "timezone": "Asia/Jakarta"
+                        },
+                        topics_discussed=[]
+                    )
+                    session.add(user)
+                    session.commit()
+                    logger.info(f"Created new user: {user_id} ({first_name or username})")
+                    
+                else:
+                    # Update existing user data if provided
+                    updated = False
+                    if username and user.username != username:
+                        user.username = username
+                        updated = True
+                    if first_name and user.first_name != first_name:
+                        user.first_name = first_name
+                        updated = True
+                    if last_name and user.last_name != last_name:
+                        user.last_name = last_name
+                        updated = True
+                    
+                    if updated:
+                        user.last_interaction = datetime.now()
+                        session.commit()
+                        logger.debug(f"Updated user data for {user_id}")
+                
+                # Return user data as dictionary
+                return {
+                    "id": user.id,
+                    "username": user.username,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "language_code": user.language_code,
+                    "relationship_level": user.relationship_level,
+                    "affection_points": user.affection_points,
+                    "interaction_count": user.interaction_count,
+                    "preferences": user.preferences or {},
+                    "topics_discussed": user.topics_discussed or [],
+                    "created_at": user.created_at,
+                    "last_interaction": user.last_interaction,
+                    "is_admin": is_admin or user_id in ADMIN_IDS,
+                    "role_name": get_role_by_relationship_level(
+                        user.relationship_level, 
+                        user_id in ADMIN_IDS
+                    )
+                }
+                
+        except Exception as e:
+            logger.error(f"Error getting/creating user {user_id}: {e}")
+            return {}
+    
+    def save_message(self, user_id: int, role: str, content: str, 
+                     metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Save a message to conversation history with deduplication.
+        
+        Args:
+            user_id: Telegram user ID
+            role: Message role (user/assistant/system)
+            content: Message content
+            metadata: Optional metadata for the message
+            
+        Returns:
+            bool: True if saved successfully, False otherwise
+        """
+        try:
+            # Create message hash for deduplication
+            message_hash = hashlib.md5(f"{user_id}:{content}:{role}".encode()).hexdigest()
+            
+            with db_session_context() as session:
+                # Check for recent duplicate (last 5 minutes)
+                recent_cutoff = datetime.now() - timedelta(minutes=5)
+                duplicate = session.query(Conversation).filter(
+                    Conversation.user_id == user_id,
+                    Conversation.message_hash == message_hash,
+                    Conversation.created_at > recent_cutoff
+                ).first()
+                
+                if duplicate:
+                    logger.debug(f"Skipping duplicate message for user {user_id}")
+                    return True
+                
+                # Create conversation entry
+                conversation = Conversation(
+                    user_id=user_id,
+                    content=content,
+                    role=role,
+                    is_user=(role == "user"),
+                    message_hash=message_hash,
+                    message_metadata=metadata or {},
+                    created_at=datetime.now()
+                )
+                session.add(conversation)
+                
+                # Update user interaction count and last interaction
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    user.interaction_count += 1
+                    user.last_interaction = datetime.now()
+                
+                session.commit()
+                
+                # Cache the message hash
+                self.recent_message_hashes[user_id] = message_hash
+                
+                logger.debug(f"Saved {role} message for user {user_id}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error saving message for user {user_id}: {e}")
+            return False
+    
+    def get_conversation_history(self, user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Get conversation history for a user with proper ordering.
+        
+        Args:
+            user_id: Telegram user ID
+            limit: Maximum number of messages to return
+            
+        Returns:
+            List of conversation messages in chronological order
+        """
+        try:
+            with db_session_context() as session:
+                conversations = (
+                    session.query(Conversation)
+                    .filter(Conversation.user_id == user_id)
+                    .order_by(Conversation.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+                
+                # Reverse to get chronological order (oldest first)
+                history = []
+                for conv in reversed(conversations):
+                    history.append({
+                        "id": conv.id,
+                        "role": conv.role,
+                        "content": conv.content,
+                        "created_at": conv.created_at,
+                        "metadata": conv.message_metadata or {},
+                        "sentiment_score": conv.sentiment_score,
+                        "emotion_category": conv.emotion_category
+                    })
+                
+                return history
+                
+        except Exception as e:
+            logger.error(f"Error getting conversation history for user {user_id}: {e}")
+            return []
+    
+    def update_affection(self, user_id: int, points: int) -> bool:
+        """
+        Update user's affection points and relationship level.
+        
+        Args:
+            user_id: Telegram user ID
+            points: Points to add (can be negative)
+            
+        Returns:
+            bool: True if updated successfully, False otherwise
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    logger.warning(f"User {user_id} not found for affection update")
+                    return False
+                
+                # Ensure we have integer types for calculations
+                current_affection = int(user.affection_points) if user.affection_points is not None else 0
+                current_interactions = int(user.interaction_count) if user.interaction_count is not None else 0
+                old_level = int(user.relationship_level) if user.relationship_level is not None else 0
+                
+                # Update affection points (don't go below 0)
+                new_affection = max(0, current_affection + int(points))
+                user.affection_points = new_affection
+                
+                # Calculate new relationship level
+                new_level = self._calculate_relationship_level(new_affection, current_interactions)
+                
+                if new_level != old_level:
+                    user.relationship_level = new_level
+                    logger.info(f"User {user_id} relationship level: {old_level} -> {new_level}")
+                
+                session.commit()
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating affection for user {user_id}: {e}")
+            return False
+    
+    def get_user_relationship_info(self, user_id: int) -> Dict[str, Any]:
+        """
+        Get user's relationship information and statistics.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            Dict containing relationship info
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    return {}
+                
+                return {
+                    "relationship_level": user.relationship_level,
+                    "affection_points": user.affection_points,
+                    "interaction_count": user.interaction_count,
+                    "role_name": get_role_by_relationship_level(
+                        user.relationship_level, 
+                        user_id in ADMIN_IDS
+                    ),
+                    "topics_discussed": user.topics_discussed or [],
+                    "last_interaction": user.last_interaction
+                }
+                
+        except Exception as e:
+            logger.error(f"Error getting relationship info for user {user_id}: {e}")
+            return {}
+    
+    def reset_conversation(self, user_id: int) -> bool:
+        """
+        Reset conversation history for a user while preserving user data.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            bool: True if reset successfully, False otherwise
+        """
+        try:
+            with db_session_context() as session:
+                # Delete conversations
+                deleted_convs = session.query(Conversation).filter(
+                    Conversation.user_id == user_id
+                ).delete()
+                
+                # Delete summaries
+                deleted_summaries = session.query(ConversationSummary).filter(
+                    ConversationSummary.user_id == user_id
+                ).delete()
+                
+                session.commit()
+                
+                # Clear cache
+                if user_id in self.recent_message_hashes:
+                    del self.recent_message_hashes[user_id]
+                
+                logger.info(f"Reset conversation for user {user_id}: {deleted_convs} messages, {deleted_summaries} summaries")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error resetting conversation for user {user_id}: {e}")
+            return False
+    
+    def cleanup_old_data(self) -> None:
+        """Clean up old conversation data based on expiry settings."""
+        try:
+            cutoff_date = datetime.now() - timedelta(days=MEMORY_EXPIRY_DAYS)
+            
+            with db_session_context() as session:
+                # Delete old conversations
+                old_conversations = session.query(Conversation).filter(
+                    Conversation.created_at < cutoff_date
+                ).delete()
+                
+                # Delete old summaries
+                old_summaries = session.query(ConversationSummary).filter(
+                    ConversationSummary.created_at < cutoff_date
+                ).delete()
+                
+                session.commit()
+                
+                logger.info(f"Cleaned up {old_conversations} old conversations and {old_summaries} summaries")
+                
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+    
+    def apply_sliding_window(self, user_id: int, keep_recent: int) -> bool:
+        """
+        Apply sliding window to conversation history.
+        
+        Args:
+            user_id: Telegram user ID
+            keep_recent: Number of recent messages to keep
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            with db_session_context() as session:
+                # Get total conversation count
+                total_count = session.query(Conversation).filter(
+                    Conversation.user_id == user_id
+                ).count()
+                
+                if total_count <= keep_recent:
+                    return True  # No need to apply sliding window
+                
+                # Get IDs of messages to keep (most recent)
+                recent_messages = (
+                    session.query(Conversation.id)
+                    .filter(Conversation.user_id == user_id)
+                    .order_by(Conversation.created_at.desc())
+                    .limit(keep_recent)
+                    .subquery()
+                )
+                
+                # Delete older messages
+                deleted_count = session.query(Conversation).filter(
+                    Conversation.user_id == user_id,
+                    ~Conversation.id.in_(recent_messages)
+                ).delete(synchronize_session=False)
+                
+                session.commit()
+                
+                logger.info(f"Applied sliding window for user {user_id}: deleted {deleted_count} old messages")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error applying sliding window for user {user_id}: {e}")
+            return False
+    
+    def search_conversations(self, user_id: int, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Search user's conversation history for relevant messages.
+        
+        Args:
+            user_id: Telegram user ID
+            query: Search query
+            limit: Maximum results to return
+            
+        Returns:
+            List of matching conversations
+        """
+        try:
+            with db_session_context() as session:
+                conversations = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.user_id == user_id,
+                        Conversation.content.ilike(f"%{query}%")
+                    )
+                    .order_by(Conversation.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+                
+                results = []
+                for conv in conversations:
+                    results.append({
+                        "id": conv.id,
+                        "content": conv.content,
+                        "role": conv.role,
+                        "created_at": conv.created_at,
+                        "metadata": conv.message_metadata or {}
+                    })
+                
+                return results
+                
+        except Exception as e:
+            logger.error(f"Error searching conversations for user {user_id}: {e}")
+            return []
+    
+    def track_api_usage(self, user_id: Optional[int], provider: str, method: str, 
+                       input_tokens: int = 0, output_tokens: int = 0, 
+                       cost_cents: int = 0, success: bool = True, 
+                       error_message: str = None) -> bool:
+        """
+        Track API usage for monitoring and cost analysis.
+        
+        Args:
+            user_id: User ID (None for system usage)
+            provider: API provider (gemini, openai, etc.)
+            method: API method called
+            input_tokens: Input tokens used
+            output_tokens: Output tokens generated
+            cost_cents: Estimated cost in cents
+            success: Whether the API call succeeded
+            error_message: Error message if failed
+            
+        Returns:
+            bool: True if tracked successfully
+        """
+        try:
+            with db_session_context() as session:
+                usage = ApiUsage(
+                    user_id=user_id,
+                    api_provider=provider,
+                    api_method=method,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=input_tokens + output_tokens,
+                    estimated_cost_cents=cost_cents,
+                    success=success,
+                    error_message=error_message,
+                    created_at=datetime.now()
+                )
+                session.add(usage)
+                session.commit()
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error tracking API usage: {e}")
+            return False
+    
+    def _calculate_relationship_level(self, affection_points: int, interaction_count: int) -> int:
+        """
+        Calculate relationship level based on affection points and interactions.
+        
+        Args:
+            affection_points: Current affection points
+            interaction_count: Total interactions
+            
+        Returns:
+            int: Relationship level (0-10)
+        """
+        # Convert values to int to avoid comparison errors
+        affection_points = int(affection_points) if affection_points is not None else 0
+        interaction_count = int(interaction_count) if interaction_count is not None else 0
+        
+        # Get affection thresholds from nested config
+        affection_thresholds = RELATIONSHIP_THRESHOLDS.get("affection_points", {})
+        interaction_thresholds = RELATIONSHIP_THRESHOLDS.get("interaction_count", {})
+        
+        # Calculate level based on affection points
+        affection_level = 0
+        for level, threshold in affection_thresholds.items():
+            if affection_points >= int(threshold):
+                affection_level = int(level)
+        
+        # Calculate level based on interaction count
+        interaction_level = 0
+        for level, threshold in interaction_thresholds.items():
+            if interaction_count >= int(threshold):
+                interaction_level = int(level)
+        
+        # Take the higher of both levels
+        final_level = max(affection_level, interaction_level)
+        
+        # Cap at maximum level
+        max_level = max(RELATIONSHIP_LEVELS) if RELATIONSHIP_LEVELS else 10
+        return min(final_level, max_level)
+    
+    def get_database_stats(self) -> Dict[str, Any]:
+        """
+        Get database statistics for monitoring.
+        
+        Returns:
+            Dict containing database statistics
+        """
+        try:
+            with db_session_context() as session:
+                user_count = session.query(User).count()
+                active_users = session.query(User).filter(User.is_active == True).count()
+                conversation_count = session.query(Conversation).count()
+                summary_count = session.query(ConversationSummary).count()
+                
+                # Get recent activity (last 24 hours)
+                recent_cutoff = datetime.now() - timedelta(hours=24)
+                recent_messages = session.query(Conversation).filter(
+                    Conversation.created_at > recent_cutoff
+                ).count()
+                
+                return {
+                    "total_users": user_count,
+                    "active_users": active_users,
+                    "total_conversations": conversation_count,
+                    "total_summaries": summary_count,
+                    "recent_messages_24h": recent_messages,
+                    "health_status": "healthy" if health_check() else "unhealthy"
+                }
+                
+        except Exception as e:
+            logger.error(f"Error getting database stats: {e}")
+            return {"error": str(e)}
+
+
+# Global database manager instance
+db_manager = DatabaseManager()

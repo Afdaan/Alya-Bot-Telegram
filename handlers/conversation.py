@@ -21,7 +21,7 @@ from config.settings import (
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from core.memory import MemoryManager
-from core.database import DatabaseManager
+from database.database_manager import db_manager
 from core.nlp import NLPEngine, ContextManager
 from utils.formatters import format_response, format_error_response, format_paragraphs
 from utils.roast import RoastHandler
@@ -41,7 +41,7 @@ class ConversationHandler:
         self.gemini = gemini_client
         self.persona = persona_manager
         self.memory = memory_manager
-        self.db = DatabaseManager()
+        self.db = db_manager
         self.context_manager = ContextManager(self.db)  # <-- DB-backed context manager
         self.nlp = nlp_engine or NLPEngine()
         self.roast_handler = RoastHandler(gemini_client, persona_manager)

@@ -17,7 +17,7 @@ from handlers.response.help import help_response
 from handlers.response.start import start_response
 from handlers.response.ping import ping_response
 from handlers.response.stats import stats_response
-from handlers.response.analyze import analyze_response  # Fixed from analyze_resposne
+from handlers.response.analyze import analyze_response
 
 logger = logging.getLogger(__name__)
 
