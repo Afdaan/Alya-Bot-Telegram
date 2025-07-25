@@ -349,95 +349,123 @@ Based on this context:
         """
         Attempt to level up user relationship if eligible.
         """
-        user_info = self.db.get_user_relationship_info(user_id)
-        if not user_info:
-            return
-        current_level = user_info.get("relationship", {}).get("level", 0)
-        next_level = current_level + 1
-        if next_level not in RELATIONSHIP_LEVELS:
-            return  # Already at max level
+        try:
+            from database.session import db_session_context
+            from database.models import User
+            
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    return
+                
+                current_level = user.relationship_level
+                next_level = current_level + 1
+                
+                if next_level not in RELATIONSHIP_LEVELS:
+                    return  # Already at max level
 
-        interaction_count = user_info.get("relationship", {}).get("interaction_count", 0)
-        affection_points = user_info.get("relationship", {}).get("affection_points", 0)
-        interaction_threshold = RELATIONSHIP_THRESHOLDS["interaction_count"].get(next_level, float('inf'))
-        affection_threshold = RELATIONSHIP_THRESHOLDS["affection_points"].get(next_level, float('inf'))
+                interaction_count = user.interaction_count
+                affection_points = user.affection_points
+                
+                interaction_threshold = RELATIONSHIP_THRESHOLDS["interaction_count"].get(next_level, float('inf'))
+                affection_threshold = RELATIONSHIP_THRESHOLDS["affection_points"].get(next_level, float('inf'))
 
-        if interaction_count >= interaction_threshold and affection_points >= affection_threshold:
-            self.db.update_relationship_level(user_id, next_level)
-            logger.info(f"User {user_id} leveled up to {RELATIONSHIP_LEVELS[next_level]}")
+                if interaction_count >= interaction_threshold and affection_points >= affection_threshold:
+                    self.db.update_relationship_level(user_id, next_level)
+                    logger.info(f"User {user_id} leveled up to level {next_level} ({RELATIONSHIP_LEVELS[next_level]})")
+                    
+        except Exception as e:
+            logger.error(f"Error in _try_level_up for user {user_id}: {e}")
 
     def _update_affection_from_context(self, user_id: int, message_context: Dict[str, Any]) -> None:
         """
-        Update affection points based on detected emotions, intent, and relationship signals.
-        Rewards positive interactions and applies penalties using config values.
+        Update Alya's affection points towards user based on how user treats Alya.
+        
+        Logic: 
+        - User treats Alya nicely → Alya's affection increases
+        - User treats Alya badly → Alya's affection decreases
+        
+        Args:
+            user_id: The user's telegram ID
+            message_context: NLP analysis results from user's message
         """
         if not message_context:
+            # Base affection for normal conversation (if no analysis available)
+            self.db.update_affection(user_id, AFFECTION_POINTS.get("conversation", 1))
+            self._try_level_up(user_id)
             return
 
-        relationship_signals = message_context.get("relationship_signals", {})
         affection_delta = 0
 
-        # Positive signals
-        affection_delta += relationship_signals.get("friendliness", 0) * AFFECTION_POINTS.get("friendliness", 6)
-        affection_delta += relationship_signals.get("romantic_interest", 0) * AFFECTION_POINTS.get("romantic_interest", 10)
-        affection_delta += relationship_signals.get("meaningful_conversation", 0) * AFFECTION_POINTS.get("meaningful_conversation", 8)
-        affection_delta += relationship_signals.get("asking_about_alya", 0) * AFFECTION_POINTS.get("asking_about_alya", 7)
-        affection_delta += relationship_signals.get("remembering_details", 0) * AFFECTION_POINTS.get("remembering_details", 15)
-
-        # Negative signals
-        affection_delta += relationship_signals.get("conflict", 0) * AFFECTION_POINTS.get("conflict", -3)
-        affection_delta += relationship_signals.get("insult", 0) * AFFECTION_POINTS.get("insult", -10)
-        affection_delta += relationship_signals.get("anger", 0) * AFFECTION_POINTS.get("anger", -3)
-        affection_delta += relationship_signals.get("toxic", 0) * AFFECTION_POINTS.get("toxic", -3)
-        affection_delta += relationship_signals.get("toxic_behavior", 0) * AFFECTION_POINTS.get("toxic_behavior", -10)
-        affection_delta += relationship_signals.get("rudeness", 0) * AFFECTION_POINTS.get("rudeness", -10)
-        affection_delta += relationship_signals.get("ignoring", 0) * AFFECTION_POINTS.get("ignoring", -5)
-        affection_delta += relationship_signals.get("inappropriate", 0) * AFFECTION_POINTS.get("inappropriate", -20)
-        affection_delta += relationship_signals.get("bullying", 0) * AFFECTION_POINTS.get("bullying", -15)
-
+        # === USER'S POSITIVE EMOTIONS/BEHAVIORS TOWARDS ALYA ===
+        # When user shows positive emotions, Alya feels appreciated
         emotion = message_context.get("emotion", "")
-        if emotion in ["happy", "excited", "grateful", "joy"]:
+        if emotion in ["happy", "excited", "grateful", "joy", "love", "admiration"]:
             affection_delta += AFFECTION_POINTS.get("positive_emotion", 2)
-        elif emotion in ["sad", "worried"]:
+            logger.debug(f"User {user_id} shows positive emotion '{emotion}': +{AFFECTION_POINTS.get('positive_emotion', 2)}")
+        elif emotion in ["sad", "worried", "disappointed"]:
+            # User sharing vulnerable emotions with Alya shows trust
             affection_delta += AFFECTION_POINTS.get("mild_positive_emotion", 1)
+            logger.debug(f"User {user_id} shows vulnerable emotion '{emotion}': +{AFFECTION_POINTS.get('mild_positive_emotion', 1)}")
+        elif emotion in ["angry", "frustrated", "annoyed"] and not message_context.get("directed_at_alya", False):
+            # User is angry but not at Alya (venting to Alya as friend)
+            affection_delta += AFFECTION_POINTS.get("mild_positive_emotion", 1)
+        elif emotion in ["angry", "frustrated", "annoyed"] and message_context.get("directed_at_alya", True):
+            # User is angry AT Alya
+            affection_delta += AFFECTION_POINTS.get("anger", -3)
+            logger.debug(f"User {user_id} is angry at Alya: {AFFECTION_POINTS.get('anger', -3)}")
 
+        # === USER'S INTENTIONS TOWARDS ALYA ===
         intent = message_context.get("intent", "")
         if intent == "gratitude":
             affection_delta += AFFECTION_POINTS.get("gratitude", 5)
         elif intent == "apology":
             affection_delta += AFFECTION_POINTS.get("apology", 2)
-        elif intent == "affection":
+        elif intent == "affection":  # User expressing love/care to Alya
             affection_delta += AFFECTION_POINTS.get("affection", 5)
         elif intent == "greeting":
             affection_delta += AFFECTION_POINTS.get("greeting", 2)
-        elif intent == "compliment":
+        elif intent == "compliment":  # User complimenting Alya
             affection_delta += AFFECTION_POINTS.get("compliment", 10)
         elif intent == "question":
             affection_delta += AFFECTION_POINTS.get("question", 1)
         elif intent == "meaningful_conversation":
             affection_delta += AFFECTION_POINTS.get("meaningful_conversation", 8)
-        elif intent == "asking_about_alya":
+        elif intent == "asking_about_alya":  # User showing interest in Alya
             affection_delta += AFFECTION_POINTS.get("asking_about_alya", 7)
-        elif intent == "remembering_details":
+        elif intent == "remembering_details":  # User remembering things about Alya
             affection_delta += AFFECTION_POINTS.get("remembering_details", 15)
-        elif intent in ["insult", "abuse", "leave"]:
+        elif intent in ["insult", "abuse"]:  # User insulting Alya
             affection_delta += AFFECTION_POINTS.get("insult", -10)
-        elif intent in ["toxic", "toxic_behavior", "bullying"]:
+        elif intent in ["toxic", "toxic_behavior", "bullying"]:  # User being toxic to Alya
             affection_delta += AFFECTION_POINTS.get("toxic_behavior", -10)
-        elif intent in ["rudeness"]:
+        elif intent == "rudeness":  # User being rude to Alya
             affection_delta += AFFECTION_POINTS.get("rudeness", -10)
-        elif intent in ["ignoring"]:
+        elif intent == "ignoring":  # User ignoring Alya
             affection_delta += AFFECTION_POINTS.get("ignoring", -5)
-        elif intent in ["inappropriate"]:
+        elif intent == "inappropriate":  # User being inappropriate to Alya
             affection_delta += AFFECTION_POINTS.get("inappropriate", -20)
         elif intent in ["command", "departure"]:
             affection_delta += AFFECTION_POINTS.get("command", -1)
 
+        # === RELATIONSHIP SIGNALS ===
+        relationship_signals = message_context.get("relationship_signals", {})
+        affection_delta += relationship_signals.get("friendliness", 0) * AFFECTION_POINTS.get("friendliness", 6)
+        affection_delta += relationship_signals.get("romantic_interest", 0) * AFFECTION_POINTS.get("romantic_interest", 10)
+        affection_delta += relationship_signals.get("conflict", 0) * AFFECTION_POINTS.get("conflict", -3)
+
+        # Apply minimum penalty limit
         min_penalty = AFFECTION_POINTS.get("min_penalty", -4)
         if affection_delta < 0:
             affection_delta = max(affection_delta, min_penalty)
 
+        # Base affection for normal conversation (if no significant change detected)
+        if affection_delta == 0:
+            affection_delta = AFFECTION_POINTS.get("conversation", 1)
+
+        # Apply affection change if significant enough
         if abs(affection_delta) >= 1:
             affection_delta = round(affection_delta)
+            logger.debug(f"Updating affection for user {user_id}: {affection_delta:+d} points")
             self.db.update_affection(user_id, affection_delta)
             self._try_level_up(user_id)

@@ -304,30 +304,75 @@ class DatabaseManager:
     
     def get_user_relationship_info(self, user_id: int) -> Dict[str, Any]:
         """
-        Get user's relationship information and statistics.
+        Get user's relationship information and statistics formatted for /stats command.
         
         Args:
             user_id: Telegram user ID
             
         Returns:
-            Dict containing relationship info
+            Dict containing relationship info in expected format
         """
         try:
             with db_session_context() as session:
                 user = session.query(User).filter(User.id == user_id).first()
                 if not user:
+                    logger.debug(f"User {user_id} not found in database")
                     return {}
                 
+                logger.debug(f"Found user {user_id}: level={user.relationship_level}, affection={user.affection_points}, interactions={user.interaction_count}")
+                
+                # Calculate relationship progress
+                level = user.relationship_level
+                current_interactions = user.interaction_count
+                
+                # Relationship level thresholds (total interactions needed to reach each level)
+                level_thresholds = [0, 1, 5, 15, 30, 50]  # Level 0: 0, Level 1: 1, Level 2: 5, etc.
+                level_names = ["Stranger", "Acquaintance", "Friend", "Close Friend", "Best Friend", "Soulmate"]
+                
+                # Ensure level is within bounds
+                level = min(level, len(level_names) - 1)
+                
+                # Calculate progress to next level
+                if level < len(level_thresholds) - 1:
+                    current_threshold = level_thresholds[level]
+                    next_threshold = level_thresholds[level + 1]
+                    progress_in_level = current_interactions - current_threshold
+                    interactions_needed = next_threshold - current_threshold
+                    progress_percent = min(100.0, max(0.0, (progress_in_level / interactions_needed) * 100))
+                    next_level_at = next_threshold
+                else:
+                    # Max level reached
+                    progress_percent = 100.0
+                    next_level_at = current_interactions
+                
+                # Calculate affection progress (0-100 scale for display)
+                affection_points = user.affection_points
+                affection_percent = min(100.0, max(0.0, (affection_points / 100.0) * 100))
+                
+                # Get user role
+                role = get_role_by_relationship_level(level, user_id in ADMIN_IDS)
+                
                 return {
-                    "relationship_level": user.relationship_level,
-                    "affection_points": user.affection_points,
-                    "interaction_count": user.interaction_count,
-                    "role_name": get_role_by_relationship_level(
-                        user.relationship_level, 
-                        user_id in ADMIN_IDS
-                    ),
-                    "topics_discussed": user.topics_discussed or [],
-                    "last_interaction": user.last_interaction
+                    "name": user.username or user.first_name or f"User{user_id}",
+                    "relationship": {
+                        "level": level,
+                        "name": level_names[level],
+                        "interactions": current_interactions,
+                        "next_level_at": next_level_at,
+                        "progress_percent": progress_percent
+                    },
+                    "affection": {
+                        "points": affection_points,
+                        "progress_percent": affection_percent
+                    },
+                    "stats": {
+                        "total_messages": current_interactions,  # Using interaction_count as total messages
+                        "positive_interactions": max(0, affection_points),  # Positive affection
+                        "negative_interactions": max(0, -affection_points),  # Negative affection
+                        "role": role,
+                        "topics_discussed": len(user.topics_discussed or []),
+                        "last_interaction": user.last_interaction.isoformat() if user.last_interaction else None
+                    }
                 }
                 
         except Exception as e:

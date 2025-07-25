@@ -127,6 +127,7 @@ AFFECTION_POINTS: Dict[str, int] = {
     "bullying": -15,
     "positive_emotion": 2,
     "mild_positive_emotion": 1,
+    "conversation": 1,  # Base affection for normal messages
     "min_penalty": -4
 }
 
