@@ -2,13 +2,16 @@
 NLP utilities for Alya Bot, including emotion detection and personality modeling.
 """
 import logging
+import os
 import random
 import re
-import os
-from typing import Dict, List, Optional, Any, Tuple
-
+import difflib
+from typing import Dict, List, Optional, Tuple, Any
 from transformers import pipeline
-import numpy as np
+from pathlib import Path
+import hashlib
+import time
+
 from config.settings import (
     EMOTION_DETECTION_MODEL, 
     SENTIMENT_MODEL,
@@ -26,20 +29,46 @@ logger = logging.getLogger(__name__)
 class NLPEngine:
     """NLP engine for various text processing tasks including emotion detection and personality."""
     
-    def __init__(self) -> None:
-        """Initialize the NLP engine."""
-        # Main transformers models
+    def __init__(self):
+        """Initialize NLP models and caches."""
         self.emotion_classifier = None
         self.sentiment_analyzer = None
-        self.intent_classifier = None
+        self.emotion_memory: Dict[int, str] = {}
+        self.conversation_context: Dict[int, Dict[str, Any]] = {}
         
-        # Memory for contextual awareness
-        self.emotion_memory = {}  # Track recent emotions by user_id
-        self.conversation_context = {}  # Track context by user_id
+        # Add caching for performance
+        self._emotion_cache: Dict[str, Tuple[str, float]] = {}  # text_hash -> (emotion, timestamp)
+        self._sentiment_cache: Dict[str, Tuple[str, float, float]] = {}  # text_hash -> (sentiment, score, timestamp)
+        self._cache_ttl = 300  # 5 minutes cache TTL
+        self._max_cache_size = 1000  # Maximum cache entries
         
-        # Initialize models based on features
         self._initialize_models()
+    
+    def _get_text_hash(self, text: str) -> str:
+        """Generate hash for text caching."""
+        return hashlib.md5(text.encode('utf-8')).hexdigest()
+    
+    def _is_cache_valid(self, timestamp: float) -> bool:
+        """Check if cache entry is still valid."""
+        return time.time() - timestamp < self._cache_ttl
+    
+    def _cleanup_cache(self, cache_dict: Dict[str, Tuple]) -> None:
+        """Remove expired cache entries."""
+        current_time = time.time()
+        expired_keys = [
+            key for key, value in cache_dict.items()
+            if current_time - value[-1] > self._cache_ttl
+        ]
+        for key in expired_keys:
+            cache_dict.pop(key, None)
         
+        # Limit cache size
+        if len(cache_dict) > self._max_cache_size:
+            # Remove oldest entries
+            sorted_items = sorted(cache_dict.items(), key=lambda x: x[1][-1])
+            for key, _ in sorted_items[:len(cache_dict) - self._max_cache_size]:
+                cache_dict.pop(key, None)
+    
     def _initialize_models(self) -> None:
         """Initialize NLP models if enabled."""
         try:
@@ -104,6 +133,17 @@ class NLPEngine:
             return None
             
         try:
+            # Cleanup cache
+            self._cleanup_cache(self._emotion_cache)
+            
+            # Check cache first
+            text_hash = self._get_text_hash(text)
+            if text_hash in self._emotion_cache:
+                cached_emotion, timestamp = self._emotion_cache[text_hash]
+                if self._is_cache_valid(timestamp):
+                    logger.debug(f"Cache hit for emotion: {cached_emotion} (text hash: {text_hash})")
+                    return cached_emotion
+            
             MAX_CHARS = 450  # Roughly estimate chars instead of tokens for simplicity
             if len(text) > MAX_CHARS:
                 logger.debug(f"Text too long ({len(text)} chars), truncating to {MAX_CHARS} chars")
@@ -129,6 +169,9 @@ class NLPEngine:
                     if user_id is not None:
                         self.emotion_memory[user_id] = top_emotion
                         
+                    # Update cache
+                    self._emotion_cache[text_hash] = (top_emotion, time.time())
+                    
                     logger.debug(f"Detected emotion: {top_emotion} with score {top_score}")
                     return top_emotion
             
@@ -155,6 +198,17 @@ class NLPEngine:
             return "NEUTRAL", 0.5
             
         try:
+            # Cleanup cache
+            self._cleanup_cache(self._sentiment_cache)
+            
+            # Check cache first
+            text_hash = self._get_text_hash(text)
+            if text_hash in self._sentiment_cache:
+                cached_sentiment, cached_score, timestamp = self._sentiment_cache[text_hash]
+                if self._is_cache_valid(timestamp):
+                    logger.debug(f"Cache hit for sentiment: {cached_sentiment} (text hash: {text_hash})")
+                    return cached_sentiment, cached_score
+            
             # Truncate text to avoid sequence length errors (most models have 512 token limit)
             MAX_CHARS = 450
             if len(text) > MAX_CHARS:
@@ -165,6 +219,10 @@ class NLPEngine:
             if result and len(result) > 0:
                 sentiment = result[0]['label']
                 score = result[0]['score']
+                
+                # Update cache
+                self._sentiment_cache[text_hash] = (sentiment, score, time.time())
+                
                 return sentiment, score
         except Exception as e:
             logger.error(f"Error analyzing sentiment: {str(e)}")
@@ -829,6 +887,102 @@ class NLPEngine:
                 return random.choice(emotion_descriptions[parts[0]])
                 
         return emotion.replace("_", " ")  # Fallback
+
+    def analyze_conversation_flow(self, user_id: int, current_message: str) -> Dict[str, Any]:
+        """
+        Analyze conversation flow and context continuity.
+        
+        Args:
+            user_id: User's telegram ID
+            current_message: Current message content
+            
+        Returns:
+            Dictionary with conversation flow analysis
+        """
+        try:
+            flow_analysis = {
+                "is_continuation": False,
+                "topic_shift": False,
+                "emotional_shift": False,
+                "conversation_depth": 0,
+                "user_engagement_level": "low"
+            }
+            
+            # Get previous context if available
+            previous_context = self.conversation_context.get(user_id, {})
+            current_context = self.get_message_context(current_message, user_id)
+            
+            if previous_context:
+                # Check if conversation is continuing on same topic
+                prev_topics = set(previous_context.get("semantic_topics", []))
+                current_topics = set(current_context.get("semantic_topics", []))
+                
+                topic_overlap = 0.0  # Initialize with default value
+                if prev_topics and current_topics:
+                    topic_overlap = len(prev_topics.intersection(current_topics)) / len(prev_topics.union(current_topics))
+                    flow_analysis["is_continuation"] = topic_overlap > 0.3
+                    flow_analysis["topic_shift"] = topic_overlap < 0.2
+                
+                # Check emotional consistency
+                prev_emotion = previous_context.get("emotion", "neutral")
+                current_emotion = current_context.get("emotion", "neutral")
+                
+                # Define emotional distance
+                emotional_distances = {
+                    ("happy", "sad"): 0.8,
+                    ("angry", "happy"): 0.7,
+                    ("excited", "bored"): 0.9,
+                    ("love", "angry"): 0.8,
+                    ("neutral", "angry"): 0.5,
+                    ("neutral", "happy"): 0.3,
+                }
+                
+                distance = emotional_distances.get((prev_emotion, current_emotion), 0.2)
+                flow_analysis["emotional_shift"] = distance > 0.6
+                
+                # Calculate conversation depth based on message complexity and context
+                prev_intensity = previous_context.get("intensity", 0.5)
+                current_intensity = current_context.get("intensity", 0.5)
+                
+                avg_intensity = (prev_intensity + current_intensity) / 2
+                flow_analysis["conversation_depth"] = min(1.0, avg_intensity + topic_overlap)
+            else:
+                # No previous context, set default values
+                flow_analysis["conversation_depth"] = 0.3  # Default moderate depth
+            
+            # Analyze user engagement level
+            message_length = len(current_message)
+            question_count = current_message.count('?')
+            exclamation_count = current_message.count('!')
+            
+            engagement_score = 0
+            if message_length > 50:
+                engagement_score += 0.3
+            if question_count > 0:
+                engagement_score += 0.2 * min(question_count, 3)
+            if exclamation_count > 0:
+                engagement_score += 0.1 * min(exclamation_count, 2)
+            if current_context.get("intensity", 0) > 0.6:
+                engagement_score += 0.3
+                
+            if engagement_score > 0.7:
+                flow_analysis["user_engagement_level"] = "high"
+            elif engagement_score > 0.4:
+                flow_analysis["user_engagement_level"] = "medium"
+            else:
+                flow_analysis["user_engagement_level"] = "low"
+                
+            return flow_analysis
+            
+        except Exception as e:
+            logger.error(f"Error analyzing conversation flow: {e}")
+            return {
+                "is_continuation": False,
+                "topic_shift": False,
+                "emotional_shift": False,
+                "conversation_depth": 0,
+                "user_engagement_level": "low"
+            }
 
 class ContextManager:
     """Manages conversation context and memory with DB-backed sliding window."""

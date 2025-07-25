@@ -180,6 +180,9 @@ class ConversationHandler:
         self.memory.save_user_message(user.id, query)
         relationship_level = self._get_relationship_level(user.id)
         
+        enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
+        system_prompt = self.persona.get_full_system_prompt()
+        
         # Improved context extraction
         message_context = {}
         semantic_topics = []
@@ -187,6 +190,19 @@ class ConversationHandler:
         if FEATURES.get("emotion_detection", False) and self.nlp:
             message_context = self.nlp.get_message_context(query, user.id)
             semantic_topics = message_context.get("semantic_topics", [])
+            
+            # Add conversation flow analysis for more natural responses
+            flow_analysis = self.nlp.analyze_conversation_flow(user.id, query)
+            message_context["conversation_flow"] = flow_analysis
+            
+            # Adjust system prompt based on conversation flow
+            if flow_analysis.get("is_continuation", False):
+                system_prompt += "\n\nCONVERSATION CONTEXT: This seems to be a continuation of our previous topic. Please maintain context continuity and reference our previous discussion naturally."
+            
+            if flow_analysis.get("user_engagement_level") == "high":
+                system_prompt += "\n\nUSER ENGAGEMENT: The user seems very engaged and interested. Match their energy level and be more expressive in your response."
+            elif flow_analysis.get("user_engagement_level") == "low":
+                system_prompt += "\n\nUSER ENGAGEMENT: The user seems less engaged. Try to be more encouraging and ask questions to increase engagement."
             
         # Use DB-backed context for richer history
         history = self.context_manager.get_context_window(user.id)
@@ -198,16 +214,14 @@ class ConversationHandler:
         summaries = self.context_manager.get_conversation_summaries(user.id)
         conversation_summary = summaries[0].get('content', '') if summaries else "No previous context"
         
-        # Create richer context with conversation theme awareness 
+        enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
+        
         conversation_context = {
             "current_topic": ", ".join(semantic_topics) if semantic_topics else "general conversation",
             "user_emotion": message_context.get("emotion", "neutral"),
             "conversation_history_summary": conversation_summary,
             "previous_user_messages": prev_content
         }
-        
-        enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
-        system_prompt = self.persona.get_full_system_prompt()
         
         # Add rich relationship and conversation context
         relationship_context = self._get_relationship_context(user, relationship_level, user.id in ADMIN_IDS)
