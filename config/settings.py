@@ -3,6 +3,7 @@ Configuration settings for Alya Bot.
 """
 import os
 from typing import Dict, List, Any, Optional, Set
+from urllib.parse import quote_plus
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -14,6 +15,26 @@ BOT_NAME: str = "Alya"
 COMMAND_PREFIX: str = "!ai"
 SAUCENAO_PREFIX: str = "!sauce"
 DEFAULT_LANGUAGE: str = "id"  # Options: "id", "en"
+
+# Database Settings
+DB_HOST: str = os.getenv("DB_HOST", "localhost")
+DB_PORT: int = int(os.getenv("DB_PORT", "3306"))
+DB_USERNAME: str = os.getenv("DB_USERNAME", "root")
+DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
+DB_NAME: str = os.getenv("DB_NAME", "alya_bot")
+
+# Database Connection Pool Settings
+DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "10"))
+DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "20"))
+DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+DB_POOL_RECYCLE: int = int(os.getenv("DB_POOL_RECYCLE", "3600"))
+DB_ECHO: bool = os.getenv("DB_ECHO", "false").lower() == "true"
+
+# Database URL construction with proper URL encoding
+DATABASE_URL: str = os.getenv(
+    "DATABASE_URL", 
+    f"mysql+pymysql://{quote_plus(DB_USERNAME)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
+)
 
 # Admin Settings
 # Load from environment variable, comma separated list of IDs
@@ -34,10 +55,6 @@ TOP_P: float = 0.95
 
 # SauceNAO API KEY
 SAUCENAO_API_KEY: Optional[str] = os.getenv("SAUCENAO_API_KEY", True)
-
-# Database Settings
-DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///data/alya.db")
-SQLITE_DB_PATH: str = os.getenv("SQLITE_DB_PATH", "data/alya.db")
 
 # Memory Settings
 MAX_MEMORY_ITEMS: int = 80
@@ -110,6 +127,7 @@ AFFECTION_POINTS: Dict[str, int] = {
     "bullying": -15,
     "positive_emotion": 2,
     "mild_positive_emotion": 1,
+    "conversation": 1,  # Base affection for normal messages
     "min_penalty": -4
 }
 

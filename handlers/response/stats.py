@@ -18,9 +18,21 @@ def stats_response(
     Returns:
         HTML-formatted stats string
     """
-    def progress_bar(percent: float, length: int = 10) -> str:
-        blocks = int(percent // (100 / length))
-        return "[" + "█" * blocks + "░" * (length - blocks) + "]"
+    def progress_bar(percent: float, length: int = 15, filled_char: str = "█", empty_char: str = "░") -> str:
+        """Create a visual progress bar."""
+        blocks = int(percent * length / 100)
+        return f"[{filled_char * blocks}{empty_char * (length - blocks)}]"
+    
+    def get_level_emoji(level: int) -> str:
+        """Get emoji for relationship level."""
+        emojis = {
+            0: "👋",  # Stranger
+            1: "😊",  # Acquaintance  
+            2: "🤝",  # Friend
+            3: "💫",  # Close Friend
+            4: "💖"   # Soulmate
+        }
+        return emojis.get(level, "❓")
 
     # Footer messages per relationship level (randomized)
     level_footers = {
@@ -45,26 +57,51 @@ def stats_response(
             "Kamu sudah jadi soulmate Alya, jangan sakiti hati Alya ya! 💞"
         ]
     }
-    level = relationship.get('level', 0)
-    footer = random.choice(level_footers.get(level, ["Alya belum mengenalmu! 😤"]))
 
-    # Always show stats, even if 0
+    # Extract relationship data
+    level = relationship.get('level', 0)
+    level_name = relationship.get('name', 'Stranger')
+    current_interactions = relationship.get('interactions', 0)
+    next_interaction_req = relationship.get('next_level_at_interaction', 100)
+    next_affection_req = relationship.get('next_level_at_affection', 200)
+    progress_percent = relationship.get('progress_percent', 0.0)
+    
+    # Extract affection data
+    affection_points = affection.get('points', 0)
+    affection_percent = affection.get('progress_percent', 0.0)
+    
+    # Extract stats
     total_messages = stats.get('total_messages', 0)
     positive_interactions = stats.get('positive_interactions', 0)
     negative_interactions = stats.get('negative_interactions', 0)
-
-    # Fetch user role from stats, fallback to "User" if not present
     role = stats.get('role', 'User')
+
+    # Get appropriate footer
+    footer = random.choice(level_footers.get(level, ["Alya belum mengenalmu! 😤"]))
+    
+    # Build the response with better formatting
+    level_emoji = get_level_emoji(level)
+    
+    # Progress requirements text
+    if level < 4:  # Not max level
+        requirements = f"Butuh: {next_interaction_req} interaksi & {next_affection_req} affection"
+    else:
+        requirements = "Level maksimal tercapai! 🎉"
 
     return (
         f"<b>🌸 Statistik Hubungan {name} [{role}] 🌸</b>\n\n"
-        f"<b>Level:</b> {relationship['level']} - {relationship['name']} 💫\n"
-        f"{progress_bar(relationship['progress_percent'])} {relationship['progress_percent']:.1f}%\n"
-        f"<b>Interaksi:</b> {relationship['interactions']}/{relationship['next_level_at']} ✨\n\n"
-        f"<b>Affection Points:</b> {affection['points']} ❤️\n"
-        f"{progress_bar(affection['progress_percent'])}\n\n"
-        f"<b>📨 Total Pesan:</b> {total_messages}\n"
-        f"<b>😊 Interaksi Positif:</b> {positive_interactions}\n"
-        f"<b>😠 Interaksi Negatif:</b> {negative_interactions}\n\n"
-        f"{footer}"
+        
+        f"<b>{level_emoji} Level:</b> {level} - {level_name}\n"
+        f"{progress_bar(progress_percent)} <code>{progress_percent:.1f}%</code>\n"
+        f"<i>{requirements}</i>\n\n"
+        
+        f"<b>💕 Affection Points:</b> {affection_points}\n"
+        f"{progress_bar(affection_percent)} <code>{affection_percent:.1f}%</code>\n\n"
+        
+        f"<b>📊 Interaksi:</b>\n"
+        f"├ 📨 <b>Total Pesan:</b> {total_messages}\n"
+        f"├ 😊 <b>Interaksi Positif:</b> {positive_interactions}\n"
+        f"└ 😠 <b>Interaksi Negatif:</b> {negative_interactions}\n\n"
+        
+        f"<i>{footer}</i>"
     )

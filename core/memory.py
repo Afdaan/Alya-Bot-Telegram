@@ -5,7 +5,7 @@ import logging
 import re
 from typing import Dict, List, Any, Optional, Tuple
 
-from core.database import DatabaseManager
+from database.database_manager import db_manager, DatabaseManager
 from config.settings import (
     MAX_MEMORY_ITEMS, RAG_MAX_RESULTS, SLIDING_WINDOW_SIZE
 )

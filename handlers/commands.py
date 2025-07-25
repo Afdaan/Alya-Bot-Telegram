@@ -17,7 +17,7 @@ from handlers.response.help import help_response
 from handlers.response.start import start_response
 from handlers.response.ping import ping_response
 from handlers.response.stats import stats_response
-from handlers.response.analyze import analyze_response  # Fixed from analyze_resposne
+from handlers.response.analyze import analyze_response
 
 logger = logging.getLogger(__name__)
 
@@ -255,12 +255,23 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     stats = db_manager.get_user_relationship_info(user.id)
-    if not stats or not stats.get("relationship"):
-        await update.message.reply_text(
-            "Belum ada data hubungan. Coba kirim pesan dulu ke Alya ya~ 😳",
-            parse_mode="HTML"
+    if not stats:
+        # User not found in database, create them first
+        db_manager.add_user(
+            user_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            language_code=user.language_code
         )
-        return
+        # Get stats again after creating user
+        stats = db_manager.get_user_relationship_info(user.id)
+        if not stats:
+            await update.message.reply_text(
+                "Maaf, terjadi kesalahan sistem. Coba lagi nanti ya~ 😳",
+                parse_mode="HTML"
+            )
+            return
 
     logger.debug(f"Stats data for user {user.id}: {stats}")
     response = stats_response(

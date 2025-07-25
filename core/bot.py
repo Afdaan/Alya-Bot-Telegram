@@ -18,7 +18,7 @@ from config.settings import (
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from database.memory_manager import MemoryManager
-from core.database import DatabaseManager
+from database.database_manager import db_manager, DatabaseManager
 from core.nlp import NLPEngine
 from handlers.conversation import ConversationHandler
 from handlers.admin import AdminHandler, register_admin_handlers
@@ -68,7 +68,7 @@ def initialize_application() -> Optional[Application]:
         logger.info("Ensuring database schema is up-to-date...")
         ensure_database_schema()
         logger.info("Initializing components...")
-        db_manager = DatabaseManager()
+        # Use global db_manager instance instead of creating new one
         memory_manager = MemoryManager()
         gemini_client = GeminiClient()
         persona_manager = PersonaManager()
