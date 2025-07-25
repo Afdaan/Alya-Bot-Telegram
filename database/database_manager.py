@@ -324,30 +324,39 @@ class DatabaseManager:
                 # Calculate relationship progress
                 level = user.relationship_level
                 current_interactions = user.interaction_count
+                current_affection = user.affection_points
                 
-                # Relationship level thresholds (total interactions needed to reach each level)
-                level_thresholds = [0, 1, 5, 15, 30, 50]  # Level 0: 0, Level 1: 1, Level 2: 5, etc.
-                level_names = ["Stranger", "Acquaintance", "Friend", "Close Friend", "Best Friend", "Soulmate"]
+                # Use settings from config
+                level_names = list(RELATIONSHIP_LEVELS.values())
+                interaction_thresholds = RELATIONSHIP_THRESHOLDS["interaction_count"]
+                affection_thresholds = RELATIONSHIP_THRESHOLDS["affection_points"]
                 
                 # Ensure level is within bounds
                 level = min(level, len(level_names) - 1)
                 
                 # Calculate progress to next level
-                if level < len(level_thresholds) - 1:
-                    current_threshold = level_thresholds[level]
-                    next_threshold = level_thresholds[level + 1]
-                    progress_in_level = current_interactions - current_threshold
-                    interactions_needed = next_threshold - current_threshold
-                    progress_percent = min(100.0, max(0.0, (progress_in_level / interactions_needed) * 100))
-                    next_level_at = next_threshold
+                if level < len(level_names) - 1:
+                    next_level = level + 1
+                    interaction_needed = interaction_thresholds.get(next_level, float('inf'))
+                    affection_needed = affection_thresholds.get(next_level, float('inf'))
+                    
+                    # Calculate progress based on both interaction and affection requirements
+                    interaction_progress = min(100.0, (current_interactions / interaction_needed) * 100) if interaction_needed != float('inf') else 100.0
+                    affection_progress = min(100.0, (current_affection / affection_needed) * 100) if affection_needed != float('inf') else 100.0
+                    
+                    # Overall progress is the minimum of both (both requirements must be met)
+                    progress_percent = min(interaction_progress, affection_progress)
+                    next_level_at_interaction = interaction_needed
+                    next_level_at_affection = affection_needed
                 else:
                     # Max level reached
                     progress_percent = 100.0
-                    next_level_at = current_interactions
+                    next_level_at_interaction = current_interactions
+                    next_level_at_affection = current_affection
                 
-                # Calculate affection progress (0-100 scale for display)
-                affection_points = user.affection_points
-                affection_percent = min(100.0, max(0.0, (affection_points / 100.0) * 100))
+                # Calculate affection progress for display (based on max achievable points)
+                max_affection_for_display = 500  # Reasonable max for progress bar
+                affection_display_percent = min(100.0, max(0.0, (current_affection / max_affection_for_display) * 100))
                 
                 # Get user role
                 role = get_role_by_relationship_level(level, user_id in ADMIN_IDS)
@@ -358,17 +367,18 @@ class DatabaseManager:
                         "level": level,
                         "name": level_names[level],
                         "interactions": current_interactions,
-                        "next_level_at": next_level_at,
+                        "next_level_at_interaction": next_level_at_interaction,
+                        "next_level_at_affection": next_level_at_affection,
                         "progress_percent": progress_percent
                     },
                     "affection": {
-                        "points": affection_points,
-                        "progress_percent": affection_percent
+                        "points": current_affection,
+                        "progress_percent": affection_display_percent
                     },
                     "stats": {
-                        "total_messages": current_interactions,  # Using interaction_count as total messages
-                        "positive_interactions": max(0, affection_points),  # Positive affection
-                        "negative_interactions": max(0, -affection_points),  # Negative affection
+                        "total_messages": current_interactions,
+                        "positive_interactions": max(0, current_affection),  # Positive affection
+                        "negative_interactions": max(0, -current_affection),  # Negative affection
                         "role": role,
                         "topics_discussed": len(user.topics_discussed or []),
                         "last_interaction": user.last_interaction.isoformat() if user.last_interaction else None
