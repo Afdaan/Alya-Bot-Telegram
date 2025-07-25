@@ -139,7 +139,7 @@ EMOTION_DETECTION_MODEL: str = os.getenv(
 )
 SENTIMENT_MODEL: str = os.getenv(
     "SENTIMENT_MODEL",
-    "mdhugol/indonesia-bert-sentiment-classification"  # HuggingFace hosted #distilbert-base-uncased-finetuned-sst-2-english
+    "ayameRushia/bert-base-indonesian-1.5G-sentiment-analysis-smsa"  # HuggingFace hosted #distilbert-base-uncased-finetuned-sst-2-english mdhugol/indonesia-bert-sentiment-classification
 )
 SUPPORTED_EMOTIONS: List[str] = ["joy", "sadness", "anger", "fear", "surprise", "neutral"]
 EMOTION_CONFIDENCE_THRESHOLD: float = 0.4  # Minimum confidence to assign an emotion
