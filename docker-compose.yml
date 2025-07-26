@@ -2,47 +2,117 @@ version: "3.9"
 
 services:
   # =============================================
-  # PRODUCTION SERVICE
+  # ALYA BOT - PRODUCTION
   # =============================================
   alya-bot:
     build:
       context: .
-      args:
-        - BUILDKIT_INLINE_CACHE=0
-        - ENV=production
+      dockerfile: Dockerfile
     image: alya-bot:${TAG:-latest}
-    container_name: alya-bot
+    container_name: alya-bot-prod
     restart: unless-stopped
-    env_file:
+    
+    env_file: 
       - .env
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    
+    # Volume mounts
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
+      - alya-data:/app/data
+      - alya-logs:/app/logs
+      - /etc/localtime:/etc/localtime:ro
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('Bot is healthy')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Networking
     networks:
       - alya-network
-    pull_policy: always
+    
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
 
   # =============================================
-  # STAGING SERVICE
+  # ALYA BOT - DEVELOPMENT
   # =============================================
-  alya-bot-staging:
+  alya-bot-dev:
     build:
       context: .
-      args:
-        - BUILDKIT_INLINE_CACHE=0
-        - ENV=staging
-    image: alya-bot:${STAGING_TAG:-staging}
-    container_name: alya-bot-staging
+      dockerfile: Dockerfile
+    image: alya-bot:${DEV_TAG:-dev}
+    container_name: alya-bot-dev
     restart: unless-stopped
+    
+    # Environment untuk development
     env_file:
       - .env
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=DEBUG
+      - PYTHONUNBUFFERED=1
+    
+    # Volume mounts dengan live code reload
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
+      - .:/app:rw
+      - alya-data:/app/data
+      - alya-logs:/app/logs
+      - /etc/localtime:/etc/localtime:ro
+    
+    # Development command
+    command: ["python", "-u", "main.py"]
+    
+    # Resource limits (lebih kecil untuk dev)
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+    
+    # Networking
     networks:
       - alya-network
-    pull_policy: always
+    
+    # Profile untuk development
+    profiles:
+      - dev
 
+# =============================================
+# NETWORKS
+# =============================================
 networks:
   alya-network:
     driver: bridge
+    name: alya-bot-network
+
+# =============================================
+# VOLUMES
+# =============================================
+volumes:
+  alya-data:
+    driver: local
+    name: alya-bot-data
+  alya-logs:
+    driver: local
+    name: alya-bot-logs

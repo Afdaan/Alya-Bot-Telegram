@@ -1,39 +1,45 @@
-FROM python:3.12-slim AS base
+FROM python:3.12-slim
 
+# Environment variables
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    TZ=Asia/Jakarta
+    TZ=Asia/Jakarta \
+    PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
-RUN echo "deb http://kartolo.sby.datautama.net.id/debian/ bookworm main contrib non-free\n\
-deb http://kartolo.sby.datautama.net.id/debian/ bookworm-updates main contrib non-free\n\
-deb http://kartolo.sby.datautama.net.id/debian-security/ bookworm-security main contrib non-free" > /etc/apt/sources.list && \
-    apt-get update --allow-releaseinfo-change && \
-    apt-get install -y --no-install-recommends \
+# Install only essential system dependencies for Alya Bot
+RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
-        git \
-        ffmpeg \
-        build-essential \
-        libjpeg-dev \
-        zlib1g-dev \
-        libpng-dev \
-        libwebp-dev \
-        libtiff-dev \
-        libopenjp2-7 \
+        curl \
         libmagic1 \
-        poppler-utils \
-        tesseract-ocr \
-        libreoffice \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+        libjpeg62-turbo \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* /var/tmp/*
 
-# Use local PyPI mirror (Kartolo Surabaya) for faster dependency install
+# Create non-root user for security
+RUN groupadd -r alya && useradd -r -g alya -d /app -s /bin/bash alya
+
+# Copy and install Python dependencies
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install --upgrade pip setuptools wheel && \
+    pip install --no-deps -r requirements.txt
 
-COPY . .
+# Copy application code
+COPY --chown=alya:alya . .
+
+# Create necessary directories
+RUN mkdir -p /app/data /app/logs && \
+    chown -R alya:alya /app
+
+# Switch to non-root user
+USER alya
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8080/health', timeout=5)" || exit 1
 
 EXPOSE 8080
 
