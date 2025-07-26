@@ -646,7 +646,50 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting database stats: {e}")
             return {"error": str(e)}
+    
+    def is_admin(self, user_id: int) -> bool:
+        """
+        Check if a user is an admin.
+        
+        Args:
+            user_id: Telegram user ID to check
+            
+        Returns:
+            bool: True if user is admin, False otherwise
+        """
+        try:
+            # First check against ADMIN_IDS from config (faster)
+            if user_id in ADMIN_IDS:
+                return True
+                
+            # Then check database is_admin flag if user exists
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    # Check if user has is_admin attribute and it's True
+                    return getattr(user, 'is_admin', False)
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error checking admin status for user {user_id}: {e}")
+            # Fallback to config check only
+            return user_id in ADMIN_IDS
 
+    def test_connection(self) -> bool:
+        """
+        Test the database connection with a simple query.
+        
+        Returns:
+            bool: True if connection is healthy, False otherwise
+        """
+        try:
+            with db_session_context() as session:
+                # Perform a lightweight query to check connection
+                result = session.execute("SELECT 1")
+                return result.scalar() == 1
+                
+        except Exception as e:
+            logger.error(f"Database connection test failed: {e}")
+            return False
 
-# Global database manager instance
 db_manager = DatabaseManager()
