@@ -84,9 +84,9 @@ jobs:
         if: success()
         env:
           # GitHub Secrets dengan nama yang konsisten
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_DEPLOY_CHAT_ID }}
-          TELEGRAM_TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_CHAT_ID }}
+          TELEGRAM_TOPIC_ID: ${{ secrets.DEPLOY_TOPIC_ID }}
         run: |
           cd /opt/dev-Alya-Bot-Telegram
           
@@ -172,9 +172,9 @@ jobs:
       - name: Notify deployment failure via Telegram
         if: failure()
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_DEPLOY_CHAT_ID }}
-          TELEGRAM_TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_CHAT_ID }}
+          TELEGRAM_TOPIC_ID: ${{ secrets.DEPLOY_TOPIC_ID }}
         run: |
           cd /opt/dev-Alya-Bot-Telegram || cd /opt/dev-Alya-Bot-Telegram
           
