@@ -3,7 +3,7 @@ name: Deploy AlyaBot to Self-Hosted Server (Develop)
 on:
   push:
     branches:
-      - develop
+      - development
 
 jobs:
   deploy:
@@ -14,36 +14,36 @@ jobs:
 
       - name: Prepare and update codebase
         run: |
-          cd /opt/Alya-Bot-Telegram
+          cd /opt/dev-Alya-Bot-Telegram
           git stash --include-untracked || true
-          git checkout develop
-          git pull origin develop
+          git checkout development
+          git pull origin development
 
       - name: Install Python dependencies
         run: |
-          cd /opt/Alya-Bot-Telegram
+          cd /opt/dev-Alya-Bot-Telegram
           pip install -r requirements.txt
 
       - name: Stop existing AlyaBot process
         run: |
-          cd /opt/Alya-Bot-Telegram
+          cd /opt/dev-Alya-Bot-Telegram
           pkill -f "python main.py" || true
 
       - name: Start AlyaBot
         run: |
-          cd /opt/Alya-Bot-Telegram
+          cd /opt/dev-Alya-Bot-Telegram
           nohup python main.py > bot.log 2>&1 &
           echo "AlyaBot started in background"
 
       - name: Stop existing AlyaBot process
         run: |
-          cd /opt/Alya-Bot-Telegram
+          cd /opt/dev-Alya-Bot-Telegram
           tmux kill-session -t alya-bot-develop || true
           echo "Previous tmux session terminated (if existed)"
 
       - name: Start AlyaBot in tmux
         run: |
-          cd /opt/Alya-Bot-Telegram
+          cd /opt/dev-Alya-Bot-Telegram
           tmux new-session -d -s alya-bot-develop "python main.py > bot.log 2>&1"
           echo "AlyaBot started in tmux session: alya-bot-develop"
 

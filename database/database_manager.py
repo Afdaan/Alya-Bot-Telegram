@@ -179,6 +179,34 @@ class DatabaseManager:
             message_hash = hashlib.md5(f"{user_id}:{content}:{role}".encode()).hexdigest()
             
             with db_session_context() as session:
+                # CRITICAL: Ensure user exists before saving conversation
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    # Auto-create user if not exists to prevent foreign key constraint errors
+                    logger.warning(f"User {user_id} not found, creating automatically")
+                    user = User(
+                        id=user_id,
+                        username=None,
+                        first_name=f"User{user_id}",
+                        last_name=None,
+                        language_code="id",
+                        created_at=datetime.now(),
+                        last_interaction=datetime.now(),
+                        is_active=True,
+                        relationship_level=0,
+                        affection_points=0,
+                        interaction_count=0,
+                        preferences={
+                            "notification_enabled": True,
+                            "preferred_language": "id",
+                            "persona": "waifu",
+                            "timezone": "Asia/Jakarta"
+                        },
+                        topics_discussed=[]
+                    )
+                    session.add(user)
+                    session.flush()  # Ensure user is created before conversation
+                
                 # Check for recent duplicate (last 5 minutes)
                 recent_cutoff = datetime.now() - timedelta(minutes=5)
                 duplicate = session.query(Conversation).filter(
@@ -204,10 +232,8 @@ class DatabaseManager:
                 session.add(conversation)
                 
                 # Update user interaction count and last interaction
-                user = session.query(User).filter(User.id == user_id).first()
-                if user:
-                    user.interaction_count += 1
-                    user.last_interaction = datetime.now()
+                user.interaction_count += 1
+                user.last_interaction = datetime.now()
                 
                 session.commit()
                 
@@ -690,6 +716,56 @@ class DatabaseManager:
                 
         except Exception as e:
             logger.error(f"Database connection test failed: {e}")
+            return False
+
+    def ensure_user_exists(self, user_id: int, username: str = "", first_name: str = "", 
+                          last_name: str = "") -> bool:
+        """
+        Ensure a user exists in the database, create if not exists.
+        This prevents foreign key constraint errors when saving conversations.
+        
+        Args:
+            user_id: Telegram user ID
+            username: Username (optional)
+            first_name: First name (optional)
+            last_name: Last name (optional)
+            
+        Returns:
+            bool: True if user exists or was created successfully
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    # Create new user with minimal data
+                    user = User(
+                        id=user_id,
+                        username=username or None,
+                        first_name=first_name or f"User{user_id}",
+                        last_name=last_name or None,
+                        language_code="id",
+                        created_at=datetime.now(),
+                        last_interaction=datetime.now(),
+                        is_active=True,
+                        relationship_level=0,
+                        affection_points=0,
+                        interaction_count=0,
+                        preferences={
+                            "notification_enabled": True,
+                            "preferred_language": "id",
+                            "persona": "waifu",
+                            "timezone": "Asia/Jakarta"
+                        },
+                        topics_discussed=[]
+                    )
+                    session.add(user)
+                    session.commit()
+                    logger.info(f"Auto-created user {user_id} to prevent foreign key errors")
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error ensuring user {user_id} exists: {e}")
             return False
 
 db_manager = DatabaseManager()
