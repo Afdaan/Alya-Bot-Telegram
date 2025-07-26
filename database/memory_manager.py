@@ -44,21 +44,50 @@ class MemoryManager:
         """
         try:
             with db_session_context() as session:
+                # CRITICAL: Ensure user exists before saving conversation
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    # Auto-create user if not exists to prevent foreign key constraint errors
+                    logger.warning(f"User {user_id} not found in memory_manager, creating automatically")
+                    user = User(
+                        id=user_id,
+                        username=None,
+                        first_name=f"User{user_id}",
+                        last_name=None,
+                        language_code="id",
+                        created_at=datetime.now(),
+                        last_interaction=datetime.now(),
+                        is_active=True,
+                        relationship_level=0,
+                        affection_points=0,
+                        interaction_count=0,
+                        preferences={
+                            "notification_enabled": True,
+                            "preferred_language": "id",
+                            "persona": "waifu",
+                            "timezone": "Asia/Jakarta"
+                        },
+                        topics_discussed=[]
+                    )
+                    session.add(user)
+                    session.flush()  # Ensure user is created before conversation
+                
                 # Check for recent duplicate within 1 second window
                 recent = session.query(Conversation)\
                     .filter(
                         Conversation.user_id == user_id,
-                        Conversation.message == message,
-                        Conversation.timestamp >= datetime.now() - timedelta(seconds=1)
+                        Conversation.content == message,
+                        Conversation.created_at >= datetime.now() - timedelta(seconds=1)
                     ).first()
                 
                 if recent is None:
                     conversation = Conversation(
                         user_id=user_id,
-                        message=message,
+                        content=message,
+                        role="user" if is_user else "assistant",
                         is_user=is_user,
-                        message_metadata=json.dumps(metadata or {}),
-                        timestamp=datetime.now()
+                        message_metadata=metadata or {},
+                        created_at=datetime.now()
                     )
                     session.add(conversation)
                     session.commit()
@@ -88,7 +117,7 @@ class MemoryManager:
                 # Get recent direct messages
                 recent_messages = session.query(Conversation)\
                     .filter(Conversation.user_id == user_id)\
-                    .order_by(Conversation.timestamp.desc())\
+                    .order_by(Conversation.created_at.desc())\
                     .limit(limit)\
                     .all()
                 
@@ -98,9 +127,9 @@ class MemoryManager:
                     role = "user" if msg.is_user else "assistant"
                     context.append({
                         "role": role,
-                        "content": msg.message,
-                        "timestamp": msg.timestamp,
-                        "metadata": msg.metadata
+                        "content": msg.content,
+                        "timestamp": msg.created_at,
+                        "metadata": msg.message_metadata or {}
                     })
                 
                 # Get latest summary if we have fewer than the limit
