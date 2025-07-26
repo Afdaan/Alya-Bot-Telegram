@@ -98,12 +98,6 @@ jobs:
             set +a
           fi
           
-          # Debug: Show what variables are available
-          echo "🔍 Debug Environment Variables:"
-          echo "TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:0:10}..." # Show first 10 chars only
-          echo "TELEGRAM_CHAT_ID: $TELEGRAM_CHAT_ID"
-          echo "TELEGRAM_TOPIC_ID: $TELEGRAM_TOPIC_ID"
-          
           # Fallback ke environment variables dari .env jika GitHub Secrets kosong
           if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ -n "$BOT_TOKEN" ]; then
             TELEGRAM_BOT_TOKEN="$BOT_TOKEN"
@@ -115,14 +109,14 @@ jobs:
             echo "🔄 Using DEPLOY_CHAT_ID from .env file"
           fi
           
-          # Check if we have required variables
+          # Check if we have required variables (dengan secure validation)
           if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-            echo "❌ Missing required variables:"
-            [ -z "$TELEGRAM_BOT_TOKEN" ] && echo "  - TELEGRAM_BOT_TOKEN is empty"
-            [ -z "$TELEGRAM_CHAT_ID" ] && echo "  - TELEGRAM_CHAT_ID is empty"
-            echo "⚠️ Skipping Telegram notification"
+            echo "❌ Missing required Telegram credentials"
+            echo "⚠️ Skipping Telegram notification (credentials not configured)"
             exit 0
           fi
+          
+          echo "✅ Telegram credentials found, proceeding with notification..."
 
           # Get git information
           GIT_INFO=$(git log -1 --pretty=format:"%s|%h|%an|%ar")
@@ -145,28 +139,32 @@ jobs:
           # Send notification with proper error handling
           echo "📤 Sending Telegram notification..."
           
+          # Mask sensitive data untuk security
+          set +x  # Disable command echoing untuk hide curl command
+          
           if [ -n "$TELEGRAM_TOPIC_ID" ]; then
             RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST "$TELEGRAM_API" \
               -d chat_id="$TELEGRAM_CHAT_ID" \
               -d message_thread_id="$TELEGRAM_TOPIC_ID" \
               -d text="$MSG" \
-              -d parse_mode="HTML")
+              -d parse_mode="HTML" 2>/dev/null)
           else
             RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST "$TELEGRAM_API" \
               -d chat_id="$TELEGRAM_CHAT_ID" \
               -d text="$MSG" \
-              -d parse_mode="HTML")
+              -d parse_mode="HTML" 2>/dev/null)
           fi
           
-          # Parse response
-          HTTP_BODY=$(echo $RESPONSE | sed -E 's/HTTPSTATUS\:[0-9]{3}$//')
+          set -x  # Re-enable command echoing
+          
+          # Parse response (without showing full response for security)
           HTTP_STATUS=$(echo $RESPONSE | tr -d '\n' | sed -E 's/.*HTTPSTATUS:([0-9]{3})$/\1/')
           
           if [ "$HTTP_STATUS" -eq 200 ]; then
             echo "✅ Deployment notification sent successfully to Telegram"
           else
             echo "❌ Failed to send Telegram notification. HTTP Status: $HTTP_STATUS"
-            echo "Response: $HTTP_BODY"
+            echo "⚠️ Check your Telegram bot token and chat ID configuration"
           fi
 
       - name: Notify deployment failure via Telegram
@@ -211,21 +209,26 @@ jobs:
           MSG="${MSG}🔗 <b>Commit:</b> <code>$COMMIT_HASH</code>%0A%0A"
           MSG="${MSG}🔍 Cek GitHub Actions logs untuk detail error."
 
-          # Send failure notification
+          # Send failure notification dengan security
           echo "📤 Sending failure notification..."
+          
+          # Mask sensitive operations
+          set +x
           
           if [ -n "$TELEGRAM_TOPIC_ID" ]; then
             RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST "$TELEGRAM_API" \
               -d chat_id="$TELEGRAM_CHAT_ID" \
               -d message_thread_id="$TELEGRAM_TOPIC_ID" \
               -d text="$MSG" \
-              -d parse_mode="HTML")
+              -d parse_mode="HTML" 2>/dev/null)
           else
             RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST "$TELEGRAM_API" \
               -d chat_id="$TELEGRAM_CHAT_ID" \
               -d text="$MSG" \
-              -d parse_mode="HTML")
+              -d parse_mode="HTML" 2>/dev/null)
           fi
+          
+          set -x
           
           HTTP_STATUS=$(echo $RESPONSE | tr -d '\n' | sed -E 's/.*HTTPSTATUS:([0-9]{3})$/\1/')
           
