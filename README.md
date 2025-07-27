@@ -42,7 +42,7 @@ For a complete list of commands and features, see [COMMANDS.md](COMMANDS.md).
 - **Python 3.8+** - Core language
 - **python-telegram-bot v21** - Telegram API wrapper with async support
 - **Google Gemini 2.5 Flash** - Primary AI language model
-- **SQLite/PostgreSQL** - Database storage
+- **MySQL** - Database storage
 - **ChromaDB** - Vector database for RAG implementation
 - **HuggingFace Models** - Emotion detection and NLP tasks
 - **aiohttp** - Async HTTP client for API interactions
@@ -134,6 +134,9 @@ The bot will automatically:
 - Rotate to the next key when rate limits are reached
 - Track usage and distribute load across keys
 - Fall back gracefully if all keys are exhausted
+
+### Database Configuration
+Read on [Database Configuration](DATABASE_SETUP) for detailed instructions on setting up your database.
 
 ## 🚀 Deployment Options
 
