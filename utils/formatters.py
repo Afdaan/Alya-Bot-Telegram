@@ -264,39 +264,15 @@ def format_response(
     main_message = paragraphs[0] if paragraphs else message
     optional_messages = paragraphs[1:] if len(paragraphs) > 1 else []
 
-    # --- PATCH: Remove optional paragraphs that are similar to main_message ---
+    # Remove duplicate optionals
     filtered_optionals = []
     for opt_msg in optional_messages:
-        # Use similarity ratio, threshold 0.85
         ratio = difflib.SequenceMatcher(None, main_message.lower(), opt_msg.lower()).ratio()
         if ratio < 0.85:
             filtered_optionals.append(opt_msg)
-    # Only keep the first non-duplicate optional
     optional_messages = filtered_optionals[:1]
-    # --- END PATCH ---
 
-    # Emoji magic - limit to MAX_EMOJI_PER_RESPONSE per settings.py
-    mood_emoji_mapping = {
-        "neutral": ["✨", "💭", "🌸", "💫"],
-        "happy": ["😊", "💕", "✨", "🌟"],
-        "sad": ["😔", "💔", "🥺", "💧"],
-        "surprised": ["😳", "⁉️", "🙀", "❗"],
-        "angry": ["😤", "💢", "😠", "🔥"],
-        "dere_caring": ["💕", "🥰", "💖", "✨"],
-        "tsundere_cold": ["😒", "💢", "❄️", "🙄"],
-        "tsundere_defensive": ["😳", "💥", "🔥", "❗"],
-        "academic_serious": ["📝", "🎓", "📚", "🧐"],
-        "apologetic_sincere": ["🙇‍♀️", "😔", "🙏", "💔"],
-        "happy_genuine": ["🥰", "💓", "✨", "🌟"],
-        "surprised_genuine": ["😳", "⁉️", "💫", "❗"],
-        "default": ["✨", "💫"]
-    }
-    current_mood = mood if mood != "default" else "neutral"
-    mood_emojis = mood_emoji_mapping.get(current_mood, mood_emoji_mapping["default"])
-    emoji_count = min(MAX_EMOJI_PER_RESPONSE, 2)
-    emoji_positions = ["start", "end"][:emoji_count]
-
-    # Roleplay formatting (only once, not per paragraph)
+    # Roleplay formatting
     roleplay = existing_roleplay
     if not roleplay and FORMAT_ROLEPLAY:
         expressions = persona.get("emotions", {}).get(mood if mood != "default" else "neutral", {}).get("expressions", [])
@@ -307,20 +283,23 @@ def format_response(
     if roleplay:
         roleplay = f"<i>{escape_html(roleplay)}</i>"
 
-    # Main message formatting (emoji only here)
+    # --- EMOJI LOGIC PATCH ---
+    # Remove all static emoji injection, let Gemini/AI handle emoji placement
+    # If Gemini response already contains emoji, do not inject any
+    # If no emoji present and fallback needed, inject only if allowed by config
+    def contains_emoji(text: str) -> bool:
+        return any(char in emoji.UNICODE_EMOJI for char in text)
+
     main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_message)
-    main_content = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', main_content)
+    main_content = re.sub(r'([A-ZaZ]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', main_content)
     main_content = escape_html(main_content)
 
-    # Add emojis only at start/end, respecting MAX_EMOJI_PER_RESPONSE
-    for idx, position in enumerate(emoji_positions):
-        emoji_ = mood_emojis[idx % len(mood_emojis)]
-        if position == "start":
-            main_content = f"{emoji_} {main_content}"
-        elif position == "end":
-            main_content = f"{main_content} {emoji_}"
+    # Only inject fallback emoji if Gemini response has none and config allows
+    fallback_emoji = "✨"
+    if not contains_emoji(main_content) and FORMAT_EMOTION:
+        main_content = f"{main_content} {fallback_emoji}"
 
-    # Only 1 optional paragraph, no emoji, no roleplay
+    # Format optionals
     formatted_optionals = []
     if optional_messages:
         opt_msg = optional_messages[0]
@@ -342,8 +321,7 @@ def format_response(
         except Exception as e:
             logger.warning(f"Failed to load emotion_display.yml: {e}")
             chosen = mood.replace("_", " ")
-        mood_emoji = random.choice(mood_emoji_mapping.get(mood, ["✨"]))
-        mood_display = f"{mood_emoji} <i>{escape_html(chosen)}</i>"
+        mood_display = f"<i>{escape_html(chosen)}</i>"
 
     result = []
     if roleplay:
@@ -354,7 +332,6 @@ def format_response(
     if mood_display:
         result.append(mood_display)
 
-    # Gabungkan dan bersihkan HTML entity/tag, hapus duplikat/whitespace
     final = '\n\n'.join([r for r in result if r and r.strip()])
     return clean_html_entities(final)
 
