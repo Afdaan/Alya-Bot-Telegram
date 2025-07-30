@@ -283,21 +283,12 @@ def format_response(
     if roleplay:
         roleplay = f"<i>{escape_html(roleplay)}</i>"
 
-    # --- EMOJI LOGIC PATCH ---
-    # Remove all static emoji injection, let Gemini/AI handle emoji placement
-    # If Gemini response already contains emoji, do not inject any
-    # If no emoji present and fallback needed, inject only if allowed by config
     def contains_emoji(text: str) -> bool:
         return any(emoji.is_emoji(char) for char in text)
 
     main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_message)
     main_content = re.sub(r'([A-ZaZ]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', main_content)
     main_content = escape_html(main_content)
-
-    # Only inject fallback emoji if Gemini response has none and config allows
-    fallback_emoji = "✨"
-    if not contains_emoji(main_content) and FORMAT_EMOTION:
-        main_content = f"{main_content} {fallback_emoji}"
 
     # Format optionals
     formatted_optionals = []
