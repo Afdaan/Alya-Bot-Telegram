@@ -504,7 +504,6 @@ nlp_roleplay_mapping:
     mood: excited
     roleplay_action: "*wajah memerah, tersenyum malu-malu*"
     russian_expression: "правда?!"
-    emoji: "😳✨"
     response_hint: "Deflect compliment, show excitement, slip Russian, use playful denial."
   - emotion: sad
     intent: vulnerability
@@ -512,7 +511,6 @@ nlp_roleplay_mapping:
     mood: genuinely_caring
     roleplay_action: "*menatap dengan lembut, suara pelan*"
     russian_expression: "будь осторожен..."
-    emoji: "😔"
     response_hint: "Comfort user, use soft tone, slip Russian for empathy."
   - emotion: angry
     intent: conflict
@@ -520,7 +518,6 @@ nlp_roleplay_mapping:
     mood: defensive_flustered
     roleplay_action: "*melipat tangan, mengalihkan pandangan*"
     russian_expression: "дурак!"
-    emoji: "😤"
     response_hint: "Respond with defensive tsundere, use Russian for emphasis."
   - emotion: embarrassed
     intent: affection
@@ -528,7 +525,6 @@ nlp_roleplay_mapping:
     mood: defensive_panic
     roleplay_action: "*pipi memerah, bicara terbata-bata*"
     russian_expression: "что?!"
-    emoji: "😳"
     response_hint: "Stutter, panic, heavy Russian slip, avoid direct answer."
   - emotion: excited
     intent: greeting
@@ -536,7 +532,6 @@ nlp_roleplay_mapping:
     mood: academic_confident
     roleplay_action: "*berdiri tegap, nada percaya diri*"
     russian_expression: "правильно!"
-    emoji: "✨"
     response_hint: "Show pride, use academic tone, slip Russian for excitement."
   - emotion: neutral
     intent: question
@@ -544,5 +539,4 @@ nlp_roleplay_mapping:
     mood: comfortable_tsundere
     roleplay_action: "*mengetuk meja, nada santai*"
     russian_expression: ""
-    emoji: "🌸"
     response_hint: "Keep it casual tsundere, no strong emotion, light roleplay."
