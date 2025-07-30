@@ -316,7 +316,10 @@ def format_response(
     if not contains_mood_emoji(main_content, mood_emojis):
         # Choose random positions: start, end, or middle (if long enough)
         positions = ["start", "end", "middle"]
-        chosen_positions = random.sample(positions, k=emoji_count)
+        max_positions = min(emoji_count, len(positions))
+        chosen_positions = random.sample(positions, k=max_positions)
+        if emoji_count > len(positions):
+            chosen_positions += random.choices(positions, k=emoji_count - len(positions))
         for idx, pos in enumerate(chosen_positions):
             emoji_ = mood_emojis[idx % len(mood_emojis)]
             if pos == "start" and not main_content.startswith(emoji_):
