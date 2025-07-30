@@ -314,24 +314,33 @@ def format_response(
 
     # Only inject emoji if not already present
     if not contains_mood_emoji(main_content, mood_emojis):
-        # Choose random positions: start, end, or middle (if long enough)
-        positions = ["start", "end", "middle"]
+        positions = ["start", "end"]
+        if len(main_content.split()) > 4:
+            positions.append("middle")
         max_positions = min(emoji_count, len(positions))
         chosen_positions = random.sample(positions, k=max_positions)
         if emoji_count > len(positions):
-            chosen_positions += random.choices(positions, k=emoji_count - len(positions))
+            # Tambah random posisi tanpa duplikasi
+            extra_positions = random.choices(positions, k=emoji_count - len(positions))
+            for pos in extra_positions:
+                if pos not in chosen_positions:
+                    chosen_positions.append(pos)
+        used_positions = set()
         for idx, pos in enumerate(chosen_positions):
             emoji_ = mood_emojis[idx % len(mood_emojis)]
-            if pos == "start" and not main_content.startswith(emoji_):
+            if pos == "start" and "start" not in used_positions and not main_content.startswith(emoji_):
                 main_content = f"{emoji_} {main_content}"
-            elif pos == "end" and not main_content.endswith(emoji_):
+                used_positions.add("start")
+            elif pos == "end" and "end" not in used_positions and not main_content.endswith(emoji_):
                 main_content = f"{main_content} {emoji_}"
-            elif pos == "middle":
+                used_positions.add("end")
+            elif pos == "middle" and "middle" not in used_positions:
                 words = main_content.split()
                 if len(words) > 2:
                     mid = len(words) // 2
                     words.insert(mid, emoji_)
                     main_content = " ".join(words)
+                    used_positions.add("middle")
 
     # Format optionals
     formatted_optionals = []
