@@ -2,13 +2,13 @@ import logging
 import os
 import tempfile
 import time
-from typing import Any, Dict
 
 from telegram import Update, BotCommand
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes, MessageHandler, filters, CommandHandler
 
 from config.settings import SAUCENAO_PREFIX
+from database.database_manager import db_manager, get_user_lang
 from utils.saucenao import SauceNAOSearcher, SauceNAOError
 from utils.search_engine import search_web
 from utils.analyze import MediaAnalyzer
@@ -29,52 +29,10 @@ from handlers.response.search import (
 
 logger = logging.getLogger(__name__)
 
-# Helper function to get user's language preference
-def get_user_lang(user_id: int, db_manager: Any) -> str:
-    """Gets user language preference from the database."""
-    if db_manager:
-        user_settings = db_manager.get_user_settings(user_id)
-        if user_settings and user_settings.get('language'):
-            return user_settings['language']
-    return 'id'  # Default to Indonesian
-
-# Centralized response getter for simple text responses
-def get_response(command: str, user_id: int, db_manager: Any, **kwargs) -> str:
-    """
-    Gets a response in the user's preferred language.
-    This is for simple, non-complex responses.
-    """
-    lang = get_user_lang(user_id, db_manager)
-    
-    response_functions = {
-        "start": get_start_response,
-        "help": get_help_response,
-        "ping": get_ping_response,
-        "stats": get_stats_response,
-        "lang": get_lang_response,
-        "analyze": analyze_response,
-        "reset": get_reset_response,
-        "reset_confirmation": get_reset_confirmation_response,
-        "search_usage": search_usage_response,
-        "search_error": search_error_response,
-        "search_results": format_search_results,
-    }
-
-    response_function = response_functions.get(command)
-    
-    if response_function:
-        # Pass lang to all response functions that accept it
-        func_args = response_function.__code__.co_varnames
-        if 'lang' in func_args:
-            kwargs['lang'] = lang
-        
-        # Remove args not needed by the function
-        final_kwargs = {k: v for k, v in kwargs.items() if k in func_args}
-        
-        return response_function(**final_kwargs)
-    
-    logger.warning(f"No response function found for command: {command}")
-    return get_system_error_response(lang)
+# The get_response dispatcher function has been removed.
+# It was causing async/await issues and was overly complex.
+# Each command handler now directly fetches the user's language
+# and calls the appropriate response function for better clarity and stability.
 
 
 class CommandsHandler:
@@ -136,7 +94,6 @@ class CommandsHandler:
         """Handles both replied-to images and captioned images for SauceNAO."""
         message = update.effective_message
         user = update.effective_user
-        db_manager = context.bot_data.get("db_manager")
         lang = get_user_lang(user.id, db_manager)
         sauce_texts = get_sauce_texts(lang)
 
@@ -194,8 +151,8 @@ class CommandsHandler:
         message = update.effective_message
         text = message.text.replace("!ask", "", 1).strip()
         if not text and update.effective_chat.type in ["group", "supergroup"]:
-            db_manager = context.bot_data.get("db_manager")
-            response = get_response("analyze", update.effective_user.id, db_manager)
+            lang = get_user_lang(update.effective_user.id, db_manager)
+            response = analyze_response(lang=lang)
             await message.reply_html(response, reply_to_message_id=message.message_id)
             return
         context.args = text.split() if text else []
@@ -222,23 +179,25 @@ class CommandsHandler:
             logger.warning(f"Failed to send chat action: {e}")
 
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /ping command to check bot latency."""
     start_time = time.time()
-    db_manager = context.bot_data.get("db_manager")
     lang = get_user_lang(update.effective_user.id, db_manager)
     
-    ping_message = "Pinging..." if lang == 'id' else "Pinging..."
-    message = await update.message.reply_text(ping_message)
+    # The initial message is simple and language-agnostic.
+    # The final response will be in the user's language.
+    message = await update.message.reply_text("Pinging...")
     
     end_time = time.time()
     latency = (end_time - start_time) * 1000
     
-    response = get_response("ping", update.effective_user.id, db_manager, latency=latency)
+    response = get_ping_response(lang=lang, latency=latency)
     await message.edit_text(response, parse_mode="HTML")
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /start command."""
     user = update.effective_user
-    db_manager = context.bot_data.get("db_manager")
-    response = get_response("start", user.id, db_manager, username=user.first_name)
+    lang = get_user_lang(user.id, db_manager)
+    response = get_start_response(lang=lang, username=user.first_name)
     await update.message.reply_text(response, parse_mode="HTML")
     try:
         await set_bot_commands(context.application)
@@ -246,9 +205,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.error(f"Failed to set bot commands on /start: {e}")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    db_manager = context.bot_data.get("db_manager")
-    response = get_response("help", user.id, db_manager)
+    """Handles the /help command."""
+    lang = get_user_lang(update.effective_user.id, db_manager)
+    response = get_help_response(lang=lang)
     await update.message.reply_text(response, parse_mode="HTML")
     try:
         await set_bot_commands(context.application)
@@ -258,72 +217,69 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /reset command to clear user's conversation history."""
     user_id = update.effective_user.id
-    db_manager = context.bot_data.get("db_manager")
+    lang = get_user_lang(user_id, db_manager)
     
     if not db_manager:
-        lang = get_user_lang(user_id, None)
-        logger.error("Database manager not found in bot_data for reset command")
+        logger.error("Database manager not found for reset command.")
         await update.message.reply_html(get_system_error_response(lang))
         return
 
     if context.args and context.args[0].lower() == 'confirm':
         try:
             success = db_manager.reset_user_conversation(user_id)
-            response_key = "reset"
-            kwargs = {'success': success}
+            response = get_reset_response(lang=lang, success=success)
             if success:
                 logger.info(f"Successfully reset conversation history for user {user_id}")
             else:
                 logger.warning(f"Reset conversation history failed for user {user_id}, db returned false")
         except Exception as e:
             logger.error(f"Error resetting conversation history for user {user_id}: {e}")
-            response_key = "reset"
-            kwargs = {'success': False}
+            response = get_reset_response(lang=lang, success=False)
         
-        response = get_response(response_key, user_id, db_manager, **kwargs)
         await update.message.reply_html(response)
     else:
-        response = get_response("reset_confirmation", user_id, db_manager)
+        response = get_reset_confirmation_response(lang=lang)
         await update.message.reply_html(response)
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    db_manager = context.bot_data.get("db_manager")
-    user_id = update.effective_user.id
-    # The user_id is already passed as the second argument to get_response
-    response = get_response("stats", user_id, db_manager)
+    """Handles the /stats command to show bot statistics."""
+    lang = get_user_lang(update.effective_user.id, db_manager)
+    try:
+        stats = db_manager.get_stats()
+        response = get_stats_response(lang=lang, stats=stats)
+    except Exception as e:
+        logger.error(f"Error fetching stats: {e}")
+        response = get_system_error_response(lang)
     await update.message.reply_html(response)
 
 async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /lang command to change user's language preference."""
     user_id = update.effective_user.id
-    db_manager = context.bot_data.get("db_manager")
+    current_lang = get_user_lang(user_id, db_manager)
     
     if not db_manager:
-        lang = get_user_lang(user_id, None)
-        logger.error("Database manager not found in bot_data for lang command")
-        await update.message.reply_html(get_system_error_response(lang))
+        logger.error("Database manager not found for lang command.")
+        await update.message.reply_html(get_system_error_response(current_lang))
         return
-
-    current_lang = get_user_lang(user_id, db_manager)
     
     if context.args:
         new_lang = context.args[0].lower()
         if new_lang in ['en', 'id']:
             try:
                 db_manager.update_user_settings(user_id, {'language': new_lang})
-                # We need to pass the new_lang to get the confirmation message correctly
                 response = get_lang_response(lang=new_lang, new_lang=new_lang, current_lang=current_lang)
                 logger.info(f"User {user_id} changed language to {new_lang}")
-                # Update bot commands to reflect the new language
                 await set_bot_commands(context.application, lang=new_lang)
             except Exception as e:
                 logger.error(f"Failed to update language for user {user_id}: {e}")
                 response = get_system_error_response(current_lang)
         else:
-            response = get_lang_response(lang=current_lang, current_lang=current_lang) # Show usage
+            # Show usage if the provided language is invalid
+            response = get_lang_response(lang=current_lang, current_lang=current_lang)
     else:
-        response = get_lang_response(lang=current_lang, current_lang=current_lang) # Show current lang and usage
+        # Show current language and usage if no argument is provided
+        response = get_lang_response(lang=current_lang, current_lang=current_lang)
         
     await update.message.reply_html(response)
 
@@ -331,7 +287,7 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /search command with bilingual support."""
     user = update.effective_user
-    db_manager = context.bot_data.get("db_manager")
+    lang = get_user_lang(user.id, db_manager)
 
     args = context.args if context.args else []
     search_type = None
@@ -349,7 +305,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     query = " ".join(args) if args else ""
     if not query:
-        usage_text = get_response("search_usage", user.id, db_manager)
+        usage_text = search_usage_response(lang=lang)
         await update.message.reply_html(usage_text)
         return
 
@@ -364,10 +320,8 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         show_username_tip = search_type == 'profile' and (not search_results or len(search_results) < 2)
         
-        response_text = get_response(
-            "search_results",
-            user.id,
-            db_manager,
+        response_text = format_search_results(
+            lang=lang,
             query=query,
             results=search_results,
             search_type=search_type,
@@ -378,7 +332,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     except Exception as e:
         logger.error(f"Search error for query '{query}': {e}")
-        error_text = get_response("search_error", user.id, db_manager, error_message=str(e))
+        error_text = search_error_response(lang=lang, error_message=str(e))
         await update.message.reply_html(error_text)
 
 async def set_bot_commands(application, lang='en') -> None:

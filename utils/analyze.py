@@ -10,8 +10,7 @@ from telegram.ext import ContextTypes
 
 from core.persona import PersonaManager
 from core.gemini_client import GeminiClient
-from database.database_manager import db_manager
-from handlers.commands import get_user_lang
+from database.database_manager import db_manager, get_user_lang
 from handlers.response.system import get_system_error_response
 
 logger = logging.getLogger(__name__)

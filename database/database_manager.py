@@ -41,6 +41,25 @@ def get_role_by_relationship_level(relationship_level: int, is_admin: bool = Fal
     return RELATIONSHIP_ROLE_NAMES.get(relationship_level, "Stranger")
 
 
+def get_user_lang(user_id: int, db_manager: Any) -> str:
+    """
+    Gets a user's preferred language from the database.
+
+    Args:
+        user_id: The ID of the user.
+        db_manager: The instance of the database manager.
+
+    Returns:
+        The user's language code ('id' or 'en'), defaulting to 'id'.
+    """
+    if db_manager:
+        user_settings = db_manager.get_user_settings(user_id)
+        # The settings are now in a flat dictionary, not nested
+        if user_settings and user_settings.get('language'):
+            return user_settings['language']
+    return 'id'
+
+
 class DatabaseManager:
     """
     Enterprise-grade MySQL database manager using SQLAlchemy.
@@ -97,7 +116,7 @@ class DatabaseManager:
         finally:
             session.close()
 
-    def get_user_settings(self, user_id: int) -> Optional[Dict[str, Any]]:
+    def get_user_settings(self, user_id: int) -> Dict[str, Any]:
         """
         Retrieves user-specific settings, such as language preference.
 
@@ -105,17 +124,18 @@ class DatabaseManager:
             user_id: The user's Telegram ID.
 
         Returns:
-            A dictionary with user settings or None if not found.
+            A dictionary with user settings or an empty dict if not found.
         """
         try:
             with db_session_context() as session:
                 settings = session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
-                if settings:
-                    return {"language": settings.language}
-                return None
+                if settings and settings.preferences:
+                    # Return the preferences dictionary directly
+                    return settings.preferences
+                return {}
         except Exception as e:
             logger.error(f"Error getting user settings for {user_id}: {e}")
-            return None
+            return {}
 
     def reset_user_conversation(self, user_id: int) -> bool:
         """

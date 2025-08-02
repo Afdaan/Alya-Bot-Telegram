@@ -21,11 +21,10 @@ from config.settings import (
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from core.memory import MemoryManager
-from database.database_manager import db_manager
+from database.database_manager import db_manager, get_user_lang
 from core.nlp import NLPEngine, ContextManager
 from utils.formatters import format_response, format_error_response, format_paragraphs
 from utils.roast import RoastHandler
-from handlers.commands import get_user_lang # Import the helper
 
 logger = logging.getLogger(__name__)
 
