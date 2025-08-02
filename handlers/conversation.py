@@ -91,7 +91,7 @@ class ConversationHandler:
     async def chat_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         message_text = update.message.text
-        lang = get_user_lang(user.id, self.db) # Get user language
+        lang = get_user_lang(user.id) # Get user language
 
         reply_context = ""
         is_reply_to_alya = False
