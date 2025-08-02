@@ -18,6 +18,7 @@ from handlers.response.start import start_response
 from handlers.response.ping import ping_response
 from handlers.response.stats import stats_response
 from handlers.response.analyze import analyze_response
+from handlers.response.reset import reset_response
 from handlers.language import lang_command
 from database.database_manager import DatabaseManager
 from core.language_manager import language_manager
@@ -225,6 +226,9 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
+    # Get user language preference
+    user_language = db_manager.get_user_language(user.id)
+
     success = memory_manager.reset_conversation_context(user.id)
     if success:
         memory_manager.store_message(
@@ -236,18 +240,10 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         user_data = db_manager.get_user_relationship_info(user.id)
         relationship = user_data.get("relationship", {})
         friendship_level = relationship.get("name", "stranger").lower() if relationship else "stranger"
-        if friendship_level == "close_friend":
-            response = (
-                "Baiklah, aku sudah melupakan percakapan kita sebelumnya~ Tapi tentu saja aku masih ingat siapa kamu! ✨"
-            )
-        elif friendship_level == "friend":
-            response = (
-                "Hmph! Jadi kamu ingin memulai dari awal? Baiklah, aku sudah reset percakapan kita! 😳"
-            )
-        else:
-            response = (
-                "Percakapan kita sudah direset. A-aku harap kita bisa bicara lebih baik kali ini... b-bukan berarti aku peduli atau apa! 💫"
-            )
+        
+        # Use the response handler
+        from handlers.response.reset import reset_response
+        response = reset_response(friendship_level=friendship_level, language=user_language)
         await update.message.reply_text(format_response(response))
         memory_manager.store_message(
             user_id=user.id,
