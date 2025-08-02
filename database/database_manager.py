@@ -66,6 +66,37 @@ class DatabaseManager:
             logger.error("Database connection failed during initialization")
             raise ConnectionError("Unable to connect to MySQL database")
     
+    def update_user_settings(self, user_id: int, new_settings: Dict[str, Any]) -> None:
+        """
+        Update user settings in the database.
+        This method fetches existing settings, merges them with new ones,
+        and saves the result.
+
+        Args:
+            user_id: The user's ID.
+            new_settings: A dictionary with the settings to update.
+        """
+        session = self.Session()
+        try:
+            user_settings = session.query(UserSettings).filter_by(user_id=user_id).first()
+            if user_settings:
+                # Correctly merge JSON data
+                current_preferences = user_settings.preferences or {}
+                current_preferences.update(new_settings)
+                user_settings.preferences = current_preferences
+            else:
+                # If no settings exist, create a new record
+                user_settings = UserSettings(user_id=user_id, preferences=new_settings)
+                session.add(user_settings)
+            
+            session.commit()
+            logger.info(f"Successfully updated settings for user {user_id}")
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to update user settings for {user_id}: {e}", exc_info=True)
+        finally:
+            session.close()
+
     def get_user_settings(self, user_id: int) -> Optional[Dict[str, Any]]:
         """
         Retrieves user-specific settings, such as language preference.
@@ -85,34 +116,6 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting user settings for {user_id}: {e}")
             return None
-
-    def update_user_settings(self, user_id: int, settings: Dict[str, Any]) -> bool:
-        """
-        Updates or creates user-specific settings.
-
-        Args:
-            user_id: The user's Telegram ID.
-            settings: A dictionary containing the settings to update (e.g., {'language': 'en'}).
-
-        Returns:
-            True if successful, False otherwise.
-        """
-        try:
-            with db_session_context() as session:
-                user_settings = session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
-                if not user_settings:
-                    user_settings = UserSettings(user_id=user_id)
-                    session.add(user_settings)
-                
-                if 'language' in settings:
-                    user_settings.language = settings['language']
-                
-                session.commit()
-                logger.info(f"Successfully updated settings for user {user_id}")
-                return True
-        except Exception as e:
-            logger.error(f"Error updating user settings for {user_id}: {e}")
-            return False
 
     def reset_user_conversation(self, user_id: int) -> bool:
         """

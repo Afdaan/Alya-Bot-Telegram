@@ -290,8 +290,43 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     db_manager = context.bot_data.get("db_manager")
     user_id = update.effective_user.id
-    response = get_response("stats", user_id, db_manager, user_id=user_id)
+    # The user_id is already passed as the second argument to get_response
+    response = get_response("stats", user_id, db_manager)
     await update.message.reply_html(response)
+
+async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /lang command to change user's language preference."""
+    user_id = update.effective_user.id
+    db_manager = context.bot_data.get("db_manager")
+    
+    if not db_manager:
+        lang = get_user_lang(user_id, None)
+        logger.error("Database manager not found in bot_data for lang command")
+        await update.message.reply_html(get_system_error_response(lang))
+        return
+
+    current_lang = get_user_lang(user_id, db_manager)
+    
+    if context.args:
+        new_lang = context.args[0].lower()
+        if new_lang in ['en', 'id']:
+            try:
+                db_manager.update_user_settings(user_id, {'language': new_lang})
+                # We need to pass the new_lang to get the confirmation message correctly
+                response = get_lang_response(lang=new_lang, new_lang=new_lang, current_lang=current_lang)
+                logger.info(f"User {user_id} changed language to {new_lang}")
+                # Update bot commands to reflect the new language
+                await set_bot_commands(context.application, lang=new_lang)
+            except Exception as e:
+                logger.error(f"Failed to update language for user {user_id}: {e}")
+                response = get_system_error_response(current_lang)
+        else:
+            response = get_lang_response(lang=current_lang, current_lang=current_lang) # Show usage
+    else:
+        response = get_lang_response(lang=current_lang, current_lang=current_lang) # Show current lang and usage
+        
+    await update.message.reply_html(response)
+
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /search command with bilingual support."""
@@ -346,42 +381,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         error_text = get_response("search_error", user.id, db_manager, error_message=str(e))
         await update.message.reply_html(error_text)
 
-async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles the /lang command to change user language."""
-    user_id = update.effective_user.id
-    db_manager = context.bot_data.get("db_manager")
-    
-    if not db_manager:
-        lang = get_user_lang(user_id, None)
-        logger.error("Database manager not found in bot_data")
-        await update.message.reply_text(get_system_error_response(lang))
-        return
-
-    if not context.args:
-        response = get_response("lang", user_id, db_manager, usage=True)
-        await update.message.reply_html(response)
-        return
-
-    new_lang = context.args[0].lower()
-    if new_lang not in ['id', 'en']:
-        response = get_response("lang", user_id, db_manager, usage=True)
-        await update.message.reply_html(response)
-        return
-
-    try:
-        db_manager.update_user_settings(user_id, {'language': new_lang})
-        # We need to call get_lang_response directly here since get_response uses the old lang
-        response = get_lang_response(lang=new_lang, new_lang=new_lang)
-        await update.message.reply_html(response)
-        logger.info(f"User {user_id} changed language to {new_lang}")
-        # Update commands for the new language
-        await set_bot_commands(context.application)
-    except Exception as e:
-        logger.error(f"Failed to update language for user {user_id}: {e}")
-        lang = get_user_lang(user_id, db_manager)
-        await update.message.reply_text(get_system_error_response(lang))
-
-async def set_bot_commands(application) -> None:
+async def set_bot_commands(application, lang='en') -> None:
     """Sets the bot commands based on user language."""
     # This function can be expanded to set commands in different languages
     # For now, we'll set them in English as a default
