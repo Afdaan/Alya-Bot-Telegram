@@ -120,8 +120,8 @@ class ConversationHandler:
             is_admin = self._create_or_update_user(user)
             
             # Retrieve relevant context from memory
-            user_context = self.context_manager.recall_relevant_context(
-                user.id, message_text
+            user_context = self.context_manager.get_context_window(
+                user.id
             )
 
             # Get relationship level
