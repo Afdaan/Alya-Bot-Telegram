@@ -16,7 +16,8 @@ from config.settings import (
     RELATIONSHIP_LEVELS,
     AFFECTION_POINTS,
     RELATIONSHIP_ROLE_NAMES,
-    ADMIN_IDS
+    ADMIN_IDS,
+    DEFAULT_LANGUAGE
 )
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ class DatabaseManager:
                         username=username or None,
                         first_name=first_name or None,
                         last_name=last_name or None,
-                        language_code="id",
+                        language_code=DEFAULT_LANGUAGE,
                         created_at=datetime.now(),
                         last_interaction=datetime.now(),
                         is_active=True,
@@ -107,7 +108,7 @@ class DatabaseManager:
                         interaction_count=0,
                         preferences={
                             "notification_enabled": True,
-                            "preferred_language": "id",
+                            "preferred_language": DEFAULT_LANGUAGE,
                             "persona": "waifu",
                             "timezone": "Asia/Jakarta"
                         },
@@ -189,7 +190,7 @@ class DatabaseManager:
                         username=None,
                         first_name=f"User{user_id}",
                         last_name=None,
-                        language_code="id",
+                        language_code=DEFAULT_LANGUAGE,
                         created_at=datetime.now(),
                         last_interaction=datetime.now(),
                         is_active=True,
@@ -198,7 +199,7 @@ class DatabaseManager:
                         interaction_count=0,
                         preferences={
                             "notification_enabled": True,
-                            "preferred_language": "id",
+                            "preferred_language": DEFAULT_LANGUAGE,
                             "persona": "waifu",
                             "timezone": "Asia/Jakarta"
                         },
@@ -743,7 +744,7 @@ class DatabaseManager:
                         username=username or None,
                         first_name=first_name or f"User{user_id}",
                         last_name=last_name or None,
-                        language_code="id",
+                        language_code=DEFAULT_LANGUAGE,
                         created_at=datetime.now(),
                         last_interaction=datetime.now(),
                         is_active=True,
@@ -752,7 +753,7 @@ class DatabaseManager:
                         interaction_count=0,
                         preferences={
                             "notification_enabled": True,
-                            "preferred_language": "id",
+                            "preferred_language": DEFAULT_LANGUAGE,
                             "persona": "waifu",
                             "timezone": "Asia/Jakarta"
                         },
