@@ -126,7 +126,14 @@ class ConversationHandler:
             relationship_level = self._get_relationship_level(user.id)
 
             # Inject persona prompt
-            system_prompt = self.persona.get_full_system_prompt()
+            system_prompt = self.persona.get_chat_prompt(
+                username=user.first_name,
+                message=message_text,
+                context="\n".join([str(c) for c in user_context]) if user_context else "",
+                relationship_level=relationship_level,
+                is_admin=is_admin,
+                lang=lang
+            )
 
             # Generate response using Gemini
             response_text = await self.gemini.generate_response(
