@@ -157,7 +157,7 @@ class ConversationHandler:
             self.db.save_message(user.id, "user", query)
             self.memory.save_user_message(user.id, query)
             self.context_manager.apply_sliding_window(user.id)
-            user_context = await self._prepare_conversation_context(user, query)
+            user_context = await self._prepare_conversation_context(user, query, lang)
             history = self.context_manager.get_context_window(user.id)
             response = await self.gemini.generate_response(
                 user_id=user.id,
@@ -166,13 +166,13 @@ class ConversationHandler:
                 context=user_context["system_prompt"],
                 relationship_level=user_context["relationship_level"],
                 is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
-                lang=get_user_lang(user.id),
+                lang=lang,
                 retry_count=3,
                 is_media_analysis=False,
                 media_context=None
             )
             if response:
-                await self._process_and_send_response(update, user, response, user_context["message_context"])
+                await self._process_and_send_response(update, user, response, user_context["message_context"], lang)
             else:
                 await self._send_error_response(update, user.first_name, lang)
         except Exception as e:
@@ -197,7 +197,7 @@ class ConversationHandler:
         except Exception as e:
             logger.warning(f"Failed to send chat action: {e}")
     
-    async def _prepare_conversation_context(self, user, query: str) -> Dict[str, Any]:
+    async def _prepare_conversation_context(self, user, query: str, lang: str) -> Dict[str, Any]:
         user_task = asyncio.create_task(self._get_user_info(user))
         self.memory.save_user_message(user.id, query)
         relationship_level = self._get_relationship_level(user.id)
@@ -208,7 +208,7 @@ class ConversationHandler:
             context="\n".join([str(c) for c in self.context_manager.get_context_window(user.id)]) if self.context_manager.get_context_window(user.id) else "",
             relationship_level=relationship_level,
             is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
-            lang=get_user_lang(user.id)
+            lang=lang
         )
         # Improved context extraction
         message_context = {}
@@ -291,7 +291,8 @@ Based on this context:
         update: Update, 
         user, 
         response: str, 
-        message_context: Dict[str, Any]
+        message_context: Dict[str, Any],
+        lang: str
     ) -> None:
         self.db.save_message(user.id, "assistant", response)
         self.memory.save_bot_response(user.id, response)
@@ -306,7 +307,8 @@ Based on this context:
             emotion=emotion,
             mood=suggested_mood,
             intensity=intensity,
-            username=user.first_name or "user"
+            username=user.first_name or "user",
+            lang=lang
         )
         formatted_response = format_paragraphs(formatted_response, markdown=False)
         formatted_response = f"{formatted_response}\u200C"
