@@ -252,3 +252,22 @@ Analyze the media content and answer {username}'s question in **{persona_lang.ge
         if 0 <= level < len(relationship_levels):
             return relationship_levels[level]
         return relationship_levels[-1] if relationship_levels else ""
+    
+    def get_roleplay_mapping(self, emotion: str, intent: str, topic: str, mood: str, lang: str = 'id') -> Dict[str, Any]:
+        """Get roleplay mapping from persona YAML based on emotion, intent, topic, and mood."""
+        persona = self.get_persona()
+        persona_lang = persona.get(lang, persona.get('id', {}))
+        mappings = persona.get('nlp_roleplay_mapping', [])
+        for mapping in mappings:
+            if (
+                mapping.get('emotion') == emotion and
+                mapping.get('intent') == intent and
+                (mapping.get('topic') == topic or mapping.get('topic') == 'any') and
+                mapping.get('mood') == mood
+            ):
+                return mapping
+        # Fallback: return first matching by emotion
+        for mapping in mappings:
+            if mapping.get('emotion') == emotion:
+                return mapping
+        return {}

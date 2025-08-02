@@ -243,9 +243,11 @@ def format_response(
     intensity: float = 0.5,
     username: str = "user",
     target_name: Optional[str] = None,
-    persona_name: str = "waifu"
+    persona_name: str = "waifu",
+    roleplay_action: Optional[str] = None,
+    russian_expression: Optional[str] = None
 ) -> str:
-    """Format a bot response with persona, mood, and expressive emoji. Output is valid HTML."""
+    """Format a bot response with persona, mood, expressive emoji, and persona-driven roleplay/action."""
     persona_manager = PersonaManager()
     persona = persona_manager.get_persona(persona_name)
 

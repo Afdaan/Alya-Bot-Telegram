@@ -299,15 +299,27 @@ Based on this context:
         if message_context:
             self._update_affection_from_context(user.id, message_context)
         emotion = message_context.get("emotion", "neutral") if message_context else "neutral"
-        intensity = message_context.get("intensity", 0.5) if message_context else 0.5
-        relationship_level = self._get_relationship_level(user.id)
-        suggested_mood = self.nlp.suggest_mood_for_response(message_context, relationship_level) if self.nlp else "neutral"
+        intent = message_context.get("intent", "") if message_context else ""
+        topic = message_context.get("topic", "any") if message_context else "any"
+        mood = suggested_mood
+        # Ambil roleplay/action mapping dari persona YAML
+        roleplay_mapping = self.persona.get_roleplay_mapping(
+            emotion=emotion,
+            intent=intent,
+            topic=topic,
+            mood=mood,
+            lang=lang
+        )
+        roleplay_action = roleplay_mapping.get("roleplay_action", "")
+        russian_expression = roleplay_mapping.get("russian_expression", "")
         formatted_response = format_response(
             response, 
             emotion=emotion,
             mood=suggested_mood,
             intensity=intensity,
-            username=user.first_name or "user"
+            username=user.first_name or "user",
+            roleplay_action=roleplay_action,
+            russian_expression=russian_expression
         )
         formatted_response = format_paragraphs(formatted_response, markdown=False)
         formatted_response = f"{formatted_response}\u200C"
