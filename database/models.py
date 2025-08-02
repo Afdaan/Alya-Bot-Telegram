@@ -11,6 +11,20 @@ from sqlalchemy.dialects.mysql import LONGTEXT, MEDIUMTEXT
 from database.session import Base
 
 
+class UserSettings(Base):
+    """Stores user-specific settings like language preference."""
+    __tablename__ = 'user_settings'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey('users.id', ondelete='CASCADE'), unique=True, nullable=False, index=True)
+    language = Column(String(5), default='id', nullable=False)
+
+    user = relationship("User", backref="settings")
+
+    def __repr__(self):
+        return f"<UserSettings(user_id={self.user_id}, language='{self.language}')>"
+
+
 class User(Base):
     """User model for storing Telegram user information with relationship tracking."""
     
@@ -196,4 +210,4 @@ class ApiUsage(Base):
     )
     
     def __repr__(self) -> str:
-        return f"<ApiUsage(id={self.id}, provider={self.api_provider}, user_id={self.user_id}, cost={self.estimated_cost_cents}¢)>"
+        return f"<ApiUsage(id={self.id}, provider={self.api_provider}, user_id={self.user_id}, cost={self.estimated_cost_cents}¢>"

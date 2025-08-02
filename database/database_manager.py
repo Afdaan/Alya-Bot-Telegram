@@ -8,8 +8,10 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Union
 
+from sqlalchemy.orm import Session
+
 from database.session import db_session_context, execute_with_session, health_check
-from database.models import User, Conversation, ConversationSummary, ApiUsage
+from database.models import User, Conversation, ConversationSummary, ApiUsage, UserSettings
 from config.settings import (
     MEMORY_EXPIRY_DAYS,
     RELATIONSHIP_THRESHOLDS,
@@ -64,6 +66,86 @@ class DatabaseManager:
             logger.error("Database connection failed during initialization")
             raise ConnectionError("Unable to connect to MySQL database")
     
+    def get_user_settings(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves user-specific settings, such as language preference.
+
+        Args:
+            user_id: The user's Telegram ID.
+
+        Returns:
+            A dictionary with user settings or None if not found.
+        """
+        try:
+            with db_session_context() as session:
+                settings = session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+                if settings:
+                    return {"language": settings.language}
+                return None
+        except Exception as e:
+            logger.error(f"Error getting user settings for {user_id}: {e}")
+            return None
+
+    def update_user_settings(self, user_id: int, settings: Dict[str, Any]) -> bool:
+        """
+        Updates or creates user-specific settings.
+
+        Args:
+            user_id: The user's Telegram ID.
+            settings: A dictionary containing the settings to update (e.g., {'language': 'en'}).
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            with db_session_context() as session:
+                user_settings = session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+                if not user_settings:
+                    user_settings = UserSettings(user_id=user_id)
+                    session.add(user_settings)
+                
+                if 'language' in settings:
+                    user_settings.language = settings['language']
+                
+                session.commit()
+                logger.info(f"Successfully updated settings for user {user_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Error updating user settings for {user_id}: {e}")
+            return False
+
+    def reset_user_conversation(self, user_id: int) -> bool:
+        """
+        Deletes all conversation history for a specific user.
+
+        Args:
+            user_id: The user's Telegram ID.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            with db_session_context() as session:
+                # Delete from Conversation table
+                session.query(Conversation).filter(Conversation.user_id == user_id).delete(synchronize_session=False)
+                
+                # Delete from ConversationSummary table
+                session.query(ConversationSummary).filter(ConversationSummary.user_id == user_id).delete(synchronize_session=False)
+                
+                # Optionally, reset interaction count and topics in User table
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    user.interaction_count = 0
+                    user.topics_discussed = []
+                    user.last_interaction = datetime.now()
+
+                session.commit()
+                logger.info(f"Successfully reset conversation history for user {user_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Error resetting conversation history for user {user_id}: {e}")
+            return False
+
     def _check_health_periodically(self) -> None:
         """Perform periodic health checks to ensure database connectivity."""
         now = datetime.now()
