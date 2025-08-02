@@ -126,7 +126,7 @@ class ConversationHandler:
             relationship_level = self._get_relationship_level(user.id)
 
             # Inject persona prompt
-            system_prompt = self.persona.get_chat_prompt(
+            persona_prompt = self.persona.get_chat_prompt(
                 username=user.first_name,
                 message=message_text,
                 context="\n".join([str(c) for c in user_context]) if user_context else "",
@@ -135,16 +135,18 @@ class ConversationHandler:
                 lang=lang
             )
 
+            # Gabungkan persona prompt ke context
+            full_context = persona_prompt
+
             # Generate response using Gemini
             response_text = await self.gemini.generate_response(
                 user_id=user.id,
                 username=user.first_name,
                 message=message_text,
-                context=user_context,
+                context=full_context,
                 relationship_level=relationship_level,
                 is_admin=is_admin,
-                lang=lang,
-                system_prompt=system_prompt
+                lang=lang
             )
 
             # Format and send the response
@@ -181,65 +183,52 @@ class ConversationHandler:
         user_task = asyncio.create_task(self._get_user_info(user))
         self.memory.save_user_message(user.id, query)
         relationship_level = self._get_relationship_level(user.id)
-        
-        enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
-        system_prompt = self.persona.get_full_system_prompt()
-        
+        # Gabungkan persona prompt ke context
+        persona_prompt = self.persona.get_chat_prompt(
+            username=user.first_name,
+            message=query,
+            context="\n".join([str(c) for c in self.context_manager.get_context_window(user.id)]) if self.context_manager.get_context_window(user.id) else "",
+            relationship_level=relationship_level,
+            is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
+            lang=get_user_lang(user.id)
+        )
         # Improved context extraction
         message_context = {}
         semantic_topics = []
-        
         if FEATURES.get("emotion_detection", False) and self.nlp:
             message_context = self.nlp.get_message_context(query, user.id)
             semantic_topics = message_context.get("semantic_topics", [])
-            
-            # Add conversation flow analysis for more natural responses
             flow_analysis = self.nlp.analyze_conversation_flow(user.id, query)
             message_context["conversation_flow"] = flow_analysis
-            
-            # Adjust system prompt based on conversation flow
             if flow_analysis.get("is_continuation", False):
-                system_prompt += "\n\nCONVERSATION CONTEXT: This seems to be a continuation of our previous topic. Please maintain context continuity and reference our previous discussion naturally."
-            
+                persona_prompt += "\n\nCONVERSATION CONTEXT: This seems to be a continuation of our previous topic. Please maintain context continuity and reference our previous discussion naturally."
             if flow_analysis.get("user_engagement_level") == "high":
-                system_prompt += "\n\nUSER ENGAGEMENT: The user seems very engaged and interested. Match their energy level and be more expressive in your response."
+                persona_prompt += "\n\nUSER ENGAGEMENT: The user seems very engaged and interested. Match their energy level and be more expressive in your response."
             elif flow_analysis.get("user_engagement_level") == "low":
-                system_prompt += "\n\nUSER ENGAGEMENT: The user seems less engaged. Try to be more encouraging and ask questions to increase engagement."
-            
-        # Use DB-backed context for richer history
+                persona_prompt += "\n\nUSER ENGAGEMENT: The user seems less engaged. Try to be more encouraging and ask questions to increase engagement."
         history = self.context_manager.get_context_window(user.id)
-        
-        # Get previous messages to establish conversation theme
         prev_messages = self.db.get_conversation_history(user.id, limit=5)
         prev_content = "\n".join([msg.get("content", "") for msg in prev_messages if msg.get("role") == "user"])
-        
         summaries = self.context_manager.get_conversation_summaries(user.id)
         conversation_summary = summaries[0].get('content', '') if summaries else "No previous context"
-        
         enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
-        
         conversation_context = {
             "current_topic": ", ".join(semantic_topics) if semantic_topics else "general conversation",
             "user_emotion": message_context.get("emotion", "neutral"),
             "conversation_history_summary": conversation_summary,
             "previous_user_messages": prev_content
         }
-        
-        # Add rich relationship and conversation context
         relationship_context = self._get_relationship_context(user, relationship_level, user.id in ADMIN_IDS)
         conversation_theme = self._get_conversation_theme_context(conversation_context)
-        
         if relationship_context:
-            system_prompt += f"\n\n{relationship_context}"
+            persona_prompt += f"\n\n{relationship_context}"
         if conversation_theme:
-            system_prompt += f"\n\n{conversation_theme}"
-        
+            persona_prompt += f"\n\n{conversation_theme}"
         await user_task
-        
         return {
             "history": history,
             "enhanced_query": enhanced_query,
-            "system_prompt": system_prompt,
+            "system_prompt": persona_prompt,
             "message_context": message_context,
             "relationship_level": relationship_level,
             "conversation_context": conversation_context
