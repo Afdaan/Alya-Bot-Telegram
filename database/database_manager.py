@@ -768,4 +768,66 @@ class DatabaseManager:
             logger.error(f"Error ensuring user {user_id} exists: {e}")
             return False
 
+    def update_user_language(self, user_id: int, language_code: str) -> bool:
+        """
+        Update user's language preference.
+        
+        Args:
+            user_id: Telegram user ID
+            language_code: Language code ('id' or 'en')
+            
+        Returns:
+            bool: True if updated successfully, False otherwise
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    logger.warning(f"User {user_id} not found for language update")
+                    return False
+                
+                # Update language_code field
+                user.language_code = language_code
+                
+                # Update preferences dict
+                if user.preferences is None:
+                    user.preferences = {}
+                
+                user.preferences["preferred_language"] = language_code
+                user.last_interaction = datetime.now()
+                
+                session.commit()
+                logger.info(f"Updated language for user {user_id} to {language_code}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating language for user {user_id}: {e}")
+            return False
+
+    def get_user_language(self, user_id: int) -> str:
+        """
+        Get user's preferred language.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            str: Language code ('id' or 'en'), defaults to 'en'
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    return "en"  # Default to English
+                
+                # Check preferences first, then language_code
+                if user.preferences and "preferred_language" in user.preferences:
+                    return user.preferences["preferred_language"]
+                
+                return user.language_code or "en"
+                
+        except Exception as e:
+            logger.error(f"Error getting language for user {user_id}: {e}")
+            return "en"  # Default to English on error
+
 db_manager = DatabaseManager()

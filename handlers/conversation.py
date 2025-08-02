@@ -25,6 +25,7 @@ from database.database_manager import db_manager
 from core.nlp import NLPEngine, ContextManager
 from utils.formatters import format_response, format_error_response, format_paragraphs
 from utils.roast import RoastHandler
+from core.language_manager import language_manager
 
 logger = logging.getLogger(__name__)
 
@@ -180,8 +181,15 @@ class ConversationHandler:
         self.memory.save_user_message(user.id, query)
         relationship_level = self._get_relationship_level(user.id)
         
+        # Get user language preference
+        user_language = self.db.get_user_language(user.id)
+        
         enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
         system_prompt = self.persona.get_full_system_prompt()
+        
+        # Add language instruction to system prompt
+        language_instruction = language_manager.get_language_prompt(user_language)
+        system_prompt += f"\n\nLANGUAGE INSTRUCTION: {language_instruction}"
         
         # Improved context extraction
         message_context = {}

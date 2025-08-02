@@ -14,7 +14,13 @@ BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_NAME: str = "Alya"
 COMMAND_PREFIX: str = "!ai"
 SAUCENAO_PREFIX: str = "!sauce"
-DEFAULT_LANGUAGE: str = "id"  # Options: "id", "en"
+DEFAULT_LANGUAGE: str = os.getenv("DEFAULT_LANGUAGE", "en")  # Options: "id", "en" - Changed default to EN per request
+
+# Language Settings
+SUPPORTED_LANGUAGES: Dict[str, str] = {
+    "id": "Bahasa Indonesia 🇮🇩",
+    "en": "English 🇺🇸"
+}
 
 # Database Settings
 DB_HOST: str = os.getenv("DB_HOST", "localhost")

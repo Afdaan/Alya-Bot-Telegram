@@ -18,8 +18,12 @@ from handlers.response.start import start_response
 from handlers.response.ping import ping_response
 from handlers.response.stats import stats_response
 from handlers.response.analyze import analyze_response
+from handlers.language import lang_command
+from database.database_manager import DatabaseManager
+from core.language_manager import language_manager
 
 logger = logging.getLogger(__name__)
+db_manager = DatabaseManager()
 
 class CommandsHandler:
     def __init__(self, application) -> None:
@@ -164,19 +168,28 @@ class CommandsHandler:
             logger.warning(f"Failed to send chat action: {e}")
 
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    
+    # Get user language preference
+    user_language = db_manager.get_user_language(user.id)
+    
     start_time = time.time()
     message = await update.message.reply_text("Pinging...")
     end_time = time.time()
     latency = (end_time - start_time) * 1000
-    response = ping_response(latency_ms=latency)
+    response = ping_response(latency_ms=latency, language=user_language)
     await message.edit_text(
-        format_response(response, username=update.effective_user.first_name),
+        format_response(response, username=user.first_name),
         parse_mode="HTML"
     )
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    response = start_response(username=user.first_name or "user")
+    
+    # Get user language preference
+    user_language = db_manager.get_user_language(user.id)
+    
+    response = start_response(username=user.first_name or "user", language=user_language)
     await update.message.reply_text(
         format_response(response, username=user.first_name),
         parse_mode="HTML"
@@ -188,7 +201,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    response = help_response()
+    
+    # Get user language preference
+    user_language = db_manager.get_user_language(user.id)
+    
+    response = help_response(language=user_language)
     formatted_help = response.format(username=user.first_name or "user")
     await update.message.reply_html(formatted_help)
     try:
@@ -245,19 +262,21 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    db_manager = context.bot_data.get("db_manager")
-    if not db_manager:
+    
+    # Get user language preference
+    user_language = db_manager.get_user_language(user.id)
+    
+    db_manager_instance = context.bot_data.get("db_manager")
+    if not db_manager_instance:
         logger.error("Database manager not found in bot_data")
-        await update.message.reply_text(
-            "Maaf, terjadi kesalahan sistem. Coba lagi nanti ya~ 😳",
-            parse_mode="HTML"
-        )
+        error_msg = "Sorry, there was a system error. Please try again later~ 😳" if user_language == "en" else "Maaf, terjadi kesalahan sistem. Coba lagi nanti ya~ 😳"
+        await update.message.reply_text(error_msg, parse_mode="HTML")
         return
 
-    stats = db_manager.get_user_relationship_info(user.id)
+    stats = db_manager_instance.get_user_relationship_info(user.id)
     if not stats:
         # User not found in database, create them first
-        db_manager.add_user(
+        db_manager_instance.add_user(
             user_id=user.id,
             username=user.username,
             first_name=user.first_name,
@@ -265,12 +284,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             language_code=user.language_code
         )
         # Get stats again after creating user
-        stats = db_manager.get_user_relationship_info(user.id)
+        stats = db_manager_instance.get_user_relationship_info(user.id)
         if not stats:
-            await update.message.reply_text(
-                "Maaf, terjadi kesalahan sistem. Coba lagi nanti ya~ 😳",
-                parse_mode="HTML"
-            )
+            error_msg = "Sorry, there was a system error. Please try again later~ 😳" if user_language == "en" else "Maaf, terjadi kesalahan sistem. Coba lagi nanti ya~ 😳"
+            await update.message.reply_text(error_msg, parse_mode="HTML")
             return
 
     logger.debug(f"Stats data for user {user.id}: {stats}")
@@ -278,12 +295,17 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         name=stats.get('name', user.first_name),
         relationship=stats.get("relationship", {}),
         affection=stats.get("affection", {}),
-        stats=stats.get("stats", {})
+        stats=stats.get("stats", {}),
+        language=user_language
     )
     await update.message.reply_html(response)
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
+    
+    # Get user language preference
+    user_language = db_manager.get_user_language(user.id)
+    
     args = context.args if context.args else []
     search_type = None
     if args and args[0].startswith('-'):
@@ -300,7 +322,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     query = " ".join(args) if args else ""
     if not query:
         from handlers.response.search import search_usage_response
-        usage_text = search_usage_response()
+        usage_text = search_usage_response(language=user_language)
         await update.message.reply_text(
             format_response(usage_text, username=user.first_name),
             parse_mode="HTML"
@@ -341,7 +363,8 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             query,
             search_results,
             search_type,
-            show_username_tip=show_username_tip
+            show_username_tip=show_username_tip,
+            language=user_language
         )
         await update.message.reply_text(
             response_text,
@@ -351,7 +374,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     except Exception as e:
         logger.error(f"Search error: {str(e)}")
         from handlers.response.search import search_error_response
-        error_text = search_error_response(str(e))
+        error_text = search_error_response(str(e), language=user_language)
         await update.message.reply_text(
             format_response(error_text, username=user.first_name),
             parse_mode="HTML"
@@ -402,5 +425,6 @@ def register_commands(application) -> None:
     application.add_handler(CommandHandler("search_profile", search_profile_command), group=0)
     application.add_handler(CommandHandler("search_news", search_news_command), group=0)
     application.add_handler(CommandHandler("search_image", search_image_command), group=0)
+    application.add_handler(CommandHandler("lang", lang_command), group=0)
     CommandsHandler(application)
     logger.info("Command handlers registered successfully")
