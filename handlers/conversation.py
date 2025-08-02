@@ -120,12 +120,13 @@ class ConversationHandler:
             is_admin = self._create_or_update_user(user)
             
             # Retrieve relevant context from memory
-            user_context = self.context_manager.get_context_window(
-                user.id
-            )
+            user_context = self.context_manager.get_context_window(user.id)
 
             # Get relationship level
             relationship_level = self._get_relationship_level(user.id)
+
+            # Inject persona prompt
+            system_prompt = self.persona.get_full_system_prompt()
 
             # Generate response using Gemini
             response_text = await self.gemini.generate_response(
@@ -135,17 +136,17 @@ class ConversationHandler:
                 context=user_context,
                 relationship_level=relationship_level,
                 is_admin=is_admin,
-                lang=lang  # Pass language to Gemini
+                lang=lang,
+                system_prompt=system_prompt
             )
-            
+
             # Format and send the response
             formatted_response = format_response(response_text, "Alya", "Gemini 2.5 Flash")
             await update.message.reply_html(formatted_response)
 
             # Update memory with the new interaction
-            self.context_manager.record_interaction(
-                user.id, message_text, response_text
-            )
+            self.memory.save_user_message(user.id, message_text)
+            self.memory.save_bot_response(user.id, response_text)
 
         except Exception as e:
             logger.error(f"Error in chat_command for user {user.id}: {e}", exc_info=True)
