@@ -307,8 +307,7 @@ Based on this context:
             emotion=emotion,
             mood=suggested_mood,
             intensity=intensity,
-            username=user.first_name or "user",
-            lang=lang
+            username=user.first_name or "user"
         )
         formatted_response = format_paragraphs(formatted_response, markdown=False)
         formatted_response = f"{formatted_response}\u200C"
