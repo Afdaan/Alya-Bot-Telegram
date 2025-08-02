@@ -12,6 +12,7 @@ from database.database_manager import db_manager, get_user_lang
 from utils.saucenao import SauceNAOSearcher, SauceNAOError
 from utils.search_engine import search_web
 from utils.analyze import MediaAnalyzer
+from utils.roast import RoastHandler
 from handlers.response.start import get_start_response
 from handlers.response.help import get_help_response
 from handlers.response.ping import get_ping_response
@@ -39,10 +40,35 @@ class CommandsHandler:
     def __init__(self, application) -> None:
         self.application = application
         self.saucenao_searcher = SauceNAOSearcher()
+        # Assuming gemini_client and persona_manager are accessible, e.g., from application context
+        # This might need adjustment based on your actual application structure
+        gemini_client = getattr(application, 'gemini_client', None)
+        persona_manager = getattr(application, 'persona_manager', None)
+        
+        if not gemini_client or not persona_manager:
+            # This is a fallback. Ideally, these clients should be passed during initialization.
+            # For now, let's log a warning.
+            logger.warning("GeminiClient or PersonaManager not found on application object. RoastHandler might not work.")
+            # You might want to raise an error or handle this more gracefully
+            # For the purpose of this refactor, we'll proceed but some features might fail.
+            self.roast_handler = None
+        else:
+            self.roast_handler = RoastHandler(
+                gemini_client=gemini_client,
+                persona_manager=persona_manager,
+                db_manager=db_manager
+            )
+
         self._register_handlers()
         logger.info("Command handlers initialized and registered")
 
     def _register_handlers(self) -> None:
+        # Register roast handlers if available
+        if self.roast_handler:
+            for handler in self.roast_handler.get_handlers():
+                self.application.add_handler(handler)
+            logger.info("Registered roast handlers successfully")
+
         # SauceNAO handlers
         self.application.add_handler(
             MessageHandler(
@@ -396,4 +422,4 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
 def register_commands(application) -> None:
     """Registers all command handlers for the bot."""
     CommandsHandler(application)
-    logger.info("Command handlers registered successfully")
+    logger.info("All command handlers registered successfully")

@@ -82,6 +82,10 @@ def initialize_application() -> Optional[Application]:
         application.bot_data["persona_manager"] = persona_manager
         application.bot_data["nlp_engine"] = nlp_engine
         
+        # Pass clients to the application object so handlers can access them
+        application.gemini_client = gemini_client
+        application.persona_manager = persona_manager
+        
         gemini_client.set_persona_manager(persona_manager)
 
         register_handlers(application, gemini_client, persona_manager, memory_manager, db_manager, nlp_engine)

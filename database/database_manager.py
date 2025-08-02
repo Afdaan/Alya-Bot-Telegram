@@ -87,51 +87,47 @@ class DatabaseManager:
     
     def update_user_settings(self, user_id: int, new_settings: Dict[str, Any]) -> None:
         """
-        Update user settings in the database.
-        This method fetches existing settings, merges them with new ones,
-        and saves the result.
+        Update user settings in the database, specifically for language.
 
         Args:
             user_id: The user's ID.
-            new_settings: A dictionary with the settings to update.
+            new_settings: A dictionary containing the 'language' to set.
         """
-        session = self.Session()
+        if 'language' not in new_settings:
+            logger.warning(f"Attempted to update settings for user {user_id} without 'language' key.")
+            return
+
         try:
-            user_settings = session.query(UserSettings).filter_by(user_id=user_id).first()
-            if user_settings:
-                # Correctly merge JSON data
-                current_preferences = user_settings.preferences or {}
-                current_preferences.update(new_settings)
-                user_settings.preferences = current_preferences
-            else:
-                # If no settings exist, create a new record
-                user_settings = UserSettings(user_id=user_id, preferences=new_settings)
-                session.add(user_settings)
-            
-            session.commit()
-            logger.info(f"Successfully updated settings for user {user_id}")
+            with db_session_context() as session:
+                user_settings = session.query(UserSettings).filter_by(user_id=user_id).first()
+                
+                if user_settings:
+                    user_settings.language = new_settings['language']
+                else:
+                    # If no settings exist, create a new record
+                    user_settings = UserSettings(user_id=user_id, language=new_settings['language'])
+                    session.add(user_settings)
+                
+                session.commit()
+                logger.info(f"Successfully updated language to '{new_settings['language']}' for user {user_id}")
         except Exception as e:
-            session.rollback()
             logger.error(f"Failed to update user settings for {user_id}: {e}", exc_info=True)
-        finally:
-            session.close()
 
     def get_user_settings(self, user_id: int) -> Dict[str, Any]:
         """
-        Retrieves user-specific settings, such as language preference.
+        Retrieves user-specific settings, primarily language preference.
 
         Args:
             user_id: The user's Telegram ID.
 
         Returns:
-            A dictionary with user settings or an empty dict if not found.
+            A dictionary with the user's language or an empty dict if not found.
         """
         try:
             with db_session_context() as session:
                 settings = session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
-                if settings and settings.preferences:
-                    # Return the preferences dictionary directly
-                    return settings.preferences
+                if settings:
+                    return {'language': settings.language}
                 return {}
         except Exception as e:
             logger.error(f"Error getting user settings for {user_id}: {e}")
