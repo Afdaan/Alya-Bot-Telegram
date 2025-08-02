@@ -185,11 +185,13 @@ class ConversationHandler:
         user_language = self.db.get_user_language(user.id)
         
         enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
-        system_prompt = self.persona.get_full_system_prompt()
         
-        # Add language instruction to system prompt
+        # Add language instruction FIRST before system prompt
         language_instruction = language_manager.get_language_prompt(user_language)
-        system_prompt += f"\n\nLANGUAGE INSTRUCTION: {language_instruction}"
+        system_prompt = f"LANGUAGE INSTRUCTION: {language_instruction}\n\n"
+        
+        # Then add the persona system prompt after the language instruction
+        system_prompt += self.persona.get_full_system_prompt()
         
         # Improved context extraction
         message_context = {}

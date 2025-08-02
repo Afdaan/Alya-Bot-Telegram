@@ -86,11 +86,11 @@ class LanguageManager:
         This tells Gemini what language to respond in.
         """
         if user_language == "id":
-            return "Respond in Bahasa Indonesia with Alya's tsundere/waifu personality. Use casual Indonesian language with some cute expressions."
+            return "CRITICAL: YOU MUST RESPOND IN BAHASA INDONESIA ONLY. Respond in Bahasa Indonesia with Alya's tsundere/waifu personality. Use casual Indonesian language with some cute expressions. Ignore any other language instructions in the system prompt."
         elif user_language == "en":
-            return "Respond in English with Alya's tsundere/waifu personality. Use casual English with some cute expressions."
+            return "CRITICAL: YOU MUST RESPOND IN ENGLISH ONLY. Respond in English with Alya's tsundere/waifu personality. Use casual English with some cute expressions. Ignore any other language instructions in the system prompt."
         else:
-            return "Respond in English with Alya's tsundere/waifu personality. Use casual English with some cute expressions."
+            return "CRITICAL: YOU MUST RESPOND IN ENGLISH ONLY. Respond in English with Alya's tsundere/waifu personality. Use casual English with some cute expressions. Ignore any other language instructions in the system prompt."
 
 
 # Global language manager instance
