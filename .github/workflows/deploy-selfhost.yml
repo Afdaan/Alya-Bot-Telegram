@@ -16,29 +16,26 @@ jobs:
 
       - name: Prepare and update codebase
         run: |
-          cd /opt/Alya-Telegram
+          cd /opt/Alya-Bot-Telegram
           git stash --include-untracked || true
           git checkout master
           git pull origin master
 
-      - name: Build AlyaBot Docker image
+      - name: Restart AlyaBot via systemd
         run: |
-          cd /opt/Alya-Telegram
-          export DOCKER_BUILDKIT=1
-          docker compose build --no-cache
+          sudo systemctl restart alya.service
+          echo "AlyaBot restarted via systemd (alya.service)"
 
-      - name: Restart AlyaBot with Docker Compose
+      - name: Verify AlyaBot systemd service
         run: |
-          cd /opt/Alya-Telegram
-          docker compose down || true
-          docker compose up -d
-
-      - name: Prune unused Docker images
-        run: |
-          docker image prune -af
-
-      - name: Show running containers
-        run: docker ps -a
+          sleep 5
+          sudo systemctl status alya.service --no-pager
+          if sudo systemctl is-active --quiet alya.service; then
+            echo "✅ AlyaBot is running successfully via systemd (alya.service)"
+          else
+            echo "❌ AlyaBot failed to start via systemd (alya.service)"
+            exit 1
+          fi
 
       - name: Notify via Telegram
         if: success()
