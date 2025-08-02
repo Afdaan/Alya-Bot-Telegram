@@ -120,7 +120,7 @@ class CommandsHandler:
         """Handles both replied-to images and captioned images for SauceNAO."""
         message = update.effective_message
         user = update.effective_user
-        lang = get_user_lang(user.id, db_manager)
+        lang = get_user_lang(user.id)
         sauce_texts = get_sauce_texts(lang)
 
         photo_to_process = None
@@ -177,7 +177,7 @@ class CommandsHandler:
         message = update.effective_message
         text = message.text.replace("!ask", "", 1).strip()
         if not text and update.effective_chat.type in ["group", "supergroup"]:
-            lang = get_user_lang(update.effective_user.id, db_manager)
+            lang = get_user_lang(update.effective_user.id)
             response = analyze_response(lang=lang)
             await message.reply_html(response, reply_to_message_id=message.message_id)
             return
@@ -207,7 +207,7 @@ class CommandsHandler:
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /ping command to check bot latency."""
     start_time = time.time()
-    lang = get_user_lang(update.effective_user.id, db_manager)
+    lang = get_user_lang(update.effective_user.id)
     
     # The initial message is simple and language-agnostic.
     # The final response will be in the user's language.
@@ -222,7 +222,7 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /start command."""
     user = update.effective_user
-    lang = get_user_lang(user.id, db_manager)
+    lang = get_user_lang(user.id)
     response = get_start_response(lang=lang, username=user.first_name)
     await update.message.reply_text(response, parse_mode="HTML")
     try:
@@ -232,7 +232,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /help command."""
-    lang = get_user_lang(update.effective_user.id, db_manager)
+    lang = get_user_lang(update.effective_user.id)
     response = get_help_response(lang=lang)
     await update.message.reply_text(response, parse_mode="HTML")
     try:
@@ -243,7 +243,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /reset command to clear user's conversation history."""
     user_id = update.effective_user.id
-    lang = get_user_lang(user_id, db_manager)
+    lang = get_user_lang(user_id)
     
     if not db_manager:
         logger.error("Database manager not found for reset command.")
@@ -270,7 +270,7 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /stats command to show bot statistics."""
-    lang = get_user_lang(update.effective_user.id, db_manager)
+    lang = get_user_lang(update.effective_user.id)
     try:
         stats = db_manager.get_stats()
         response = get_stats_response(lang=lang, stats=stats)
@@ -299,16 +299,16 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 logger.info(f"User {user_id} changed language to {new_lang}")
                 await set_bot_commands(context.application, lang=new_lang)
             except Exception as e:
-                current_lang = get_user_lang(user_id, db_manager)
+                current_lang = get_user_lang(user_id)
                 logger.error(f"Failed to update language for user {user_id}: {e}")
                 response = get_system_error_response(current_lang)
         else:
             # If the arg is invalid, get current lang to show usage in the correct language
-            current_lang = get_user_lang(user_id, db_manager)
+            current_lang = get_user_lang(user_id)
             response = get_lang_response(lang=current_lang)
     else:
         # If no args, get current lang to show usage
-        current_lang = get_user_lang(user_id, db_manager)
+        current_lang = get_user_lang(user_id)
         response = get_lang_response(lang=current_lang)
         
     await update.message.reply_html(response)
@@ -317,7 +317,7 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /search command with bilingual support."""
     user = update.effective_user
-    lang = get_user_lang(user.id, db_manager)
+    lang = get_user_lang(user.id)
 
     args = context.args if context.args else []
     search_type = None
