@@ -159,11 +159,17 @@ class ConversationHandler:
             self.context_manager.apply_sliding_window(user.id)
             user_context = await self._prepare_conversation_context(user, query)
             history = self.context_manager.get_context_window(user.id)
-            response = await self.gemini.generate_content(
-                user_input=user_context["enhanced_query"],
-                system_prompt=user_context["system_prompt"],
-                history=history,
-                user_id=user.id
+            response = await self.gemini.generate_response(
+                user_id=user.id,
+                username=user.first_name or "user",
+                message=user_context["enhanced_query"],
+                context=user_context["system_prompt"],
+                relationship_level=user_context["relationship_level"],
+                is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
+                lang=get_user_lang(user.id),
+                retry_count=3,
+                is_media_analysis=False,
+                media_context=None
             )
             if response:
                 await self._process_and_send_response(update, user, response, user_context["message_context"])
