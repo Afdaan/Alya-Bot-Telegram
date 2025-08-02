@@ -28,14 +28,11 @@ jobs:
         run: |
           sudo mkdir -p /opt/dev-Alya-Bot-Telegram
           sudo chown $USER:$USER /opt/dev-Alya-Bot-Telegram
-          
           cd /opt/dev-Alya-Bot-Telegram
-          
           if [ ! -d ".git" ]; then
             git init
             git remote add origin https://github.com/Afdaan/Alya-Bot-Telegram.git
           fi
-          
           git stash --include-untracked || true
           git fetch origin
           git checkout development || git checkout -b development origin/development
@@ -49,34 +46,19 @@ jobs:
           pip install -r requirements.txt
           echo "Dependencies installed successfully"
 
-      - name: Stop existing AlyaBot processes
+      - name: Restart AlyaBot via systemd
         run: |
-          cd /opt/dev-Alya-Bot-Telegram
-          pkill -f "python.*main.py" || true
-          tmux kill-session -t alya-bot-develop 2>/dev/null || true
-          echo "Previous AlyaBot processes terminated"
+          sudo systemctl restart alya_dev.service
+          echo "AlyaBot restarted via systemd (alya_dev.service)"
 
-      - name: Start AlyaBot in tmux session
+      - name: Verify AlyaBot systemd service
         run: |
-          cd /opt/dev-Alya-Bot-Telegram
-          tmux new-session -d -s alya-bot-develop \
-            "source venv/bin/activate && python main.py > bot.log 2>&1"
-          echo "AlyaBot started in tmux session: alya-bot-develop"
-
-      - name: Verify AlyaBot deployment
-        run: |
-          sleep 10
-          
-          if tmux has-session -t alya-bot-develop 2>/dev/null; then
-            echo "✅ AlyaBot is running successfully in tmux session"
-            echo "Recent logs:"
-            tail -n 20 /opt/dev-Alya-Bot-Telegram/bot.log || echo "No logs yet"
+          sleep 5
+          sudo systemctl status alya_dev.service --no-pager
+          if sudo systemctl is-active --quiet alya_dev.service; then
+            echo "✅ AlyaBot is running successfully via systemd (alya_dev.service)"
           else
-            echo "❌ Failed to start AlyaBot in tmux"
-            if [ -f "/opt/dev-Alya-Bot-Telegram/bot.log" ]; then
-              echo "Error logs:"
-              cat /opt/dev-Alya-Bot-Telegram/bot.log
-            fi
+            echo "❌ AlyaBot failed to start via systemd (alya_dev.service)"
             exit 1
           fi
 
