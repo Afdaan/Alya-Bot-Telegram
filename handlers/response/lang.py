@@ -1,42 +1,34 @@
 # /home/afdaan/alya-telegram-new/handlers/response/lang.py
-from typing import Literal
+"""
+Bilingual response generator for the /lang command.
+"""
+from typing import Optional
 
-def get_lang_response(lang: Literal['id', 'en'], usage: bool = False, new_lang: str = None) -> str:
+def get_lang_response(lang: str, new_lang: Optional[str] = None) -> str:
     """
-    Returns the response for the /lang command.
+    Generates the response for the /lang command.
 
     Args:
-        lang: The language to use for the response.
-        usage: If True, returns the usage instructions.
-        new_lang: The new language that has been set.
+        lang: The language for the response message ('id' or 'en').
+        new_lang: The new language if it was successfully changed.
 
     Returns:
-        The response string.
+        A formatted response string.
     """
-    if usage:
-        if lang == 'id':
-            return (
-                "Gunakan perintah ini untuk mengatur preferensi bahasa Anda.\n\n"
-                "Contoh:\n"
-                "`/lang en` untuk mengubah bahasa ke Bahasa Inggris.\n"
-                "`/lang id` untuk mengubah bahasa ke Bahasa Indonesia."
-            )
-        else:
-            return (
-                "Use this command to set your language preference.\n\n"
-                "Example:\n"
-                "`/lang en` to change the language to English.\n"
-                "`/lang id` to change the language to Indonesian."
-            )
-    
     if new_lang:
-        if lang == 'id':
-            return f"Bahasa telah diubah ke Bahasa Indonesia. ✨"
-        else:
-            return f"Language has been changed to English. ✨"
-    
-    # This part should ideally not be reached if logic in commands.py is correct
-    if lang == 'id':
-        return "Terjadi kesalahan saat mengubah bahasa. Silakan coba lagi."
+        if new_lang == 'id':
+            return "✨ Bahasa berhasil diubah ke Bahasa Indonesia."
+        else: # en
+            return "✨ Language successfully changed to English."
     else:
-        return "An error occurred while changing the language. Please try again."
+        # This is the usage message
+        if lang == 'id':
+            return (
+                "Pengaturan bahasa saat ini adalah: `Indonesia`\n\n"
+                "Untuk mengubah, gunakan: `/lang en` atau `/lang id`"
+            )
+        else: # en
+            return (
+                "Current language setting is: `English`\n\n"
+                "To change, use: `/lang en` or `/lang id`"
+            )

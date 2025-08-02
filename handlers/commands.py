@@ -282,11 +282,11 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /lang command to change user's language preference."""
     user_id = update.effective_user.id
-    current_lang = get_user_lang(user_id, db_manager)
     
     if not db_manager:
         logger.error("Database manager not found for lang command.")
-        await update.message.reply_html(get_system_error_response(current_lang))
+        # Default to English for this specific error message if we can't even get lang
+        await update.message.reply_html(get_system_error_response('en'))
         return
     
     if context.args:
@@ -294,18 +294,22 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if new_lang in ['en', 'id']:
             try:
                 db_manager.update_user_settings(user_id, {'language': new_lang})
-                response = get_lang_response(lang=new_lang, new_lang=new_lang, current_lang=current_lang)
+                # The response function now only needs the new language
+                response = get_lang_response(lang=new_lang, new_lang=new_lang)
                 logger.info(f"User {user_id} changed language to {new_lang}")
                 await set_bot_commands(context.application, lang=new_lang)
             except Exception as e:
+                current_lang = get_user_lang(user_id, db_manager)
                 logger.error(f"Failed to update language for user {user_id}: {e}")
                 response = get_system_error_response(current_lang)
         else:
-            # Show usage if the provided language is invalid
-            response = get_lang_response(lang=current_lang, current_lang=current_lang)
+            # If the arg is invalid, get current lang to show usage in the correct language
+            current_lang = get_user_lang(user_id, db_manager)
+            response = get_lang_response(lang=current_lang)
     else:
-        # Show current language and usage if no argument is provided
-        response = get_lang_response(lang=current_lang, current_lang=current_lang)
+        # If no args, get current lang to show usage
+        current_lang = get_user_lang(user_id, db_manager)
+        response = get_lang_response(lang=current_lang)
         
     await update.message.reply_html(response)
 

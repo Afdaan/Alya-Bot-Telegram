@@ -4,14 +4,13 @@ Handles all database operations with proper connection pooling, error handling, 
 """
 import logging
 import hashlib
-import json
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 
 from sqlalchemy.orm import Session
 
 from database.session import db_session_context, execute_with_session, health_check
-from database.models import User, Conversation, ConversationSummary, ApiUsage, UserSettings
+from database.models import User, Conversation, ConversationSummary, ApiUsage
 from config.settings import (
     MEMORY_EXPIRY_DAYS,
     RELATIONSHIP_THRESHOLDS,
@@ -41,22 +40,23 @@ def get_role_by_relationship_level(relationship_level: int, is_admin: bool = Fal
     return RELATIONSHIP_ROLE_NAMES.get(relationship_level, "Stranger")
 
 
-def get_user_lang(user_id: int, db_manager: Any) -> str:
+def get_user_lang(user_id: int) -> str:
     """
-    Gets a user's preferred language from the database.
+    Gets a user's preferred language directly from the database.
 
     Args:
         user_id: The ID of the user.
-        db_manager: The instance of the database manager.
 
     Returns:
         The user's language code ('id' or 'en'), defaulting to 'id'.
     """
-    if db_manager:
-        user_settings = db_manager.get_user_settings(user_id)
-        # The settings are now in a flat dictionary, not nested
-        if user_settings and user_settings.get('language'):
-            return user_settings['language']
+    try:
+        with db_session_context() as session:
+            user = session.query(User.language_code).filter(User.id == user_id).first()
+            if user and user.language_code:
+                return user.language_code
+    except Exception as e:
+        logger.error(f"Error getting user language for {user_id}: {e}", exc_info=True)
     return 'id'
 
 
@@ -88,6 +88,7 @@ class DatabaseManager:
     def update_user_settings(self, user_id: int, new_settings: Dict[str, Any]) -> None:
         """
         Update user settings in the database, specifically for language.
+        This now updates the `language_code` in the `users` table.
 
         Args:
             user_id: The user's ID.
@@ -99,39 +100,36 @@ class DatabaseManager:
 
         try:
             with db_session_context() as session:
-                user_settings = session.query(UserSettings).filter_by(user_id=user_id).first()
+                user = session.query(User).filter_by(id=user_id).first()
                 
-                if user_settings:
-                    user_settings.language = new_settings['language']
+                if user:
+                    user.language_code = new_settings['language']
+                    session.commit()
+                    logger.info(f"Successfully updated language to '{new_settings['language']}' for user {user_id}")
                 else:
-                    # If no settings exist, create a new record
-                    user_settings = UserSettings(user_id=user_id, language=new_settings['language'])
-                    session.add(user_settings)
-                
-                session.commit()
-                logger.info(f"Successfully updated language to '{new_settings['language']}' for user {user_id}")
+                    logger.warning(f"User {user_id} not found when trying to update language.")
         except Exception as e:
             logger.error(f"Failed to update user settings for {user_id}: {e}", exc_info=True)
 
     def get_user_settings(self, user_id: int) -> Dict[str, Any]:
         """
-        Retrieves user-specific settings, primarily language preference.
+        Retrieves user-specific settings, primarily language preference from `users.language_code`.
 
         Args:
             user_id: The user's Telegram ID.
 
         Returns:
-            A dictionary with the user's language or an empty dict if not found.
+            A dictionary with the user's language, defaulting to 'id'.
         """
         try:
             with db_session_context() as session:
-                settings = session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
-                if settings:
-                    return {'language': settings.language}
-                return {}
+                user = session.query(User).filter(User.id == user_id).first()
+                if user and user.language_code:
+                    return {'language': user.language_code}
+                return {'language': 'id'} 
         except Exception as e:
-            logger.error(f"Error getting user settings for {user_id}: {e}")
-            return {}
+            logger.error(f"Error getting user settings for {user_id}: {e}", exc_info=True)
+            return {'language': 'id'}
 
     def reset_user_conversation(self, user_id: int) -> bool:
         """
