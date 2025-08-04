@@ -269,7 +269,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     lang = get_user_lang(update.effective_user.id)
     try:
         stats = db_manager.get_stats()
-        response = get_stats_response(lang=lang, stats=stats)
+        response = get_stats_response(lang=lang, db_manager=db_manager, user_id=update.effective_user.id, stats=stats)
     except Exception as e:
         logger.error(f"Error fetching stats: {e}")
         response = get_system_error_response(lang)
