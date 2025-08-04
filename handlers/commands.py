@@ -7,7 +7,7 @@ from telegram import Update, BotCommand
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes, MessageHandler, filters, CommandHandler
 
-from config.settings import SAUCENAO_PREFIX
+from config.settings import SAUCENAO_PREFIX, COMMAND_PREFIX
 from database.database_manager import db_manager, get_user_lang
 from utils.saucenao import SauceNAOSearcher, SauceNAOError
 from utils.search_engine import search_web
@@ -29,12 +29,6 @@ from handlers.response.search import (
 )
 
 logger = logging.getLogger(__name__)
-
-# The get_response dispatcher function has been removed.
-# It was causing async/await issues and was overly complex.
-# Each command handler now directly fetches the user's language
-# and calls the appropriate response function for better clarity and stability.
-
 
 class CommandsHandler:
     def __init__(self, application) -> None:
@@ -232,8 +226,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /help command."""
-    lang = get_user_lang(update.effective_user.id)
-    response = get_help_response(lang=lang)
+    user = update.effective_user
+    lang = get_user_lang(user.id)
+    
+    response = get_help_response(lang=lang, username=user.first_name or "user")
     await update.message.reply_text(response, parse_mode="HTML")
     try:
         await set_bot_commands(context.application)

@@ -285,33 +285,31 @@ def format_response(
     if roleplay:
         roleplay = f"<i>{escape_html(roleplay)}</i>"
 
-    # --- EMOJI LOGIC PATCH ---
-    # Emoji injection: dynamic, mood-based, and natural placement
     def contains_mood_emoji(text: str, mood_emojis: List[str]) -> bool:
         """Check if any mood emoji already present in text."""
         return any(e in text for e in mood_emojis)
 
-    # Dynamic emoji mapping by mood
-    mood_emoji_mapping = {
+    # Dynamic emoji mapping by mood (moved to class level to avoid recreating every call)
+    MOOD_EMOJI_MAPPING = {
         "neutral": ["✨", "💭", "🌸", "💫", "🤍", "🫧", "🌱", "🦋", "🍀", "🕊️", "🌿", "🌾", "🪴", "🌼", "🧘", "🫶"],
         "happy": ["😊", "💕", "✨", "🌟", "😄", "🥰", "😆", "🎉", "😺", "💖", "🥳", "🎈", "🦄", "🍰", "🍀", "🥂", "🤗", "😍", "😹", "🎶", "🫶"],
         "sad": ["😔", "💔", "🥺", "💧", "😭", "😢", "🌧️", "🫥", "😿", "😞", "🥲", "🫤", "🥀", "🕯️", "🫠", "😓", "😩", "🫣"],
         "surprised": ["😳", "⁉️", "🙀", "❗", "😮", "😲", "🤯", "😱", "👀", "😯", "😦", "😧", "😵", "🫢", "🫨", "🫣"],
         "angry": ["😤", "💢", "😠", "🔥", "😡", "👿", "😾", "🤬", "🗯️", "🥵", "🥊", "🧨", "💣", "😾", "🥶"],
-        "embarrassed": ["😳", "😅", "💦", "🙈", "😬", "😶‍🌫️", "😳", "😳", "😳", "🫣", "🫦", "🫥", "😳", "😶", "😳"],
+        "embarrassed": ["😳", "😅", "💦", "🙈", "😬", "😶‍🌫️", "🫣", "🫦", "🫥", "😶"],
         "excited": ["💫", "✨", "🌟", "😳", "🤩", "🎊", "🥳", "😻", "🦄", "🎉", "🎈", "🫶", "😆", "😍", "😺", "🥰"],
-        "genuinely_caring": ["🥰", "💕", "💖", "✨", "🤗", "🌷", "🫂", "💝", "🧸", "🫶", "🤍", "🌸", "🦋", "🧑‍🤝‍🧑", "🫰", "🫱", "🫲"],
+        "genuinely_caring": ["🥰", "💕", "💖", "✨", "🤗", "🌷", "🫂", "💝", "🧸", "🫶", "🤍", "🌸", "🦋"],
         "defensive_flustered": ["😳", "💥", "🔥", "❗", "😤", "😒", "😡", "😾", "😬", "😑", "😏", "😼", "😹", "🫥", "🫠", "🫤", "🫣", "🫦"],
-        "academic_confident": ["📝", "🎓", "📚", "🧐", "📖", "🔬", "💡", "🧠", "📊", "🧑‍💻", "🧑‍🔬", "🧑‍🏫", "🧬", "🧪", "🧭", "🧮", "🧰", "🧱", "🧲", "🧑‍🎓"],
+        "academic_confident": ["📝", "🎓", "📚", "🧐", "📖", "🔬", "💡", "🧠", "📊"],
         "comfortable_tsundere": ["😒", "💢", "❄️", "🙄", "😤", "😑", "😏", "😼", "😹", "🫥", "🫠", "🫤", "🫣", "🫦", "😾", "😡", "🤬"],
         "default": ["✨", "💫", "🌸", "🦋", "🤍", "🫧", "🍀", "🕊️", "🌿", "🌾", "🪴", "🌼", "🧘", "🫶"]
     }
     current_mood = mood if mood != "default" else "neutral"
-    mood_emojis = mood_emoji_mapping.get(current_mood, mood_emoji_mapping["default"])
+    mood_emojis = MOOD_EMOJI_MAPPING.get(current_mood, MOOD_EMOJI_MAPPING["default"])
     emoji_count = min(MAX_EMOJI_PER_RESPONSE, 4)
 
     main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_message)
-    main_content = re.sub(r'([A-ZaZ]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', main_content)
+    main_content = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', main_content)
     main_content = escape_html(main_content)
 
     # Only inject emoji if not already present
@@ -322,11 +320,10 @@ def format_response(
         max_positions = min(emoji_count, len(positions))
         chosen_positions = random.sample(positions, k=max_positions)
         if emoji_count > len(positions):
-            # Tambah random posisi tanpa duplikasi
-            extra_positions = random.choices(positions, k=emoji_count - len(positions))
-            for pos in extra_positions:
-                if pos not in chosen_positions:
-                    chosen_positions.append(pos)
+            # Add random positions without duplication - safer logic
+            extra_needed = emoji_count - len(positions)
+            extra_positions = random.choices(positions, k=extra_needed)
+            chosen_positions.extend(extra_positions)
         used_positions = set()
         for idx, pos in enumerate(chosen_positions):
             emoji_ = mood_emojis[idx % len(mood_emojis)]

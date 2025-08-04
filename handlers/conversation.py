@@ -132,7 +132,8 @@ class ConversationHandler:
         if not query:
             help_message = self.persona.get_help_message(
                 username=user.first_name or "user",
-                prefix=COMMAND_PREFIX
+                prefix=COMMAND_PREFIX,
+                lang=lang  # Pass language parameter
             )
             formatted_help = format_response(help_message, "neutral")
             await update.message.reply_html(formatted_help)
@@ -229,14 +230,14 @@ class ConversationHandler:
         prev_content = "\n".join([msg.get("content", "") for msg in prev_messages if msg.get("role") == "user"])
         summaries = self.context_manager.get_conversation_summaries(user.id)
         conversation_summary = summaries[0].get('content', '') if summaries else "No previous context"
-        enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
+        enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query, lang)
         conversation_context = {
             "current_topic": ", ".join(semantic_topics) if semantic_topics else "general conversation",
             "user_emotion": message_context.get("emotion", "neutral"),
             "conversation_history_summary": conversation_summary,
             "previous_user_messages": prev_content
         }
-        relationship_context = self._get_relationship_context(user, relationship_level, user.id in ADMIN_IDS)
+        relationship_context = self._get_relationship_context(user, relationship_level, user.id in ADMIN_IDS, lang)
         conversation_theme = self._get_conversation_theme_context(conversation_context)
         if relationship_context:
             persona_prompt += f"\n\n{relationship_context}"
@@ -301,7 +302,22 @@ Based on this context:
         emotion = message_context.get("emotion", "neutral") if message_context else "neutral"
         intent = message_context.get("intent", "") if message_context else ""
         topic = message_context.get("topic", "any") if message_context else "any"
-        mood = suggested_mood
+        
+        # Map emotion to appropriate mood and intensity
+        emotion_mood_mapping = {
+            "happy": ("excited", 0.8),
+            "excited": ("excited", 0.9),
+            "grateful": ("comfortable_tsundere", 0.6),
+            "sad": ("melancholic", 0.4),
+            "angry": ("defensive", 0.8),
+            "worried": ("nervous", 0.5),
+            "embarrassed": ("embarrassed", 0.7),
+            "surprised": ("surprised", 0.8),
+            "neutral": ("default", 0.5)
+        }
+        
+        mood, intensity = emotion_mood_mapping.get(emotion, ("default", 0.5))
+        
         # Ambil roleplay/action mapping dari persona YAML
         roleplay_mapping = self.persona.get_roleplay_mapping(
             emotion=emotion,
@@ -315,7 +331,7 @@ Based on this context:
         formatted_response = format_response(
             response, 
             emotion=emotion,
-            mood=suggested_mood,
+            mood=mood,
             intensity=intensity,
             username=user.first_name or "user",
             roleplay_action=roleplay_action,
@@ -337,49 +353,17 @@ Based on this context:
             'relationship_level': relationship_level
         }
 
-    def _get_relationship_context(self, user: Any, relationship_level: int, is_admin: bool) -> str:
+    def _get_relationship_context(self, user: Any, relationship_level: int, is_admin: bool, lang: str = "id") -> str:
+        """Get relationship context in the specified language."""
         first_name = getattr(user, 'first_name', None) or "user"
-        if is_admin:
-            return (
-                f"PENTING: {first_name} adalah admin bot dan orang yang sangat special untuk Alya. "
-                f"Hubungan Alya dengan {first_name} sangat dekat, seperti pacar, "
-                f"tapi Alya tetap tsundere. Alya sangat senang bisa mengobrol dengannya dan "
-                f"sangat perhatian padanya. Gunakan sesekali honorifik -sama dan tunjukkan "
-                f"bahwa Alya sangat menyayangi {first_name}."
-            )
-        relationship_contexts = {
-            0: (
-                f"{first_name} adalah orang asing bagi Alya. Alya tetap menjaga jarak dan berbicara dengan nada formal dan sopan. "
-                f"Dia menunjukkan sikap dingin dan tsundere, sering kali tidak langsung menjawab atau menyindir halus. "
-                f"Tidak ada kepercayaan yang terbentuk, jadi Alya menjaga image sebagai gadis keren dan tidak mudah didekati. "
-                f"Gunakan formal speech pattern dan jangan berikan terlalu banyak informasi pribadi."
-            ),
-            1: (
-                f"{first_name} adalah kenalan Alya. Alya mulai sedikit mengenal dirinya, tapi tetap menunjukkan sikap tsundere dan menjaga jarak. "
-                f"Kadang membalas dengan komentar sarkastik atau defensif jika merasa terlalu dekat. "
-                f"Meski begitu, dia mulai memperhatikan detail kecil dari {first_name}, walau tidak mau mengakuinya secara langsung."
-            ),
-            2: (
-                f"Alya dan {first_name} cukup sering berbicara dan Alya mulai merasa nyaman. "
-                f"Dia masih sangat tsundere, tetapi sesekali memperlihatkan sisi hangat—meskipun cepat menyangkalnya. "
-                f"Alya tidak suka diolok soal perasaannya dan akan cepat merespons dengan komentar ketus jika merasa dipuji. "
-                f"Dia mulai memanggil nama depan {first_name}, tapi dengan nada tetap cool."
-            ),
-            3: (
-                f"{first_name} adalah teman dekat Alya. Dia masih tsundere, tapi ekspresinya jauh lebih ekspresif dan terbuka. "
-                f"Alya terkadang menunjukkan perhatiannya dengan cara tidak langsung—seperti khawatir tapi menyamarkannya dengan sindiran. "
-                f"Kadang-kadang dia memanggil {first_name} tanpa honorifik, dan mulai menunjukkan bahwa kehadiran {first_name} berarti banyak, meski enggan mengakuinya. "
-                f"Gunakan nada tsundere yang lebih playful dan ekspresif."
-            ),
-            4: (
-                f"Alya sangat dekat dan percaya pada {first_name}. Meskipun tetap memiliki sisi tsundere, "
-                f"sikapnya lebih lembut dan jujur, terutama saat sedang emosional atau dalam momen pribadi. "
-                f"Alya mulai memanggil {first_name} tanpa honorifik secara konsisten, bahkan kadang slip pakai bahasa Rusia. "
-                f"Dia sudah mulai menunjukkan rasa sayangnya tanpa banyak denial, walau tetap suka tersipu atau salah tingkah. "
-                f"Perhatikan keseimbangan antara warmth dan tsundere yang lebih dewasa dan natural."
-            ),
-        }
-        return relationship_contexts.get(relationship_level, "")
+        
+        # Get relationship context from persona manager instead of hardcoding
+        return self.persona.get_relationship_context(
+            username=first_name,
+            relationship_level=relationship_level,
+            is_admin=is_admin,
+            lang=lang
+        )
     
     def _try_level_up(self, user_id: int) -> None:
         """

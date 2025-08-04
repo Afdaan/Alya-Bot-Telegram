@@ -49,12 +49,16 @@ class MemoryManager:
                 if not user:
                     # Auto-create user if not exists to prevent foreign key constraint errors
                     logger.warning(f"User {user_id} not found in memory_manager, creating automatically")
+                    # Get default language from settings instead of hardcoding
+                    from config.settings import DEFAULT_LANGUAGE
+                    default_lang = DEFAULT_LANGUAGE if 'DEFAULT_LANGUAGE' in dir() else "id"
+                    
                     user = User(
                         id=user_id,
                         username=None,
                         first_name=f"User{user_id}",
                         last_name=None,
-                        language_code="id",
+                        language_code=default_lang,
                         created_at=datetime.now(),
                         last_interaction=datetime.now(),
                         is_active=True,
@@ -63,7 +67,7 @@ class MemoryManager:
                         interaction_count=0,
                         preferences={
                             "notification_enabled": True,
-                            "preferred_language": "id",
+                            "preferred_language": default_lang,
                             "persona": "waifu",
                             "timezone": "Asia/Jakarta"
                         },
@@ -429,7 +433,7 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Failed to clean up expired messages: {str(e)}")
     
-    def create_context_prompt(self, user_id: int, query: str) -> str:
+    def create_context_prompt(self, user_id: int, query: str, lang: str = 'id') -> str:
         """Create a context-enriched prompt for AI processing.
         
         This adapter method gathers conversation context and formats it for prompt use.
@@ -437,6 +441,7 @@ class MemoryManager:
         Args:
             user_id: Telegram user ID
             query: Current user query/message
+            lang: Language for the prompt ('id' or 'en')
             
         Returns:
             Context-enriched prompt string for AI processing
@@ -453,7 +458,8 @@ class MemoryManager:
         # Include system context if available
         system_context = next((item for item in context if item.get('role') == 'system'), None)
         if system_context:
-            prompt_parts.append(f"Previous context: {system_context.get('content', '')}")
+            prev_context_label = "Previous context:" if lang == 'en' else "Konteks sebelumnya:"
+            prompt_parts.append(f"{prev_context_label} {system_context.get('content', '')}")
             
         # Add recent conversation turns (last 3-5 messages)
         conversation_turns = [item for item in context if item.get('role') != 'system'][-5:]
@@ -462,13 +468,21 @@ class MemoryManager:
             prompt_parts.append(f"{role}: {turn.get('content', '')}")
             
         # Add current query
-        prompt_parts.append(f"User: {query}")
+        user_label = "User:" if lang == 'en' else "User:"  # Keep "User:" consistent
+        prompt_parts.append(f"{user_label} {query}")
         
-        # Add system instruction to maintain continuity
-        prompt_parts.append(
-            "Based on the conversation history above, continue the conversation as Alya, "
-            "responding to the last user message."
-        )
+        # Add system instruction to maintain continuity with language support
+        if lang == 'en':
+            instruction = (
+                "Based on the conversation history above, continue the conversation as Alya, "
+                "responding to the last user message."
+            )
+        else:  # Indonesian (default)
+            instruction = (
+                "Berdasarkan riwayat percakapan di atas, lanjutkan percakapan sebagai Alya, "
+                "merespons pesan user yang terakhir."
+            )
+        prompt_parts.append(instruction)
         
         # Join all parts with line breaks
         return "\n\n".join(prompt_parts)

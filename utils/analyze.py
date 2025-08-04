@@ -49,12 +49,12 @@ class MediaAnalyzer:
             # For images, we need to get the content description first
             if media_type in ("image", "photo"):
                 image = self._to_pil_image(media_content)
-                # This is a simplified call to get a description.
-                # In a real scenario, you might have a specific prompt for just description.
+                # Prepare image description message based on language
+                describe_message = "Describe this image." if lang == 'en' else "Deskripsikan gambar ini."
                 media_context = await self.gemini_client.generate_response(
                     user_id=user_id,
                     username="User", # Username is not critical for this part
-                    message="Describe this image.",
+                    message=describe_message,
                     context="",
                     relationship_level=0,
                     is_admin=False,

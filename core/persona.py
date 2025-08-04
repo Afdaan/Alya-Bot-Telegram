@@ -135,6 +135,52 @@ class PersonaManager:
         
         return error_template.format(username=username)
         
+    def get_help_message(self, username: str, prefix: str, lang: str = 'id') -> str:
+        """Get help message in specified language.
+        
+        Args:
+            username: User's name
+            prefix: Command prefix
+            lang: Language code ('id' or 'en')
+            
+        Returns:
+            Help message string
+        """
+        if lang == 'en':
+            return f"""<b>Hi {username}-kun!</b> ✨
+
+Alya is here to chat and help with various tasks!
+
+<b>🎓 How to Use:</b>
+• Just chat naturally with Alya
+• In groups: use `{prefix}` before your message
+• Ask about images, get help with studies, or just talk!
+
+<b>📚 Commands:</b>
+• `/help` - Show this message
+• `/stats` - Your stats with Alya
+• `/lang` - Change language
+• `/reset` - Reset conversation
+
+<i>Don't be shy... Alya will remember our conversations! 😤</i>"""
+        else:
+            return f"""<b>Hai {username}-kun!</b> ✨
+
+Alya di sini siap nemenin ngobrol dan bantuin berbagai keperluan!
+
+<b>🎓 Cara Pakai:</b>
+• Langsung ngobrol natural sama Alya
+• Di grup: pakai `{prefix}` sebelum pesan
+• Tanya tentang gambar, minta bantuan belajar, atau sekadar curhat!
+
+<b>📚 Perintah:</b>
+• `/help` - Tampilkan pesan ini
+• `/stats` - Statistik kamu dengan Alya
+• `/lang` - Ganti bahasa
+• `/reset` - Reset percakapan
+
+<i>Jangan malu-malu... Alya akan ingat percakapan kita! 😤</i>"""
+
     def get_chat_prompt(
         self,
         username: str,
@@ -271,3 +317,78 @@ Analyze the media content and answer {username}'s question in **{persona_lang.ge
             if mapping.get('emotion') == emotion:
                 return mapping
         return {}
+
+    def get_relationship_context(self, username: str, relationship_level: int, is_admin: bool, lang: str = 'id') -> str:
+        """Get relationship context based on level and language.
+        Args:
+            username: User's first name
+            relationship_level: Current relationship level (0-4)
+            is_admin: Whether user is admin
+            lang: Language code ('id' or 'en')
+        Returns:
+            Formatted relationship context string
+        """
+        try:
+            persona = self.get_persona()
+            # Handle admin special case
+            if is_admin:
+                if lang == 'en':
+                    return (
+                        f"IMPORTANT: {username} is a bot admin and very special person to Alya. "
+                        f"Alya's relationship with {username} is very close, like a boyfriend/girlfriend, "
+                        f"but Alya remains tsundere. Alya is very happy to chat with them and "
+                        f"very caring towards them. Use occasionally honorific -sama and show "
+                        f"that Alya really loves {username}."
+                    )
+                else:
+                    return (
+                        f"PENTING: {username} adalah admin bot dan orang yang sangat special untuk Alya. "
+                        f"Hubungan Alya dengan {username} sangat dekat, seperti pacar, "
+                        f"tapi Alya tetap tsundere. Alya sangat senang bisa mengobrol dengannya dan "
+                        f"sangat perhatian padanya. Gunakan sesekali honorifik -sama dan tunjukkan "
+                        f"bahwa Alya sangat menyayangi {username}."
+                    )
+            # Get relationship contexts from YAML if available
+            relationship_contexts = persona.get("relationship_levels", {})
+            if lang == 'en' and isinstance(relationship_contexts.get("en"), dict):
+                relationship_contexts = relationship_contexts["en"]
+            elif lang == 'id' and isinstance(relationship_contexts.get("id"), dict):
+                relationship_contexts = relationship_contexts["id"]
+            # Fallback to hardcoded if YAML not available
+            if not relationship_contexts:
+                relationship_contexts = {
+                    0: (
+                        f"{username} adalah orang asing bagi Alya. Alya tetap menjaga jarak dan berbicara dengan nada formal dan sopan. "
+                        f"Dia menunjukkan sikap dingin dan tsundere, sering kali tidak langsung menjawab atau menyindir halus. "
+                        f"Tidak ada kepercayaan yang terbentuk, jadi Alya menjaga image sebagai gadis keren dan tidak mudah didekati. "
+                        f"Gunakan formal speech pattern dan jangan berikan terlalu banyak informasi pribadi."
+                    ),
+                    1: (
+                        f"{username} adalah kenalan Alya. Alya mulai sedikit mengenal dirinya, tapi tetap menunjukkan sikap tsundere dan menjaga jarak. "
+                        f"Kadang membalas dengan komentar sarkastik atau defensif jika merasa terlalu dekat. "
+                        f"Meski begitu, dia mulai memperhatikan detail kecil dari {username}, walau tidak mau mengakuinya secara langsung."
+                    ),
+                    2: (
+                        f"Alya dan {username} cukup sering berbicara dan Alya mulai merasa nyaman. "
+                        f"Dia masih sangat tsundere, tetapi sesekali memperlihatkan sisi hangat—meskipun cepat menyangkalnya. "
+                        f"Alya tidak suka diolok soal perasaannya dan akan cepat merespons dengan komentar ketus jika merasa dipuji. "
+                        f"Dia mulai memanggil nama depan {username}, tapi dengan nada tetap cool."
+                    ),
+                    3: (
+                        f"{username} adalah teman dekat Alya. Dia masih tsundere, tapi ekspresinya jauh lebih ekspresif dan terbuka. "
+                        f"Alya terkadang menunjukkan perhatiannya dengan cara tidak langsung—seperti khawatir tapi menyamarkannya dengan sindiran. "
+                        f"Kadang-kadang dia memanggil {username} tanpa honorifik, dan mulai menunjukkan bahwa kehadiran {username} berarti banyak, meski enggan mengakuinya. "
+                        f"Gunakan nada tsundere yang lebih playful dan ekspresif."
+                    ),
+                    4: (
+                        f"Alya sangat dekat dan percaya pada {username}. Meskipun tetap memiliki sisi tsundere, "
+                        f"sikapnya lebih lembut dan jujur, terutama saat sedang emosional atau dalam momen pribadi. "
+                        f"Alya mulai memanggil {username} tanpa honorifik secara konsisten, bahkan kadang slip pakai bahasa Rusia. "
+                        f"Dia sudah mulai menunjukkan rasa sayangnya tanpa banyak denial, walau tetap suka tersipu atau salah tingkah. "
+                        f"Perhatikan keseimbangan antara warmth dan tsundere yang lebih dewasa dan natural."
+                    ),
+                }
+            return relationship_contexts.get(relationship_level, "")
+        except Exception as e:
+            logger.error(f"Error getting relationship context: {e}")
+            return ""
