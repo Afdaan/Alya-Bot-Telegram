@@ -179,47 +179,70 @@ class RoastHandler:
         await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
 
     async def _generate_roast(self, name: str, lang: str) -> str:
-        """Generate a personal roast using Gemini."""
-        prompt_template = (
-            self.roast_templates.get(lang, self.roast_templates['en'])
-            .get("prompt", "Roast {name}")
-        )
-        prompt = prompt_template.format(name=name)
+        """Generate a personal roast using Gemini with toxic templates."""
+        # Use the proper toxic roast prompt template from YAML
+        roast_prompt_template = self.roast_config.get("roast_prompt_template", "")
+        
+        if roast_prompt_template:
+            # Use the main toxic template
+            prompt = roast_prompt_template.format(
+                target_name=name,
+                roast_context="personal roast"
+            )
+        else:
+            # Fallback to basic toxic template if YAML template not found
+            if lang == 'id':
+                prompt = f"PERSONA: Lu jadi cewek toxic queen jaksel paling savage!\n\nTARGET ROAST: {name}\n\nPERSONALITY WAJIB:\n- Pake bahasa SUPER KASAR dan TOXIC seperti: anjing, tolol, goblok, bangsat, kontol, memek, dll\n- MOSTLY CAPSLOCK untuk kata-kata kasar\n- 4-10 emoji toxic (🤮, 💀, 🤡, 🙄, 💅)\n- Seolah-olah cewek toxic yang membenci target\n- Fokus ke hinaan PERSONAL (IQ rendah, jelek, bau, gak laku, dll)\n\nFORMAT WAJIB:\n1. Kata pembuka kasar: 'NAJIS', 'ANJIR', 'GOBLOK', 'BANGSAT', 'KONTOL'\n2. Hinaan spesifik personal tentang {name}\n3. Tambahan ejekan lainnya yang menyakitkan\n4. Emoji toxic\n\nRULES:\n- WAJIB BAHASA INDONESIA KASAR JAKSEL\n- HARUS TOXIC BANGET dan MENYAKITKAN\n- FOKUS KE HINAAN PERSONAL, BUKAN CODING\n- Jangan terlalu panjang (max 300 karakter)\n- Usahakan bikin seolah-olah cewek toxic yang ngomong!"
+            else:
+                prompt = f"PERSONA: Alya-chan is now in SUPER TOXIC MODE! Acting like an extremely toxic Indonesian jaksel girl!\n\nTARGET: {name}\n\nRULES & FORMAT:\n- Use LOTS OF Indonesian swear words (anjing, tolol, babi, goblok, kontol, bangsat, etc.)\n- Use partial CAPS LOCK for emphasis\n- Add PERSONAL insults (ugly, dumb, smelly, never getting laid, etc.)\n- Include toxic emojis (🤮, 💀, 🤡, 💅)\n- Speak like a mean girl/toxic queen in Bahasa Indonesia\n- Make it feel like a toxic girl speaking (use 'gue' instead of 'aku')\n\nMUST BE:\n- SUPER TOXIC & HARSH in Indonesian\n- Very jaksel/slang style\n- FOCUSED ON PERSONAL ATTACKS, not coding/tech"
         
         roast = await self.gemini.generate_text(
             prompt=prompt,
             model_name="gemini-1.5-flash-latest",
-            max_tokens=100,
-            temperature=0.9
+            max_tokens=200,
+            temperature=0.95
         )
         return escape_markdown_v2(roast.strip())
 
     async def _generate_git_roast(self, username: str, data: Dict[str, Any], lang: str) -> str:
-        """Generate a GitHub-themed roast using Gemini."""
-        prompt_template = (
-            self.git_roast_templates.get(lang, self.git_roast_templates['en'])
-            .get("prompt", "Roast the GitHub user {username} based on this data: {data}")
-        )
-        
-        # Sanitize data for the prompt
-        sanitized_data = {
-            "name": data.get("name", "No name"),
-            "bio": data.get("bio", "No bio"),
-            "public_repos": data.get("public_repos", 0),
-            "followers": data.get("followers", 0),
-            "following": data.get("following", 0),
-            "recent_activity": data.get("recent_activity", "None")
-        }
-        
-        prompt = prompt_template.format(username=username, data=str(sanitized_data))
-        
-        roast = await self.gemini.generate_text(
-            prompt=prompt,
-            model_name="gemini-1.5-flash-latest",
-            max_tokens=150,
-            temperature=0.85
-        )
-        return escape_markdown_v2(roast.strip())
+        """Generate a GitHub-themed roast using toxic templates from YAML."""
+        try:
+            # Get GitHub toxic roast templates from YAML config
+            github_templates = self.roast_config.get("github_templates", [])
+            
+            if github_templates:
+                # Pick random GitHub template and format it
+                template = random.choice(github_templates)
+                prompt = template.format(github_repo=username)
+            else:
+                # Fallback toxic GitHub template if YAML is empty
+                if lang == 'id':
+                    prompt = f"PERSONA: Lu jadi cewek programmer toxic queen level maksimal!\n\nTARGET ROAST: {username}\n\nPERSONALITY WAJIB:\n- Pake bahasa SUPER KASAR dan TOXIC seperti: anjing, tolol, goblok, bangsat, kontol, memek, dll\n- MOSTLY CAPSLOCK untuk emphasis\n- 4-10 emoji toxic (🤮, 💀, 🤡, 🙄, 💅)\n- Bawa2 istilah GitHub dan coding untuk hinaan\n- Fokus ke repository yang jelek/basic/fork\n- Jelas kalo kamu cewek developer toxic (ngomong pake 'gue')\n\nFORMAT WAJIB:\n1. Kata pembuka kasar: 'NAJIS', 'ANJIR', 'GOBLOK', 'BANGSAT', 'KONTOL'\n2. Hinaan spesifik tentang programming/GitHub repository\n3. Tambahan ejekan teknis di akhir\n4. Emoji toxic\n\nRULES:\n- WAJIB BAHASA INDONESIA KASAR JAKSEL\n- HARUS TOXIC BANGET dan MENYAKITKAN\n- HARUS BERBASIS TEKNOLOGI/CODING/GITHUB\n- Jangan terlalu panjang (max 300 karakter)"
+                else:
+                    prompt = f"PERSONA: Alya-chan is now in SUPER TOXIC MODE as a female software engineer!\n\nTARGET: {username} GitHub repository\n\nRULES & FORMAT:\n- Use LOTS OF Indonesian swear words (anjing, tolol, babi, goblok, kontol, bangsat, etc.)\n- Use partial CAPS LOCK for emphasis\n- Add specific insults about coding/GitHub repo quality/structure\n- Include toxic emojis (🤮, 💀, 🤡, 💅)\n- Speak like a mean girl/toxic programmer in Bahasa Indonesia\n- Make it feel like a toxic female dev speaking (use 'gue' instead of 'aku')\n\nMUST BE:\n- SUPER TOXIC & HARSH in Indonesian\n- Very jaksel/slang style\n- Heavy on TECHNICAL GitHub/programming insults"
+            
+            roast = await self.gemini.generate_text(
+                prompt=prompt,
+                model_name="gemini-1.5-flash-latest",
+                max_tokens=200,
+                temperature=0.95
+            )
+            
+            # Ensure it's properly toxic and formatted
+            if not any(word in roast.lower() for word in ['anjing', 'bangsat', 'tolol', 'kontol', 'najis']):
+                # If not toxic enough, use fallback
+                fallback_roasts = [
+                    f"ANJING {username} REPO LO SAMPAH BANGET! KODE LO LEBIH BLOATED DARI DATABASE BOKEP GUE, LO PERNAH DENGER TENTANG CLEAN CODE TOLOL? 💀",
+                    f"NAJIS REPO {username} PALING SAMPAH SEDUNIA! COMMIT MESSAGE LO AJA BERANTAKAN KAYAK MENTAL LO KONTOL! 🤮"
+                ]
+                return random.choice(fallback_roasts)
+            
+            return escape_markdown_v2(roast.strip())
+            
+        except Exception as e:
+            logger.error(f"Error generating GitHub toxic roast: {e}")
+            # Emergency fallback
+            return escape_markdown_v2(f"ANJING {username} REPO LO SAMPAH BANGET TOLOL! 🤮")
 
     async def _get_github_data(self, username: str) -> Optional[Dict[str, Any]]:
         """Fetch basic data from GitHub API."""

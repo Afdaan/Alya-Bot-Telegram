@@ -876,4 +876,37 @@ class DatabaseManager:
             logger.error(f"Error ensuring user {user_id} exists: {e}")
             return False
 
+    def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves user information from the database.
+
+        Args:
+            user_id: The user's Telegram ID.
+
+        Returns:
+            A dictionary with user information or None if not found.
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    return {
+                        'id': user.id,
+                        'username': user.username,
+                        'first_name': user.first_name,
+                        'last_name': user.last_name,
+                        'language_code': user.language_code,
+                        'is_admin': user.is_admin,
+                        'relationship_level': user.relationship_level,
+                        'interaction_count': user.interaction_count,
+                        'affection_points': user.affection_points,
+                        'last_interaction': user.last_interaction,
+                        'created_at': user.created_at,
+                        'updated_at': user.updated_at
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error getting user {user_id}: {e}", exc_info=True)
+            return None
+
 db_manager = DatabaseManager()

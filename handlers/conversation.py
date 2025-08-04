@@ -24,7 +24,6 @@ from core.memory import MemoryManager
 from database.database_manager import db_manager, get_user_lang
 from core.nlp import NLPEngine, ContextManager
 from utils.formatters import format_response, format_error_response, format_paragraphs
-from utils.roast import RoastHandler
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,6 @@ class ConversationHandler:
         self.db = db_manager
         self.context_manager = ContextManager(self.db)  # <-- DB-backed context manager
         self.nlp = nlp_engine or NLPEngine()
-        self.roast_handler = RoastHandler(gemini_client, persona_manager)
     
     def get_handlers(self) -> List:
         handlers = [
@@ -63,9 +61,6 @@ class ConversationHandler:
                 self.chat_command
             ),
         ]
-        # !ask is now handled in commands.py, so we don't add it here
-        # to avoid duplicate handling.
-        handlers.extend(self.roast_handler.get_handlers())
         return handlers
     
     def _create_or_update_user(self, user) -> bool:

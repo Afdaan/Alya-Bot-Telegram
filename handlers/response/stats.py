@@ -17,15 +17,47 @@ def get_stats_response(lang: Literal['id', 'en'], db_manager: Any, **kwargs) -> 
     if not user_id or not db_manager:
         return "Error: Could not retrieve stats."
 
-    # Mocking data fetching for now. Replace with actual db_manager calls.
-    # This part needs to be connected to the actual database logic.
-    # For demonstration, we'll use mock data.
-    user_data = {
-        "name": "User",
-        "relationship": {"level": 1, "name": "Acquaintance", "progress_percent": 50.0, "next_level_at_interaction": 100, "next_level_at_affection": 200},
-        "affection": {"points": 75, "progress_percent": 37.5},
-        "stats": {"total_messages": 150, "positive_interactions": 20, "negative_interactions": 5, "role": "User"}
-    }
+    # Get actual user data from database
+    try:
+        # Get user info from database
+        user_info = db_manager.get_user(user_id)
+        relationship_info = db_manager.get_user_relationship_info(user_id)
+        
+        # Extract user name - prefer first_name, fallback to username, then "User"
+        user_name = "User"
+        if user_info:
+            user_name = user_info.get("first_name", "").strip()
+            if not user_name:
+                user_name = user_info.get("username", "").strip()
+            if not user_name:
+                user_name = "User"
+        
+        # Set default relationship data if not found
+        if relationship_info and "relationship" in relationship_info:
+            relationship = relationship_info["relationship"]
+            affection = relationship_info.get("affection", {"points": 0, "progress_percent": 0})
+            stats = relationship_info.get("stats", {"total_messages": 0, "positive_interactions": 0, "negative_interactions": 0, "role": "User"})
+        else:
+            # Default values for new users
+            relationship = {"level": 0, "name": "Stranger", "progress_percent": 0, "next_level_at_interaction": 50, "next_level_at_affection": 100}
+            affection = {"points": 0, "progress_percent": 0}
+            stats = {"total_messages": 0, "positive_interactions": 0, "negative_interactions": 0, "role": "User"}
+        
+        user_data = {
+            "name": user_name,
+            "relationship": relationship,
+            "affection": affection,
+            "stats": stats
+        }
+        
+    except Exception as e:
+        # Fallback to mock data if database fails
+        user_data = {
+            "name": "User",
+            "relationship": {"level": 1, "name": "Acquaintance", "progress_percent": 50.0, "next_level_at_interaction": 100, "next_level_at_affection": 200},
+            "affection": {"points": 75, "progress_percent": 37.5},
+            "stats": {"total_messages": 150, "positive_interactions": 20, "negative_interactions": 5, "role": "User"}
+        }
     
     name = user_data["name"]
     relationship = user_data["relationship"]
@@ -53,11 +85,15 @@ def get_stats_response(lang: Literal['id', 'en'], db_manager: Any, **kwargs) -> 
         level_names = {0: "Orang Asing", 1: "Kenalan", 2: "Teman", 3: "Teman Dekat", 4: "Belahan Jiwa"}
         title = f"<b>🌸 Statistik Hubungan {name} [{stats.get('role', 'User')}] 🌸</b>"
         level_text = "Level"
-        affection_text = "Poin Kasih Sayang"
+        affection_text = "Affection Points"
         requirements_text = "Butuh"
         interactions_text = "interaksi"
-        affection_req_text = "kasih sayang"
+        affection_req_text = "affection"
         max_level_text = "Level maksimal tercapai! 🎉"
+        interaction_stats_text = "📊 Interaksi:"
+        total_messages_text = "📨 Total Pesan:"
+        positive_interactions_text = "😊 Interaksi Positif:"
+        negative_interactions_text = "😠 Interaksi Negatif:"
     else:
         level_footers = {
             0: ["Hmm? W-why do you want to know? Alya doesn't know you yet! 😤", "Alya is not familiar with you yet, don't get too full of yourself... 😳"],
@@ -74,15 +110,25 @@ def get_stats_response(lang: Literal['id', 'en'], db_manager: Any, **kwargs) -> 
         interactions_text = "interactions"
         affection_req_text = "affection"
         max_level_text = "Max level reached! 🎉"
+        interaction_stats_text = "📊 Interactions:"
+        total_messages_text = "📨 Total Messages:"
+        positive_interactions_text = "😊 Positive Interactions:"
+        negative_interactions_text = "😠 Negative Interactions:"
 
     level = relationship.get('level', 0)
     level_name = level_names.get(level, "Unknown")
+    current_interactions = relationship.get('interactions', 0)
     progress_percent = relationship.get('progress_percent', 0.0)
     next_interaction_req = relationship.get('next_level_at_interaction', 100)
     next_affection_req = relationship.get('next_level_at_affection', 200)
     
     affection_points = affection.get('points', 0)
     affection_percent = affection.get('progress_percent', 0.0)
+    
+    # Extract interaction stats
+    total_messages = stats.get('total_messages', 0)
+    positive_interactions = stats.get('positive_interactions', 0)
+    negative_interactions = stats.get('negative_interactions', 0)
 
     footer = random.choice(level_footers.get(level, ["..."]))
     level_emoji = get_level_emoji(level)
@@ -99,5 +145,9 @@ def get_stats_response(lang: Literal['id', 'en'], db_manager: Any, **kwargs) -> 
         f"<i>{requirements}</i>\n\n"
         f"<b>💕 {affection_text}:</b> {affection_points}\n"
         f"{progress_bar(affection_percent)} <code>{affection_percent:.1f}%</code>\n\n"
+        f"<b>{interaction_stats_text}</b>\n"
+        f"├ {total_messages_text} {total_messages}\n"
+        f"├ {positive_interactions_text} {positive_interactions}\n"
+        f"└ {negative_interactions_text} {negative_interactions}\n\n"
         f"<i>{footer}</i>"
     )
