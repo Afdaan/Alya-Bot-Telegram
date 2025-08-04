@@ -1,5 +1,6 @@
 """
 Persona manager for Alya Bot to handle persona loading and response formatting.
+Supports multilingual responses through language-specific templates.
 """
 import os
 import logging
@@ -8,7 +9,7 @@ from typing import Dict, List, Any, Optional
 import yaml
 import datetime
 
-from config.settings import PERSONA_DIR, DEFAULT_PERSONA
+from config.settings import PERSONA_DIR, DEFAULT_PERSONA, DEFAULT_LANGUAGE
 
 logger = logging.getLogger(__name__)
 
@@ -159,35 +160,42 @@ class PersonaManager:
             # Default fallback
             return f"Sampai jumpa, {username}!"
         
-    def get_error_message(self, persona_name: Optional[str] = None, username: str = "user") -> str:
+    def get_error_message(self, persona_name: Optional[str] = None, 
+                           username: str = "user", language: str = None) -> str:
         """Get an error message for the given persona.
         
         Args:
             persona_name: Name of the persona to use, or None for default
             username: Username to insert in the template
+            language: Language code ('id' or 'en'), defaults to DEFAULT_LANGUAGE
             
         Returns:
             Formatted error message
         """
         persona = self.get_persona(persona_name)
-        error_msg = persona.get("templates", {}).get("error_message", 
-                                                     "Maaf {username}, terjadi kesalahan...")
+        error_msg = self._get_language_template(persona, "error_message", language)
+        
+        if not error_msg:
+            error_msg = "Maaf {username}, terjadi kesalahan..."
+            
         return error_msg.format(username=username)
         
     def get_help_message(self, persona_name: Optional[str] = None, 
-                        username: str = "user", prefix: str = "!ai") -> str:
+                        username: str = "user", prefix: str = "!ai", 
+                        language: str = None) -> str:
         """Get the help message for the given persona.
         
         Args:
             persona_name: Name of the persona to use, or None for default
             username: Username to insert in the template
             prefix: Command prefix to insert in the template
+            language: Language code ('id' or 'en'), defaults to DEFAULT_LANGUAGE
             
         Returns:
             Formatted help message
         """
         persona = self.get_persona(persona_name)
-        help_msg = persona.get("templates", {}).get("help_message", "")
+        help_msg = self._get_language_template(persona, "help_message", language)
         
         # If no help message in persona, create a basic one
         if not help_msg:
@@ -266,11 +274,13 @@ class PersonaManager:
             
         return system_prompt
 
-    def get_full_system_prompt(self, persona_name: Optional[str] = None) -> str:
+    def get_full_system_prompt(self, persona_name: Optional[str] = None, 
+                              language: str = None) -> str:
         """Return the merged system prompt and enhanced instructions from persona YAML.
 
         Args:
             persona_name: Name of the persona to use, or None for default
+            language: Language code ('id' or 'en'), defaults to DEFAULT_LANGUAGE
 
         Returns:
             Full system prompt string (system_prompt + enhanced_system_instructions)
@@ -278,7 +288,16 @@ class PersonaManager:
         persona = self.get_persona(persona_name)
         base_prompt = persona.get("system_prompt", "")
         enhanced = persona.get("enhanced_system_instructions", "")
-        return f"{base_prompt}\n\n{enhanced}".strip()
+        
+        # If there are language-specific templates in gemini_prompt_template, use them
+        lang = language or DEFAULT_LANGUAGE
+        lang_prompt = persona.get("gemini_prompt_template", {}).get(lang, {}).get("prompt", "")
+        
+        # Combine all prompt parts
+        if lang_prompt:
+            return f"{base_prompt}\n\n{enhanced}\n\n{lang_prompt}".strip()
+        else:
+            return f"{base_prompt}\n\n{enhanced}".strip()
     
     def get_roleplay_action(self, emotion: str, mood: str = None, 
                            persona_name: Optional[str] = None) -> Optional[str]:
@@ -341,3 +360,63 @@ class PersonaManager:
         
         # Generic fallback
         return None
+    
+    def _get_language_template(self, persona: Dict[str, Any], template_key: str, 
+                           language: str = None) -> str:
+        """Get a language-specific template from persona.
+        
+        Args:
+            persona: Persona data dictionary
+            template_key: Template key to retrieve
+            language: Language code ('id' or 'en'), defaults to DEFAULT_LANGUAGE
+            
+        Returns:
+            Template string in the requested language
+        """
+        language = language or DEFAULT_LANGUAGE
+        
+        # Try to get from language-specific template first
+        lang_templates = persona.get("languages", {}).get(language, {}).get("templates", {})
+        template = lang_templates.get(template_key, "")
+        
+        if not template:
+            # Fallback to default language
+            fallback_lang = "id" if DEFAULT_LANGUAGE == "id" else "en"
+            default_templates = persona.get("languages", {}).get(fallback_lang, {}).get("templates", {})
+            template = default_templates.get(template_key, "")
+            
+        if not template:
+            # Legacy fallback (for backward compatibility)
+            template = persona.get("templates", {}).get(template_key, "")
+            
+        return template
+        
+    def _get_language_speech_pattern(self, persona: Dict[str, Any], pattern_key: str, 
+                                   language: str = None) -> str:
+        """Get a language-specific speech pattern from persona.
+        
+        Args:
+            persona: Persona data dictionary
+            pattern_key: Speech pattern key to retrieve
+            language: Language code ('id' or 'en'), defaults to DEFAULT_LANGUAGE
+            
+        Returns:
+            Speech pattern string in the requested language
+        """
+        language = language or DEFAULT_LANGUAGE
+        
+        # Try to get from language-specific patterns first
+        lang_patterns = persona.get("languages", {}).get(language, {}).get("speech_patterns", {})
+        pattern = lang_patterns.get(pattern_key, "")
+        
+        if not pattern:
+            # Fallback to default language
+            fallback_lang = "id" if DEFAULT_LANGUAGE == "id" else "en"
+            default_patterns = persona.get("languages", {}).get(fallback_lang, {}).get("speech_patterns", {})
+            pattern = default_patterns.get(pattern_key, "")
+            
+        if not pattern:
+            # Legacy fallback (for backward compatibility)
+            pattern = persona.get("emotional_authenticity", {}).get("speech_patterns", {}).get(pattern_key, "")
+            
+        return pattern

@@ -82,8 +82,13 @@ class ConversationHandler:
         user_info = self.db.get_user_relationship_info(user_id)
         return user_info.get("relationship", {}).get("level", 0) if user_info else 0
     
-    async def _send_error_response(self, update: Update, username: str) -> None:
-        error_message = self.persona.get_error_message(username=username or "user")
+    async def _send_error_response(self, update: Update, username: str, user_id: int = None) -> None:
+        # Get user language if user_id provided
+        language = None
+        if user_id and self.db:
+            language = self.db.get_user_language(user_id)
+        
+        error_message = self.persona.get_error_message(username=username or "user", language=language)
         formatted_error = format_error_response(error_message)
         await update.message.reply_html(formatted_error)
             
@@ -171,10 +176,10 @@ class ConversationHandler:
             if response:
                 await self._process_and_send_response(update, user, response, user_context["message_context"])
             else:
-                await self._send_error_response(update, user.first_name)
+                await self._send_error_response(update, user.first_name, user.id)
         except Exception as e:
             logger.error(f"Error in chat command: {e}", exc_info=True)
-            await self._send_error_response(update, user.first_name)
+            await self._send_error_response(update, user.first_name, user.id)
     
     async def _prepare_conversation_context(self, user, query: str) -> Dict[str, Any]:
         user_task = asyncio.create_task(self._get_user_info(user))
@@ -191,7 +196,7 @@ class ConversationHandler:
         system_prompt = f"LANGUAGE INSTRUCTION: {language_instruction}\n\n"
         
         # Then add the persona system prompt after the language instruction
-        system_prompt += self.persona.get_full_system_prompt()
+        system_prompt += self.persona.get_full_system_prompt(language=user_language)
         
         # Improved context extraction
         message_context = {}
