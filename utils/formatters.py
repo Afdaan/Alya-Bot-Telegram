@@ -236,6 +236,85 @@ def _are_paragraphs_similar(p1: str, p2: str) -> bool:
     ratio = difflib.SequenceMatcher(None, p1.lower(), p2.lower()).ratio()
     return ratio > 0.8
 
+def _split_into_readable_paragraphs(text: str) -> List[str]:
+    """Split text into meaningful, readable paragraphs with proper structure.
+    
+    Args:
+        text: Raw text to split
+        
+    Returns:
+        List of well-formatted paragraphs
+    """
+    if not text or not text.strip():
+        return []
+    
+    # First, split by natural paragraph breaks (double newlines)
+    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+    
+    # If no natural breaks, try to split by sentence endings followed by new thoughts
+    if len(paragraphs) == 1:
+        # Look for sentence endings followed by capital letters (new thoughts)
+        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
+        if len(sentences) > 1:
+            # Group sentences into logical paragraphs (max 3 sentences per paragraph)
+            grouped_paragraphs = []
+            current_group = []
+            for sentence in sentences:
+                current_group.append(sentence.strip())
+                if len(current_group) >= 3 or sentence.strip().endswith(('!', '?')):
+                    grouped_paragraphs.append(' '.join(current_group))
+                    current_group = []
+            if current_group:
+                grouped_paragraphs.append(' '.join(current_group))
+            paragraphs = grouped_paragraphs
+    
+    # Clean up each paragraph
+    cleaned_paragraphs = []
+    for paragraph in paragraphs:
+        # Remove excessive whitespace and line breaks within paragraphs
+        cleaned = ' '.join(paragraph.split())
+        if cleaned and len(cleaned.strip()) > 10:  # Filter out very short fragments
+            cleaned_paragraphs.append(cleaned)
+    
+    return cleaned_paragraphs
+
+def _is_content_redundant(main_content: str, other_content: str) -> bool:
+    """Check if content is redundant compared to main content.
+    
+    Args:
+        main_content: Primary content to compare against
+        other_content: Secondary content to check for redundancy
+        
+    Returns:
+        True if content is redundant and should be filtered out
+    """
+    if not main_content or not other_content:
+        return True
+        
+    # Normalize both texts for comparison
+    main_normalized = ' '.join(main_content.lower().split())
+    other_normalized = ' '.join(other_content.lower().split())
+    
+    # Check similarity ratio
+    similarity = difflib.SequenceMatcher(None, main_normalized, other_normalized).ratio()
+    
+    # Content is redundant if:
+    # 1. Very high similarity (85%+)
+    # 2. Other content is much shorter and contained in main
+    # 3. Other content just repeats key phrases
+    if similarity > 0.85:
+        return True
+        
+    if len(other_normalized) < len(main_normalized) * 0.3:
+        # Check if shorter text is mostly contained in longer text
+        words_in_other = set(other_normalized.split())
+        words_in_main = set(main_normalized.split())
+        overlap = len(words_in_other.intersection(words_in_main)) / len(words_in_other) if words_in_other else 0
+        if overlap > 0.7:
+            return True
+    
+    return False
+
 def format_response(
     message: str,
     emotion: str = "neutral",
@@ -247,34 +326,38 @@ def format_response(
     roleplay_action: Optional[str] = None,
     russian_expression: Optional[str] = None
 ) -> str:
-    """Format a bot response with persona, mood, expressive emoji, and persona-driven roleplay/action."""
+    """Format a bot response with persona, mood, expressive emoji, and persona-driven roleplay/action.
+    
+    Creates a well-structured response with proper paragraph breaks and visual hierarchy.
+    """
     persona_manager = PersonaManager()
     persona = persona_manager.get_persona(persona_name)
 
     # Sanitize message first
     message = _sanitize_response(message, username)
 
-    # Replace username/target placeholders
+    # Replace username/target placeholders with bold formatting
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
 
-    # Extract roleplay and split paragraphs
+    # Extract roleplay and intelligently split content into readable chunks
     message, existing_roleplay = detect_roleplay(message)
-    paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
+    
+    # Split into meaningful paragraphs for better readability
+    paragraphs = _split_into_readable_paragraphs(message)
     main_message = paragraphs[0] if paragraphs else message
     optional_messages = paragraphs[1:] if len(paragraphs) > 1 else []
 
-    # Remove duplicate optionals
+    # Remove duplicate or very similar content
     filtered_optionals = []
     for opt_msg in optional_messages:
-        ratio = difflib.SequenceMatcher(None, main_message.lower(), opt_msg.lower()).ratio()
-        if ratio < 0.85:
+        if not _is_content_redundant(main_message, opt_msg):
             filtered_optionals.append(opt_msg)
-    optional_messages = filtered_optionals[:1]
+    optional_messages = filtered_optionals[:2]  # Allow up to 2 additional paragraphs
 
-    # Roleplay formatting
+    # Enhanced roleplay formatting with better context
     roleplay = existing_roleplay
     if not roleplay and FORMAT_ROLEPLAY:
         expressions = persona.get("emotions", {}).get(mood if mood != "default" else "neutral", {}).get("expressions", [])
@@ -308,74 +391,175 @@ def format_response(
     mood_emojis = MOOD_EMOJI_MAPPING.get(current_mood, MOOD_EMOJI_MAPPING["default"])
     emoji_count = min(MAX_EMOJI_PER_RESPONSE, 4)
 
-    main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_message)
-    main_content = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', main_content)
-    main_content = escape_html(main_content)
+    # Enhanced content formatting with better structure
+    main_content = _format_text_content(main_message)
 
-    # Only inject emoji if not already present
+    # Smart emoji injection for enhanced emotional expression
     if not contains_mood_emoji(main_content, mood_emojis):
-        positions = ["start", "end"]
-        if len(main_content.split()) > 4:
-            positions.append("middle")
-        max_positions = min(emoji_count, len(positions))
-        chosen_positions = random.sample(positions, k=max_positions)
-        if emoji_count > len(positions):
-            # Add random positions without duplication - safer logic
-            extra_needed = emoji_count - len(positions)
-            extra_positions = random.choices(positions, k=extra_needed)
-            chosen_positions.extend(extra_positions)
-        used_positions = set()
-        for idx, pos in enumerate(chosen_positions):
-            emoji_ = mood_emojis[idx % len(mood_emojis)]
-            if pos == "start" and "start" not in used_positions and not main_content.startswith(emoji_):
-                main_content = f"{emoji_} {main_content}"
-                used_positions.add("start")
-            elif pos == "end" and "end" not in used_positions and not main_content.endswith(emoji_):
-                main_content = f"{main_content} {emoji_}"
-                used_positions.add("end")
-            elif pos == "middle" and "middle" not in used_positions:
-                words = main_content.split()
-                if len(words) > 2:
-                    mid = len(words) // 2
-                    words.insert(mid, emoji_)
-                    main_content = " ".join(words)
-                    used_positions.add("middle")
+        main_content = _inject_mood_emojis(main_content, mood_emojis, emoji_count)
 
-    # Format optionals
+    # Format additional paragraphs with consistent styling
     formatted_optionals = []
-    if optional_messages:
-        opt_msg = optional_messages[0]
-        opt_msg = re.sub(r'\*(.*?)\*', r'<i>\1</i>', opt_msg)
-        opt_msg = escape_html(opt_msg)
-        formatted_optionals.append(opt_msg)
+    for opt_msg in optional_messages:
+        formatted_opt = _format_text_content(opt_msg)
+        # Add subtle emoji to secondary paragraphs (less prominent)
+        if len(mood_emojis) > 1 and not contains_mood_emoji(formatted_opt, mood_emojis):
+            secondary_emoji = mood_emojis[1]  # Use second emoji from mood set
+            if not formatted_opt.endswith(secondary_emoji):
+                formatted_opt = f"{formatted_opt} {secondary_emoji}"
+        formatted_optionals.append(formatted_opt)
 
-    # Mood display (optional, only if mood != default)
+    # Enhanced mood display with better context
     mood_display = None
     if mood != "default" and FORMAT_EMOTION:
-        try:
-            import yaml
-            from pathlib import Path
-            yaml_path = Path(__file__).parent.parent / "config" / "persona" / "emotion_display.yml"
-            with open(yaml_path, "r", encoding="utf-8") as f:
-                mood_yaml = yaml.safe_load(f)
-            mood_list = mood_yaml.get("moods", {}).get(mood, []) or mood_yaml.get("moods", {}).get("default", [])
-            chosen = random.choice(mood_list) if mood_list else mood.replace("_", " ")
-        except Exception as e:
-            logger.warning(f"Failed to load emotion_display.yml: {e}")
-            chosen = mood.replace("_", " ")
-        mood_display = f"<i>{escape_html(chosen)}</i>"
+        mood_display = _get_mood_display(mood)
 
-    result = []
+    # Build final response with proper visual hierarchy
+    result_components = []
+    
+    # 1. Roleplay action (if present) - sets emotional context
     if roleplay:
-        result.append(roleplay)
-    result.append(main_content)
+        result_components.append(roleplay)
+    
+    # 2. Main content - primary message
+    result_components.append(main_content)
+    
+    # 3. Additional paragraphs - secondary information
     if formatted_optionals:
-        result.extend(formatted_optionals)
+        result_components.extend(formatted_optionals)
+    
+    # 4. Mood indicator (if present) - emotional state closure
     if mood_display:
-        result.append(mood_display)
+        result_components.append(mood_display)
 
-    final = '\n\n'.join([r for r in result if r and r.strip()])
-    return clean_html_entities(final)
+    # Join with double newlines for clear paragraph separation
+    final_response = '\n\n'.join([component for component in result_components if component and component.strip()])
+    
+    # Final cleanup and validation
+    return clean_html_entities(final_response)
+
+def _format_text_content(text: str) -> str:
+    """Apply consistent text formatting with italics and bold emphasis.
+    
+    Args:
+        text: Raw text content
+        
+    Returns:
+        Formatted text with HTML tags
+    """
+    # Convert markdown-style formatting to HTML
+    formatted = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+    
+    # Bold Japanese honorifics for better visual appeal
+    formatted = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', formatted)
+    
+    # Escape HTML for safety
+    formatted = escape_html(formatted)
+    
+    return formatted
+
+def _inject_mood_emojis(content: str, mood_emojis: List[str], emoji_count: int) -> str:
+    """Intelligently inject mood-appropriate emojis into content.
+    
+    Args:
+        content: Text content to enhance
+        mood_emojis: List of mood-appropriate emojis
+        emoji_count: Maximum number of emojis to inject
+        
+    Returns:
+        Content with strategically placed emojis
+    """
+    words = content.split()
+    if len(words) < 2:
+        # Short content - just add emoji at end
+        return f"{content} {mood_emojis[0]}"
+    
+    # Determine strategic positions for emoji placement
+    positions = []
+    
+    # Always consider start and end positions
+    positions.extend(["start", "end"])
+    
+    # Add middle position for longer content
+    if len(words) > 6:
+        positions.append("middle")
+    
+    # Add quarter positions for very long content
+    if len(words) > 12:
+        positions.extend(["quarter", "three_quarter"])
+    
+    # Select positions to use (avoid over-emoji-ing)
+    max_positions = min(emoji_count, len(positions), 3)  # Cap at 3 emojis max
+    selected_positions = random.sample(positions, k=max_positions)
+    
+    # Apply emojis at selected positions
+    used_positions = set()
+    for idx, position in enumerate(selected_positions):
+        emoji_char = mood_emojis[idx % len(mood_emojis)]
+        
+        if position == "start" and "start" not in used_positions:
+            if not content.startswith(emoji_char):
+                content = f"{emoji_char} {content}"
+                used_positions.add("start")
+        elif position == "end" and "end" not in used_positions:
+            if not content.endswith(emoji_char):
+                content = f"{content} {emoji_char}"
+                used_positions.add("end")
+        elif position == "middle" and "middle" not in used_positions and len(words) > 4:
+            words = content.split()
+            mid_pos = len(words) // 2
+            words.insert(mid_pos, emoji_char)
+            content = " ".join(words)
+            used_positions.add("middle")
+        elif position == "quarter" and "quarter" not in used_positions and len(words) > 8:
+            words = content.split()
+            quarter_pos = len(words) // 4
+            words.insert(quarter_pos, emoji_char)
+            content = " ".join(words)
+            used_positions.add("quarter")
+        elif position == "three_quarter" and "three_quarter" not in used_positions and len(words) > 8:
+            words = content.split()
+            three_quarter_pos = (len(words) * 3) // 4
+            words.insert(three_quarter_pos, emoji_char)
+            content = " ".join(words)
+            used_positions.add("three_quarter")
+    
+    return content
+
+def _get_mood_display(mood: str) -> Optional[str]:
+    """Get mood display text from emotion_display.yml.
+    
+    Args:
+        mood: Current mood identifier
+        
+    Returns:
+        Formatted mood display string or None
+    """
+    try:
+        import yaml
+        from pathlib import Path
+        yaml_path = Path(__file__).parent.parent / "config" / "persona" / "emotion_display.yml"
+        
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            mood_yaml = yaml.safe_load(f)
+        
+        mood_options = mood_yaml.get("moods", {}).get(mood, [])
+        if not mood_options:
+            mood_options = mood_yaml.get("moods", {}).get("default", [])
+        
+        if mood_options:
+            chosen_display = random.choice(mood_options)
+            return f"<i>{escape_html(chosen_display)}</i>"
+        else:
+            # Fallback to formatted mood name
+            fallback = mood.replace("_", " ").title()
+            return f"<i>{escape_html(fallback)}</i>"
+            
+    except Exception as e:
+        logger.warning(f"Failed to load emotion_display.yml: {e}")
+        # Fallback to formatted mood name
+        fallback = mood.replace("_", " ").title()
+        return f"<i>{escape_html(fallback)}</i>"
 
 def format_error_response(error_message: str, username: str = "user") -> str:
     """Format an error response with appropriate tone. Output is valid HTML."""
