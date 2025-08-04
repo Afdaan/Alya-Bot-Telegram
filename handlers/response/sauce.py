@@ -37,7 +37,7 @@ def get_texts(lang: str) -> Dict[str, str]:
             "no_results": "Hmph! I couldn't find any matching sauce for this image. Maybe try another one? 😳",
             "error_api": "I-I failed to find the sauce... The API is having issues. Please try again later. 😥",
             "error_rate_limit": "Oops, we've hit the rate limit! Too many requests to SauceNAO. Please try again in a bit.",
-            "error_unknown": "An unexpected error occurred while searching for the sauce. The technical team (if any) has been notified!",
+            "error_unknown": "Eh... что?! Ada error aneh saat nyari sauce... 😳\n\nB-bukan salahku! Sistemnya yang bermasalah... дурак teknologi! 💫\n\nCoba kirim gambar lain ya?",
             "results_header": "<b>✨ Found {count} sauces for this image!</b>",
             "similarity": "Similarity",
             "author": "Author",

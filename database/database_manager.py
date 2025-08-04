@@ -771,6 +771,15 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting database stats: {e}")
             return {"error": str(e)}
+
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        Alias for get_database_stats() to maintain compatibility.
+        
+        Returns:
+            Dict containing database statistics
+        """
+        return self.get_database_stats()
     
     def is_admin(self, user_id: int) -> bool:
         """

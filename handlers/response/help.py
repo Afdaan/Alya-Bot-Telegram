@@ -1,11 +1,12 @@
 from typing import Literal
 
-def get_help_response(lang: Literal['id', 'en']) -> str:
+def get_help_response(lang: Literal['id', 'en'], username: str = "user") -> str:
     """
     Generates a help response for the bot in the specified language.
 
     Args:
         lang: The language for the response ('id' or 'en').
+        username: The user's first name.
 
     Returns:
         The help message string.

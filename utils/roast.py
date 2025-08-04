@@ -125,7 +125,7 @@ class RoastHandler:
     async def handle_personal_roast(self, update: Update, context: CallbackContext) -> None:
         """Handle personal roast requests with rate limiting."""
         user = update.effective_user
-        lang = get_user_lang(user.id, db_manager)
+        lang = get_user_lang(user.id)
         
         allowed, wait_time = await self.rate_limiter.acquire_with_feedback(user.id)
         if not allowed:
@@ -151,7 +151,7 @@ class RoastHandler:
     async def handle_git_roast(self, update: Update, context: CallbackContext) -> None:
         """Handle GitHub profile roasts."""
         user = update.effective_user
-        lang = get_user_lang(user.id, db_manager)
+        lang = get_user_lang(user.id)
         
         match = re.match(r"^!gitroast\s+([\w-]+)", update.message.text)
         if not match:

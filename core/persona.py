@@ -115,13 +115,13 @@ class PersonaManager:
         
         return greeting_template.format(username=username)
         
-    def get_error_message(self, persona_name: Optional[str] = None, username: str = "user", lang: str = 'id') -> str:
+    def get_error_message(self, username: str = "user", lang: str = 'id', persona_name: Optional[str] = None) -> str:
         """Get a generic error message for the given persona.
         
         Args:
-            persona_name: Name of the persona to use, or None for default
             username: Username to insert in the error template
             lang: Language for the error message
+            persona_name: Name of the persona to use, or None for default
             
         Returns:
             Formatted error message
@@ -129,9 +129,16 @@ class PersonaManager:
         persona = self.get_persona(persona_name)
         errors = persona.get("errors", {})
         
-        # Get language-specific errors, fallback to default language or a generic message
+        # Get language-specific errors, fallback to default language or Alya-style generic message
         lang_errors = errors.get(lang, errors.get('id', {}))
-        error_template = lang_errors.get("generic", "Sorry, something went wrong, {username}.")
+        
+        # Use Alya-style error message as fallback instead of generic one
+        if lang == 'id':
+            default_error = "Eh... что?! Ada yang error nih... 😳\n\nB-bukan salahku ya! Sistemnya lagi bermasalah... дурак teknologi! 💫\n\nCoba lagi nanti, {username}-kun!"
+        else:
+            default_error = "Eh... что?! Something went wrong... 😳\n\nI-It's not my fault! The system is having issues... дурак technology! 💫\n\nTry again later, {username}!"
+            
+        error_template = lang_errors.get("generic", default_error)
         
         return error_template.format(username=username)
         

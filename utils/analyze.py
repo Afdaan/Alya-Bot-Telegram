@@ -43,7 +43,7 @@ class MediaAnalyzer:
         Returns:
             A string containing the analysis result.
         """
-        lang = get_user_lang(user_id, self.db_manager)
+        lang = get_user_lang(user_id)
         
         try:
             # For images, we need to get the content description first
@@ -155,11 +155,11 @@ class MediaAnalyzer:
         query = " ".join(context.args) if context.args else (message.caption or "").replace("!ask", "").strip()
         if not query and media_type != "text":
             # If there's no specific question for media, use a default one.
-            lang = get_user_lang(user.id, db_manager)
+            lang = get_user_lang(user.id)
             query = "Analyze this for me, please." if lang == 'en' else "Tolong analisis ini."
 
         if not media_content:
-            lang = get_user_lang(user.id, db_manager)
+            lang = get_user_lang(user.id)
             await message.reply_html(get_system_error_response(lang, error_type="no_media"))
             return
 
@@ -175,5 +175,5 @@ class MediaAnalyzer:
             await message.reply_html(result)
         except Exception as e:
             logger.error(f"Failed to handle analysis command for user {user.id}: {e}", exc_info=True)
-            lang = get_user_lang(user.id, db_manager)
+            lang = get_user_lang(user.id)
             await message.reply_html(get_system_error_response(lang))

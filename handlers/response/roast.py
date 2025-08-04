@@ -54,15 +54,15 @@ def _get_error_messages(lang: str, error: str, username: Optional[str] = None) -
             'api_fail': "Lagi gak mood nge-roast. Servernya lagi ngambek, coba lagi nanti.",
             'not_found': f"Gak nemu user GitHub namanya '{username}'. Salah ketik kali, dasar ceroboh.",
             'no_activity': f"Aku coba nge-roast {username}, tapi dia gak punya aktivitas publik. Beneran ada orangnya gak sih?",
-            'generic': "Aduh, ada yang salah. Kayaknya kamu terlalu menyedihkan sampai generator roasku rusak.",
-            'unknown': "Terjadi kesalahan misterius. Kamu aman... untuk sekarang."
+            'generic': "Eh... что?! Ada yang error nih... 😳\n\nB-bukan salahku! Sistemnya lagi bermasalah... дурак teknologi! 💫",
+            'unknown': "Eh... что?! Error misterius detected... 😳\n\nKamu aman... untuk sekarang. дурак sistem! 💫"
         },
         'en': {
             'api_fail': "I'm not in the mood to roast. The server is throwing a tantrum, try again later.",
             'not_found': f"Couldn't find a GitHub user named '{username}'. Did you type it wrong, you careless fool?",
             'no_activity': f"I tried to roast {username}, but they have no public activity. Are they even real?",
-            'generic': "Oops, something went wrong. I guess you're so pathetic you broke my roast generator.",
-            'unknown': "A mysterious error occurred. You're safe... for now."
+            'generic': "Eh... что?! Something went wrong... 😳\n\nI-It's not my fault! The system is having issues... дурак technology! 💫",
+            'unknown': "Eh... что?! A mysterious error occurred... 😳\n\nYou're safe... for now. дурак system! 💫"
         }
     }
     return messages[lang].get(error, messages[lang]['unknown'])
