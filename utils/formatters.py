@@ -1,46 +1,77 @@
 """
-Response formatters for Alya Bot that handle HTML escaping and message structure.
+Enterprise-grade response formatters for Alya Bot.
+
+Handles HTML escaping, message structure, and persona-driven formatting
+with deterministic output and proper error handling.
 """
 import logging
 import random
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Set
 import html
 import re
 import emoji
 import difflib
+from pathlib import Path
 
 from config.settings import (
-    FORMAT_ROLEPLAY, FORMAT_EMOTION, FORMAT_RUSSIAN, 
-    MAX_EMOJI_PER_RESPONSE, RUSSIAN_EXPRESSIONS
+    FORMAT_ROLEPLAY, 
+    FORMAT_EMOTION, 
+    FORMAT_RUSSIAN, 
+    MAX_EMOJI_PER_RESPONSE, 
+    RUSSIAN_EXPRESSIONS
 )
 from core.persona import PersonaManager
 
 logger = logging.getLogger(__name__)
 
 def escape_html(text: str) -> str:
-    """Escape HTML special characters in text, except inside allowed tags."""
+    """
+    Escape HTML special characters while preserving allowed Telegram formatting tags.
+    
+    Args:
+        text: Raw text to escape
+        
+    Returns:
+        HTML-escaped text with Telegram formatting preserved
+    """
     if not text:
         return ""
-    # Only escape outside <b>, <i>, <u>, <s>, <a href="">, <code>, <pre>
-    # Simple approach: escape everything, then unescape inside allowed tags
+    
+    # Escape all HTML first
+    escaped = html.escape(text)
+    
+    # Preserve allowed Telegram HTML tags
     allowed_tags = ["b", "i", "u", "s", "code", "pre"]
-    # Escape all first
-    text = html.escape(text)
-    # Unescape allowed tags
+    
     for tag in allowed_tags:
-        text = re.sub(
-            f"&lt;{tag}&gt;", f"<{tag}>", text, flags=re.IGNORECASE
+        # Restore opening tags
+        escaped = re.sub(
+            f"&lt;{tag}&gt;", 
+            f"<{tag}>", 
+            escaped, 
+            flags=re.IGNORECASE
         )
-        text = re.sub(
-            f"&lt;/{tag}&gt;", f"</{tag}>", text, flags=re.IGNORECASE
+        # Restore closing tags
+        escaped = re.sub(
+            f"&lt;/{tag}&gt;", 
+            f"</{tag}>", 
+            escaped, 
+            flags=re.IGNORECASE
         )
-    # Allow <a href="">...</a>
-    text = re.sub(r"&lt;a href=['\"](.*?)['\"]&gt;", r"<a href='\1'>", text)
-    text = re.sub(r"&lt;/a&gt;", r"</a>", text)
-    return text
+    
+    # Restore anchor tags with href
+    escaped = re.sub(
+        r"&lt;a href=['\"]([^'\"]*)['\"]&gt;", 
+        r"<a href='\1'>", 
+        escaped
+    )
+    escaped = re.sub(r"&lt;/a&gt;", r"</a>", escaped)
+    
+    return escaped
 
 def escape_markdown_v2(text: str) -> str:
-    """Escape special characters for Telegram's MarkdownV2 format.
+    """
+    Escape special characters for Telegram's MarkdownV2 format.
     
     Args:
         text: Raw text to escape
@@ -50,92 +81,139 @@ def escape_markdown_v2(text: str) -> str:
     """
     if not text:
         return ""
-        
-    # Special characters that need to be escaped in MarkdownV2
-    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!', '%']
     
-    # Escape each special character with a backslash
+    # Telegram MarkdownV2 special characters
+    special_chars = [
+        '_', '*', '[', ']', '(', ')', '~', '`', '>', 
+        '#', '+', '-', '=', '|', '{', '}', '.', '!', '%'
+    ]
+    
+    # Escape backslash first to prevent double escaping
+    text = text.replace('\\', '\\\\')
+    
+    # Escape each special character
     for char in special_chars:
         text = text.replace(char, f'\\{char}')
         
     return text
 
+
 def escape_markdown_v2_safe(text: str) -> str:
-    """Ultra-safe escaping of MarkdownV2 special characters.
+    """
+    Ultra-safe escaping for Telegram's MarkdownV2 format.
     
-    This implementation guarantees fully escaped text for Telegram's MarkdownV2 format.
+    This implementation provides comprehensive escaping based on Telegram's
+    official API documentation to prevent parse errors.
     
     Args:
         text: Text to escape
         
     Returns:
-        Text with all special characters properly escaped
+        Fully escaped text safe for MarkdownV2 parsing
     """
     if not text:
         return ""
     
-    # Convert to string if not already
     text = str(text)
     
-    # List all characters that need escaping in MarkdownV2
-    # This is the complete list from Telegram API documentation
-    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', 
-                    '-', '=', '|', '{', '}', '.', '!', ',']
+    # Complete list from Telegram API docs
+    special_chars = [
+        '_', '*', '[', ']', '(', ')', '~', '`', '>', 
+        '#', '+', '-', '=', '|', '{', '}', '.', '!', ','
+    ]
     
-    # Escape backslash first to avoid double escaping
+    # Escape backslash first
     text = text.replace('\\', '\\\\')
     
-    # Escape all other special characters
+    # Escape all special characters
     for char in special_chars:
         text = text.replace(char, f'\\{char}')
     
     return text
 
 def format_paragraphs(text: str, markdown: bool = True) -> str:
-    """Format multi-paragraph text for Telegram by adding spacing and escaping if needed.
+    """
+    Format multi-paragraph text for Telegram with proper spacing and escaping.
 
     Args:
-        text: The original multi-paragraph string.
-        markdown: Whether to escape for MarkdownV2 (default True). If False, treat as HTML.
+        text: The original multi-paragraph string
+        markdown: Whether to escape for MarkdownV2 (True) or HTML (False)
 
     Returns:
-        Formatted string with clear paragraph separation and safe for Telegram.
+        Formatted string with clear paragraph separation and safe for Telegram
     """
-    # Pisahkan paragraf dengan 2 newline atau 1 newline diapit teks
+    if not text:
+        return ""
+    
+    # Split paragraphs by double newlines or single newlines between text
     paragraphs = re.split(r'(?:\n\s*\n|(?<=[^\n])\n(?=[^\n]))', text.strip())
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
+    
     formatted = '\n\n'.join(paragraphs)
+    
     if markdown:
         formatted = escape_markdown_v2(formatted)
     else:
         formatted = clean_html_entities(formatted)
+    
     return formatted
 
+
 def clean_html_entities(text: str) -> str:
-    """Clean up invalid HTML tags/entities for Telegram HTML parse_mode."""
-    # Remove unsupported/typo tags like <i\">, <b\">, etc.
+    """
+    Clean up invalid HTML tags and entities for Telegram HTML parse_mode.
+    
+    Args:
+        text: Text with potentially malformed HTML
+        
+    Returns:
+        Text with cleaned HTML entities and tags
+    """
+    if not text:
+        return ""
+    
+    # Fix malformed tags with quotes
     text = re.sub(r'<([bius])\\">', r'<\1>', text)
     text = re.sub(r'</([bius])\\">', r'</\1>', text)
-    # Remove any stray backslashes in tags
+    
+    # Remove stray backslashes in tags
     text = re.sub(r'<([bius])\\>', r'<\1>', text)
     text = re.sub(r'</([bius])\\>', r'</\1>', text)
-    # Remove unsupported tags/entities
+    
+    # Fix specific malformed patterns
     text = re.sub(r'<i\\', '<i', text)
     text = re.sub(r'</i\\', '</i', text)
-    # Remove any tag with invalid chars
+    
+    # Clean up tags with invalid characters
     text = re.sub(r'<([a-z]+)[^>]*>', lambda m: f"<{m.group(1)}>", text)
     text = re.sub(r'</([a-z]+)[^>]*>', lambda m: f"</{m.group(1)}>", text)
+    
     return text
 
-def format_markdown_response(text: str, username: Optional[str] = None,
-                           telegram_username: Optional[str] = None,
-                           mentioned_username: Optional[str] = None,
-                           mentioned_text: Optional[str] = None) -> str:
-    """Format bot response with proper spacing and styling."""
+def format_markdown_response(
+    text: str, 
+    username: Optional[str] = None,
+    telegram_username: Optional[str] = None,
+    mentioned_username: Optional[str] = None,
+    mentioned_text: Optional[str] = None
+) -> str:
+    """
+    Format bot response with proper spacing and styling for MarkdownV2.
+    
+    Args:
+        text: Response text to format
+        username: User's display name
+        telegram_username: User's Telegram username
+        mentioned_username: Username that was mentioned
+        mentioned_text: Text that was mentioned
+        
+    Returns:
+        Formatted response safe for MarkdownV2 parsing
+    """
     if not text:
         return ""
 
-    # Handle substitutions
+    # Handle variable substitutions
     substitutions = {
         '{username}': username,
         '{telegram_username}': telegram_username,
@@ -143,28 +221,35 @@ def format_markdown_response(text: str, username: Optional[str] = None,
         '{mentioned_text}': mentioned_text
     }
     
-    # Replace variables
+    # Replace variables with escaped values
     for placeholder, value in substitutions.items():
         if value:
             escaped_value = escape_markdown_v2(str(value))
             text = text.replace(placeholder, escaped_value)
 
-    # Use Alya response formatter
+    # Use main response formatter
     return format_response(text)
 
+
 def detect_roleplay(text: str) -> Tuple[str, Optional[str]]:
-    """Detect and extract roleplay actions from text.
+    """
+    Detect and extract roleplay actions from text.
+    
+    Recognizes common roleplay patterns: [action], *action*, (action)
     
     Args:
-        text: The input text
+        text: The input text to analyze
         
     Returns:
-        Tuple of (cleaned_text, roleplay_text or None)
+        Tuple of (text_without_roleplay, extracted_roleplay_action)
     """
-    # Check for standard roleplay patterns: [action], *action*, (action)
+    if not text:
+        return text, None
+    
+    # Roleplay patterns in order of preference
     roleplay_patterns = [
         r'^\s*\[(.*?)\]\s*',  # [action] at start
-        r'^\s*\*(.*?)\*\s*',  # *action* at start
+        r'^\s*\*(.*?)\*\s*',  # *action* at start  
         r'^\s*\((.*?)\)\s*',  # (action) at start
     ]
     
@@ -175,68 +260,185 @@ def detect_roleplay(text: str) -> Tuple[str, Optional[str]]:
             cleaned = re.sub(pattern, '', text).strip()
             return cleaned, action
     
-    # No explicit roleplay found
     return text, None
 
+
 def extract_emoji_sentiment(text: str) -> Tuple[str, List[str]]:
-    """Extract emojis from text and identify their sentiment.
+    """
+    Extract emojis from text and return them separately.
     
     Args:
-        text: The input text
+        text: The input text containing emojis
         
     Returns:
-        Tuple of (text_without_emojis, list_of_emojis)
+        Tuple of (original_text, list_of_extracted_emojis)
     """
-    # Find all emojis in text
-    emojis = []
-    characters_to_check = list(text)
-    for char in characters_to_check:
-        if emoji.is_emoji(char):
-            emojis.append(char)
+    if not text:
+        return text, []
     
-    # Limit number of emojis if needed
+    # Find all emojis in the text
+    emojis = [char for char in text if emoji.is_emoji(char)]
+    
+    # Limit emoji count if configured
     if MAX_EMOJI_PER_RESPONSE > 0 and len(emojis) > MAX_EMOJI_PER_RESPONSE:
         emojis = emojis[:MAX_EMOJI_PER_RESPONSE]
     
     return text, emojis
 
 def _sanitize_response(response: str, username: str) -> str:
-    """Sanitize response to remove echo and self-reference while preserving complete content."""
-    if not response.strip():
+    """
+    Sanitize response to remove echo, self-reference, and duplicate content.
+    
+    Args:
+        response: Raw response text to clean
+        username: Username to filter out from echo patterns
+        
+    Returns:
+        Cleaned response with duplicates and echoes removed
+    """
+    if not response:
         return ""
     
-    # Remove conversation prefixes but preserve content
+    # Remove common prefixes from line starts
     lines = response.splitlines()
     cleaned_lines = []
+    
+    prefixes_to_remove = [
+        "User:", 
+        f"{username}:", 
+        "Alya:", 
+        "Bot:", 
+        "Assistant:",
+        "Human:",
+        "AI:"
+    ]
+    
     for line in lines:
         line_stripped = line.strip()
-        for prefix in [f"User:", f"{username}:", "Alya:", "Bot:", "Assistant:", "Human:", "AI:"]:
+        for prefix in prefixes_to_remove:
             if line_stripped.startswith(prefix):
-                line_stripped = line_stripped[len(prefix):].strip()
+                line = line_stripped[len(prefix):].strip()
                 break
-        if line_stripped:  # Only add non-empty lines
-            cleaned_lines.append(line_stripped)
+        if line.strip():  # Only keep non-empty lines
+            cleaned_lines.append(line)
     
-    # Join back with spaces to preserve flow
-    response = " ".join(cleaned_lines)
+    response = "\n".join(cleaned_lines)
+
+    # Remove echo if user input appears at start
+    if len(lines) > 1 and lines[0].strip().lower() in response.lower():
+        response = "\n".join(lines[1:])
+
+    # Remove duplicate paragraphs using similarity check
+    paragraphs = [p.strip() for p in response.split('\n\n') if p.strip()]
+    unique_paragraphs = []
     
-    # Clean up excessive punctuation and spacing
+    for paragraph in paragraphs:
+        is_duplicate = any(
+            _are_paragraphs_similar(paragraph, existing) 
+            for existing in unique_paragraphs
+        )
+        if not is_duplicate:
+            unique_paragraphs.append(paragraph)
+    
+    response = "\n\n".join(unique_paragraphs)
+
+    # Clean up excessive punctuation and whitespace
     response = re.sub(r'[.]{3,}', '...', response)
     response = re.sub(r'[!]{2,}', '!', response)
     response = re.sub(r'[?]{2,}', '?', response)
     response = re.sub(r'\s+', ' ', response)
+    response = "\n".join([
+        line.strip() for line in response.split("\n") 
+        if line.strip()
+    ])
     
-    return response.strip()
+    return response
 
-def _are_paragraphs_similar(p1: str, p2: str) -> bool:
-    """Check if two paragraphs are very similar (for deduplication)."""
+
+def _are_paragraphs_similar(p1: str, p2: str, threshold: float = 0.8) -> bool:
+    """
+    Check if two paragraphs are similar enough to be considered duplicates.
+    
+    Args:
+        p1: First paragraph
+        p2: Second paragraph  
+        threshold: Similarity threshold (0.0-1.0)
+        
+    Returns:
+        True if paragraphs are similar above threshold
+    """
     if not p1 or not p2:
         return False
+    
     ratio = difflib.SequenceMatcher(None, p1.lower(), p2.lower()).ratio()
-    return ratio > 0.8
+    return ratio > threshold
+
+
+def _get_mood_emojis() -> Dict[str, List[str]]:
+    """
+    Get comprehensive mood-based emoji mapping for natural expression.
+    
+    Returns:
+        Dictionary mapping mood names to emoji lists
+    """
+    return {
+        "neutral": [
+            "✨", "💭", "🌸", "💫", "🤍", "🫧", "🌱", "🦋", 
+            "🍀", "🕊️", "🌿", "🌾", "🪴", "🌼", "🧘", "🫶"
+        ],
+        "happy": [
+            "😊", "💕", "✨", "🌟", "😄", "🥰", "😆", "🎉", 
+            "😺", "💖", "🥳", "🎈", "🦄", "🍰", "🍀", "🥂", 
+            "🤗", "😍", "😹", "🎶", "🫶"
+        ],
+        "sad": [
+            "😔", "💔", "🥺", "💧", "😭", "😢", "🌧️", "🫥", 
+            "😿", "😞", "🥲", "🫤", "🥀", "🕯️", "🫠", "😓", 
+            "😩", "🫣"
+        ],
+        "surprised": [
+            "😳", "⁉️", "🙀", "❗", "😮", "😲", "🤯", "😱", 
+            "👀", "😯", "😦", "😧", "😵", "🫢", "🫨", "🫣"
+        ],
+        "angry": [
+            "😤", "💢", "😠", "🔥", "😡", "👿", "😾", "🤬", 
+            "🗯️", "🥵", "🥊", "🧨", "💣", "😾", "🥶"
+        ],
+        "embarrassed": [
+            "😳", "😅", "💦", "🙈", "😬", "😶‍🌫️", "🫣", "🫦", 
+            "🫥", "😶", "🫠"
+        ],
+        "excited": [
+            "💫", "✨", "🌟", "😳", "🤩", "🎊", "🥳", "😻", 
+            "🦄", "🎉", "🎈", "🫶", "😆", "😍", "😺", "🥰"
+        ],
+        "genuinely_caring": [
+            "🥰", "💕", "💖", "✨", "🤗", "🌷", "🫂", "💝", 
+            "🧸", "🫶", "🤍", "🌸", "🦋", "🧑‍🤝‍🧑", "🫰", "🫱", "🫲"
+        ],
+        "defensive_flustered": [
+            "😳", "💥", "🔥", "❗", "😤", "😒", "😡", "😾", 
+            "😬", "😑", "😏", "😼", "😹", "🫥", "🫠", "🫤", 
+            "🫣", "🫦"
+        ],
+        "academic_confident": [
+            "📝", "🎓", "📚", "🧐", "📖", "🔬", "💡", "🧠", 
+            "📊", "🧑‍💻", "🧑‍🔬", "🧑‍🏫", "🧬", "🧪", "🧭", 
+            "🧮", "🧰", "🧱", "🧲", "🧑‍🎓"
+        ],
+        "comfortable_tsundere": [
+            "😒", "💢", "❄️", "🙄", "😤", "😑", "😏", "😼", 
+            "😹", "🫥", "🫠", "🫤", "🫣", "🫦", "😾", "😡", "🤬"
+        ],
+        "default": [
+            "✨", "💫", "🌸", "🦋", "🤍", "🫧", "🍀", "🕊️", 
+            "🌿", "🌾", "🪴", "🌼", "🧘", "🫶"
+        ]
+    }
 
 def _split_into_readable_paragraphs(text: str) -> List[str]:
-    """Split text into meaningful, readable paragraphs with proper structure.
+    """
+    Split text into meaningful, readable paragraphs with proper structure.
     
     Args:
         text: Raw text to split
@@ -250,71 +452,77 @@ def _split_into_readable_paragraphs(text: str) -> List[str]:
     # Clean up excessive whitespace first
     text = re.sub(r'\s+', ' ', text.strip())
     
-    # For shorter responses, keep as single paragraph to avoid cutting off content
+    # For shorter responses, keep as single paragraph
     if len(text) <= 200:
         return [text]
     
-    # First, split by natural paragraph breaks (double newlines)
+    # Split by natural paragraph breaks
     paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
     
-    # If no natural breaks, try to split by sentence endings for very long text only
+    # For very long single paragraphs, try sentence-based splitting
     if len(paragraphs) == 1 and len(text) > 400:
-        # Look for sentence endings followed by capital letters (new thoughts)
         sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
         if len(sentences) > 3:
-            # Group sentences into logical paragraphs (max 4 sentences per paragraph)
+            # Group sentences into logical paragraphs
             grouped_paragraphs = []
             current_group = []
             for sentence in sentences:
                 current_group.append(sentence.strip())
-                if len(current_group) >= 4 or sentence.strip().endswith(('!', '?')):
+                if len(current_group) >= 3 or sentence.strip().endswith(('!', '?')):
                     grouped_paragraphs.append(' '.join(current_group))
                     current_group = []
             if current_group:
                 grouped_paragraphs.append(' '.join(current_group))
             paragraphs = grouped_paragraphs
     
-    # Clean up each paragraph and filter very short fragments
+    # Clean and filter paragraphs
     cleaned_paragraphs = []
     for paragraph in paragraphs:
-        # Remove excessive whitespace and line breaks within paragraphs
         cleaned = ' '.join(paragraph.split())
-        if cleaned and len(cleaned.strip()) > 5:  # Less aggressive filtering
+        if cleaned and len(cleaned.strip()) > 10:  # Filter very short fragments
             cleaned_paragraphs.append(cleaned)
     
     return cleaned_paragraphs
 
-def _is_content_redundant(main_content: str, other_content: str) -> bool:
-    """Check if content is redundant compared to main content.
+
+def _is_content_redundant(main_content: str, other_content: str, threshold: float = 0.95) -> bool:
+    """
+    Check if content is redundant compared to main content.
     
     Args:
         main_content: Primary content to compare against
         other_content: Secondary content to check for redundancy
+        threshold: Similarity threshold for redundancy detection
         
     Returns:
         True if content is redundant and should be filtered out
     """
     if not main_content or not other_content:
         return True
-        
-    # Normalize both texts for comparison
+    
+    # Normalize for comparison
     main_normalized = ' '.join(main_content.lower().split())
     other_normalized = ' '.join(other_content.lower().split())
     
-    # Check similarity ratio - much less aggressive
-    similarity = difflib.SequenceMatcher(None, main_normalized, other_normalized).ratio()
+    # Calculate similarity
+    similarity = difflib.SequenceMatcher(
+        None, 
+        main_normalized, 
+        other_normalized
+    ).ratio()
     
-    # Content is redundant only if very similar (95%+) to avoid cutting off genuine content
-    if similarity > 0.95:
+    # Content is redundant if very similar
+    if similarity > threshold:
         return True
-        
-    # Check for exact duplicates or very short repetitive content
-    if len(other_normalized) < 20:  # Very short content
+    
+    # Check for short repetitive content
+    if len(other_normalized) < 30:
         words_in_other = set(other_normalized.split())
         words_in_main = set(main_normalized.split())
-        overlap = len(words_in_other.intersection(words_in_main)) / len(words_in_other) if words_in_other else 0
-        if overlap > 0.9:  # Almost all words already in main content
-            return True
+        if words_in_other and words_in_main:
+            overlap = len(words_in_other.intersection(words_in_main)) / len(words_in_other)
+            if overlap > 0.9:  # High word overlap
+                return True
     
     return False
 
@@ -325,250 +533,190 @@ def format_response(
     intensity: float = 0.5,
     username: str = "user",
     target_name: Optional[str] = None,
-    persona_name: str = "waifu",
-    roleplay_action: Optional[str] = None,
-    russian_expression: Optional[str] = None
+    persona_name: str = "waifu"
 ) -> str:
-    """Format a bot response with persona, mood, expressive emoji, and persona-driven roleplay/action.
-    
-    Creates a well-structured response with proper paragraph breaks and visual hierarchy.
     """
-    persona_manager = PersonaManager()
-    persona = persona_manager.get_persona(persona_name)
+    Format a bot response with persona, mood, and expressive elements.
+    
+    Creates enterprise-grade response with proper formatting, emoji injection,
+    roleplay elements, and HTML-safe output for Telegram.
+    
+    Args:
+        message: Raw response text to format
+        emotion: Detected emotion (neutral, happy, sad, etc.)
+        mood: Persona mood state (default, tsundere, waifu, etc.)
+        intensity: Emotion intensity (0.0-1.0)
+        username: User's display name  
+        target_name: Optional target name for responses
+        persona_name: Persona configuration to use
+        
+    Returns:
+        Formatted HTML response safe for Telegram
+    """
+    try:
+        persona_manager = PersonaManager()
+        persona = persona_manager.get_persona(persona_name)
+    except Exception as e:
+        logger.warning(f"Failed to load persona {persona_name}: {e}")
+        persona = {}
 
-    # Sanitize message first
+    # Sanitize and clean response
     message = _sanitize_response(message, username)
+    if not message:
+        return "Maaf, aku tidak bisa merespons sekarang... 😳"
 
-    # Replace username/target placeholders with bold formatting
+    # Replace placeholders with proper HTML formatting
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
 
-    # Extract roleplay and intelligently split content into readable chunks
+    # Extract existing roleplay and process content
     message, existing_roleplay = detect_roleplay(message)
-    
-    # Split into meaningful paragraphs for better readability
-    paragraphs = _split_into_readable_paragraphs(message)
+    paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
     main_message = paragraphs[0] if paragraphs else message
-    optional_messages = paragraphs[1:] if len(paragraphs) > 1 else []
+    optional_messages = paragraphs[1:2] if len(paragraphs) > 1 else []
 
-    # Remove duplicate or very similar content - less aggressive filtering
+    # Filter redundant content
     filtered_optionals = []
     for opt_msg in optional_messages:
-        if not _is_content_redundant(main_message, opt_msg):
+        similarity = difflib.SequenceMatcher(
+            None, 
+            main_message.lower(), 
+            opt_msg.lower()
+        ).ratio()
+        if similarity < 0.85:  # Keep if sufficiently different
             filtered_optionals.append(opt_msg)
-    # Allow more additional content to keep responses complete
-    optional_messages = filtered_optionals[:3]  # Increased from 2 to 3
+    
+    optional_messages = filtered_optionals
 
-    # Enhanced roleplay formatting with better context
+    # Generate roleplay if needed
     roleplay = existing_roleplay
     if not roleplay and FORMAT_ROLEPLAY:
-        expressions = persona.get("emotions", {}).get(mood if mood != "default" else "neutral", {}).get("expressions", [])
-        if expressions:
-            roleplay = random.choice(expressions)
-            if "{username}" in roleplay:
-                roleplay = roleplay.replace("{username}", username)
+        try:
+            expressions = persona.get("emotions", {}).get(
+                mood if mood != "default" else "neutral", 
+                {}
+            ).get("expressions", [])
+            if expressions:
+                roleplay = random.choice(expressions)
+                if "{username}" in roleplay:
+                    roleplay = roleplay.replace("{username}", username)
+        except Exception as e:
+            logger.warning(f"Failed to generate roleplay: {e}")
+    
     if roleplay:
         roleplay = f"<i>{escape_html(roleplay)}</i>"
 
-    def contains_mood_emoji(text: str, mood_emojis: List[str]) -> bool:
-        """Check if any mood emoji already present in text."""
-        return any(e in text for e in mood_emojis)
+    # Process main content with formatting
+    main_content = main_message
+    main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_content)
+    main_content = re.sub(
+        r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', 
+        r'<b>\1</b>', 
+        main_content
+    )
+    main_content = escape_html(main_content)
 
-    # Dynamic emoji mapping by mood - more comprehensive and mood-specific
-    MOOD_EMOJI_MAPPING = {
-        "neutral": ["✨", "💭", "🌸", "💫", "🤍", "🫧", "🌱", "🦋"],
-        "happy": ["😊", "💕", "🌟", "😄", "🥰", "😆", "🎉", "😺"],
-        "sad": ["😔", "💔", "🥺", "💧", "😭", "😢", "🌧️", "🫥"],
-        "surprised": ["😳", "⁉️", "🙀", "❗", "😮", "😲", "🤯", "😱"],
-        "angry": ["😤", "💢", "😠", "🔥", "😡", "👿", "😾", "🤬"],
-        "embarrassed": ["😳", "😅", "💦", "🙈", "😬", "😶‍🌫️", "🫣"],
-        "excited": ["💫", "✨", "🌟", "😳", "🤩", "🎊", "🥳", "😻"],
-        "genuinely_caring": ["🥰", "💕", "💖", "🤗", "🌷", "🫂", "💝"],
-        "defensive_flustered": ["😳", "💥", "🔥", "❗", "😤", "😒", "😡"],
-        "academic_confident": ["📝", "🎓", "📚", "🧐", "📖", "🔬", "💡"],
-        "comfortable_tsundere": ["😒", "💢", "❄️", "🙄", "😤", "😑", "😏"],
-        "tsundere": ["�", "💢", "🙄", "😒", "❄️", "�", "�", "�"],
-        "waifu": ["🥰", "�", "✨", "🌸", "😊", "💖", "�", "�"],
-        "default": ["✨", "�", "�", "🦋", "�", "🫧", "🍀", "🕊️"]
-    }
+    # Smart emoji injection based on mood
+    mood_emojis = _get_mood_emojis()
     current_mood = mood if mood != "default" else "neutral"
-    mood_emojis = MOOD_EMOJI_MAPPING.get(current_mood, MOOD_EMOJI_MAPPING["default"])
-    emoji_count = min(MAX_EMOJI_PER_RESPONSE, 4)
+    available_emojis = mood_emojis.get(current_mood, mood_emojis["default"])
+    
+    # Only add emojis if none present and content is substantial
+    if not any(emoji.is_emoji(char) for char in main_content) and len(main_content) > 10:
+        emoji_count = min(MAX_EMOJI_PER_RESPONSE, 2)  # Conservative approach
+        if emoji_count > 0:
+            selected_emoji = random.choice(available_emojis)
+            # Add emoji naturally at end
+            main_content = f"{main_content} {selected_emoji}"
 
-    # Enhanced content formatting with better structure
-    main_content = _format_text_content(main_message)
-
-    # Smart emoji injection for enhanced emotional expression
-    if not contains_mood_emoji(main_content, mood_emojis):
-        main_content = _inject_mood_emojis(main_content, mood_emojis, emoji_count)
-
-    # Format additional paragraphs with consistent styling
+    # Format optional content
     formatted_optionals = []
     for opt_msg in optional_messages:
-        formatted_opt = _format_text_content(opt_msg)
-        # Add subtle emoji to secondary paragraphs (less prominent)
-        if len(mood_emojis) > 1 and not contains_mood_emoji(formatted_opt, mood_emojis):
-            secondary_emoji = mood_emojis[1]  # Use second emoji from mood set
-            if not formatted_opt.endswith(secondary_emoji):
-                formatted_opt = f"{formatted_opt} {secondary_emoji}"
-        formatted_optionals.append(formatted_opt)
+        opt_msg = re.sub(r'\*(.*?)\*', r'<i>\1</i>', opt_msg)
+        opt_msg = escape_html(opt_msg)
+        formatted_optionals.append(opt_msg)
 
-    # Enhanced mood display with better context
+    # Generate mood display if configured
     mood_display = None
     if mood != "default" and FORMAT_EMOTION:
-        mood_display = _get_mood_display(mood)
+        try:
+            yaml_path = Path(__file__).parent.parent / "config" / "persona" / "emotion_display.yml"
+            if yaml_path.exists():
+                import yaml
+                with open(yaml_path, "r", encoding="utf-8") as f:
+                    mood_yaml = yaml.safe_load(f)
+                mood_list = mood_yaml.get("moods", {}).get(mood, [])
+                if not mood_list:
+                    mood_list = mood_yaml.get("moods", {}).get("default", [])
+                if mood_list:
+                    chosen = random.choice(mood_list)
+                    mood_display = f"<i>{escape_html(chosen)}</i>"
+        except Exception as e:
+            logger.warning(f"Failed to load emotion display: {e}")
 
-    # Build final response with proper visual hierarchy
-    result_components = []
-    
-    # 1. Roleplay action (if present) - sets emotional context
+    # Assemble final response
+    result_parts = []
     if roleplay:
-        result_components.append(roleplay)
-    
-    # 2. Main content - primary message
-    result_components.append(main_content)
-    
-    # 3. Additional paragraphs - secondary information
+        result_parts.append(roleplay)
+    result_parts.append(main_content)
     if formatted_optionals:
-        result_components.extend(formatted_optionals)
-    
-    # 4. Mood indicator (if present) - emotional state closure
+        result_parts.extend(formatted_optionals)
     if mood_display:
-        result_components.append(mood_display)
+        result_parts.append(mood_display)
 
-    # Join with double newlines for clear paragraph separation
-    final_response = '\n\n'.join([component for component in result_components if component and component.strip()])
-    
-    # Final cleanup and validation
+    final_response = '\n\n'.join([part for part in result_parts if part and part.strip()])
     return clean_html_entities(final_response)
 
-def _format_text_content(text: str) -> str:
-    """Apply consistent text formatting with italics and bold emphasis.
-    
-    Args:
-        text: Raw text content
-        
-    Returns:
-        Formatted text with HTML tags
-    """
-    # Convert markdown-style formatting to HTML
-    formatted = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
-    
-    # Bold Japanese honorifics for better visual appeal
-    formatted = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', formatted)
-    
-    # Escape HTML for safety
-    formatted = escape_html(formatted)
-    
-    return formatted
-
-def _inject_mood_emojis(content: str, mood_emojis: List[str], emoji_count: int) -> str:
-    """Intelligently inject mood-appropriate emojis into content.
-    
-    Args:
-        content: Text content to enhance
-        mood_emojis: List of mood-appropriate emojis
-        emoji_count: Maximum number of emojis to inject
-        
-    Returns:
-        Content with strategically placed emojis
-    """
-    if not content.strip() or not mood_emojis:
-        return content
-        
-    words = content.split()
-    if len(words) < 2:
-        # Short content - just add emoji at end
-        return f"{content} {mood_emojis[0]}"
-    
-    # Ensure we have enough emoji variety
-    available_emojis = mood_emojis[:emoji_count] if len(mood_emojis) >= emoji_count else mood_emojis
-    
-    # Determine strategic positions for emoji placement
-    positions = ["end"]  # Always include end position
-    
-    # Add start position for longer content
-    if len(words) > 5:
-        positions.append("start")
-    
-    # Add middle position for longer content
-    if len(words) > 10:
-        positions.append("middle")
-    
-    # Select positions to use based on available emojis and content length
-    max_positions = min(len(available_emojis), len(positions), 3)  # Cap at 3 emojis max
-    selected_positions = positions[:max_positions]
-    
-    # Apply emojis at selected positions with different emojis
-    for idx, position in enumerate(selected_positions):
-        emoji_char = available_emojis[idx % len(available_emojis)]
-        
-        if position == "start":
-            if not content.startswith(emoji_char):
-                content = f"{emoji_char} {content}"
-        elif position == "middle":
-            words = content.split()
-            mid_pos = len(words) // 2
-            words.insert(mid_pos, emoji_char)
-            content = " ".join(words)
-        elif position == "end":
-            if not content.endswith(emoji_char):
-                content = f"{content} {emoji_char}"
-    
-    return content
-
-def _get_mood_display(mood: str) -> Optional[str]:
-    """Get mood display text from emotion_display.yml.
-    
-    Args:
-        mood: Current mood identifier
-        
-    Returns:
-        Formatted mood display string or None
-    """
-    try:
-        import yaml
-        from pathlib import Path
-        yaml_path = Path(__file__).parent.parent / "config" / "persona" / "emotion_display.yml"
-        
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            mood_yaml = yaml.safe_load(f)
-        
-        mood_options = mood_yaml.get("moods", {}).get(mood, [])
-        if not mood_options:
-            mood_options = mood_yaml.get("moods", {}).get("default", [])
-        
-        if mood_options:
-            chosen_display = random.choice(mood_options)
-            return f"<i>{escape_html(chosen_display)}</i>"
-        else:
-            # Fallback to formatted mood name
-            fallback = mood.replace("_", " ").title()
-            return f"<i>{escape_html(fallback)}</i>"
-            
-    except Exception as e:
-        logger.warning(f"Failed to load emotion_display.yml: {e}")
-        # Fallback to formatted mood name
-        fallback = mood.replace("_", " ").title()
-        return f"<i>{escape_html(fallback)}</i>"
 
 def format_error_response(error_message: str, username: str = "user") -> str:
-    """Format an error response with appropriate tone. Output is valid HTML."""
-    if "{username}" in error_message:
-        error_message = error_message.replace("{username}", f"<b>{escape_html(username)}</b>")
-    persona_manager = PersonaManager()
-    persona = persona_manager.get_persona()
-    roleplay = "terlihat bingung dan khawatir"
-    apologetic_mood = persona.get("emotions", {}).get("apologetic_sincere", {})
-    expressions = apologetic_mood.get("expressions", [])
-    if expressions:
-        roleplay = random.choice(expressions)
-        if "{username}" in roleplay:
-            roleplay = roleplay.replace("{username}", username)
-    result = [
-        f"<i>{roleplay}</i>",
-        f"{escape_html(error_message)} 😳"
-    ]
-    return clean_html_entities('\n\n'.join(result))
+    """
+    Format an error response with appropriate apologetic tone.
+    
+    Args:
+        error_message: Error message to format
+        username: User's name for personalization
+        
+    Returns:
+        Formatted HTML error response with roleplay and emotion
+    """
+    try:
+        # Handle username placeholder
+        if "{username}" in error_message:
+            error_message = error_message.replace(
+                "{username}", 
+                f"<b>{escape_html(username)}</b>"
+            )
+        
+        # Get persona for apologetic expressions
+        persona_manager = PersonaManager()
+        persona = persona_manager.get_persona()
+        
+        # Default apologetic roleplay
+        roleplay = "terlihat bingung dan khawatir"
+        
+        # Try to get persona-specific apologetic expression
+        try:
+            apologetic_mood = persona.get("emotions", {}).get("apologetic_sincere", {})
+            expressions = apologetic_mood.get("expressions", [])
+            if expressions:
+                roleplay = random.choice(expressions)
+                if "{username}" in roleplay:
+                    roleplay = roleplay.replace("{username}", username)
+        except Exception as e:
+            logger.warning(f"Failed to get apologetic expressions: {e}")
+        
+        # Assemble error response
+        result_parts = [
+            f"<i>{escape_html(roleplay)}</i>",
+            f"{escape_html(error_message)} 😳"
+        ]
+        
+        final_response = '\n\n'.join(result_parts)
+        return clean_html_entities(final_response)
+        
+    except Exception as e:
+        logger.error(f"Error formatting error response: {e}")
+        # Ultra-safe fallback
+        return f"Maaf, ada kesalahan {escape_html(username)}-kun... 😳"
