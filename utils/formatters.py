@@ -328,31 +328,58 @@ def _sanitize_response(response: str, username: str) -> str:
     if len(lines) > 1 and lines[0].strip().lower() in response.lower():
         response = "\n".join(lines[1:])
 
-    # Remove duplicate paragraphs using similarity check
-    paragraphs = [p.strip() for p in response.split('\n\n') if p.strip()]
-    unique_paragraphs = []
+    # Clean up excessive punctuation and whitespace - less aggressive
+    response = re.sub(r'[.]{4,}', '...', response)  # Allow up to 3 dots
+    response = re.sub(r'[!]{3,}', '!!', response)   # Allow up to 2 exclamations
+    response = re.sub(r'[?]{3,}', '??', response)   # Allow up to 2 questions
     
-    for paragraph in paragraphs:
-        is_duplicate = any(
-            _are_paragraphs_similar(paragraph, existing) 
-            for existing in unique_paragraphs
-        )
-        if not is_duplicate:
-            unique_paragraphs.append(paragraph)
-    
-    response = "\n\n".join(unique_paragraphs)
-
-    # Clean up excessive punctuation and whitespace
-    response = re.sub(r'[.]{3,}', '...', response)
-    response = re.sub(r'[!]{2,}', '!', response)
-    response = re.sub(r'[?]{2,}', '?', response)
-    response = re.sub(r'\s+', ' ', response)
-    response = "\n".join([
-        line.strip() for line in response.split("\n") 
-        if line.strip()
-    ])
+    # Preserve paragraph structure better
+    response = re.sub(r'\n\s*\n\s*\n+', '\n\n', response)  # Max 2 newlines
+    response = response.strip()
     
     return response
+
+
+def _split_content_intelligently(content: str) -> Tuple[str, List[str]]:
+    """
+    Intelligently split content into main message and optional additional parts.
+    
+    Args:
+        content: Content to split
+        
+    Returns:
+        Tuple of (main_content, additional_parts)
+    """
+    if not content or len(content) <= 150:
+        return content, []
+    
+    # Look for natural breaks first
+    if '\n\n' in content:
+        parts = [p.strip() for p in content.split('\n\n') if p.strip()]
+        return parts[0], parts[1:2]  # Main + max 1 additional
+    
+    # For very long single paragraphs, try sentence-based splitting
+    if len(content) > 300:
+        # Split on sentence boundaries with emotional cues
+        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z\(])', content)
+        if len(sentences) > 2:
+            # Find natural break point (around 150-200 chars)
+            main_sentences = []
+            char_count = 0
+            
+            for sentence in sentences:
+                if char_count + len(sentence) < 200 or not main_sentences:
+                    main_sentences.append(sentence)
+                    char_count += len(sentence)
+                else:
+                    break
+            
+            main_content = ' '.join(main_sentences).strip()
+            remaining = ' '.join(sentences[len(main_sentences):]).strip()
+            
+            return main_content, [remaining] if remaining else []
+    
+    return content, []
 
 
 def _are_paragraphs_similar(p1: str, p2: str, threshold: float = 0.8) -> bool:
@@ -585,22 +612,11 @@ def format_response(
         existing_roleplay = roleplay_action
         logger.warning("roleplay_action parameter is deprecated, use embedded roleplay in message instead")
     
-    paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
-    main_message = paragraphs[0] if paragraphs else message
-    optional_messages = paragraphs[1:2] if len(paragraphs) > 1 else []
-
-    # Filter redundant content
-    filtered_optionals = []
-    for opt_msg in optional_messages:
-        similarity = difflib.SequenceMatcher(
-            None, 
-            main_message.lower(), 
-            opt_msg.lower()
-        ).ratio()
-        if similarity < 0.85:  # Keep if sufficiently different
-            filtered_optionals.append(opt_msg)
+    # Smart content splitting for better readability
+    main_message, additional_parts = _split_content_intelligently(message)
     
-    optional_messages = filtered_optionals
+    # Limit additional parts to prevent overwhelming responses
+    optional_messages = additional_parts[:1] if additional_parts else []
 
     # Generate roleplay if needed
     roleplay = existing_roleplay
@@ -630,17 +646,27 @@ def format_response(
     )
     main_content = escape_html(main_content)
 
-    # Smart emoji injection based on mood
+    # Smart emoji injection based on mood - more conservative
     mood_emojis = _get_mood_emojis()
     current_mood = mood if mood != "default" else "neutral"
     available_emojis = mood_emojis.get(current_mood, mood_emojis["default"])
     
-    # Only add emojis if none present and content is substantial
-    if not any(emoji.is_emoji(char) for char in main_content) and len(main_content) > 10:
-        emoji_count = min(MAX_EMOJI_PER_RESPONSE, 2)  # Conservative approach
-        if emoji_count > 0:
-            selected_emoji = random.choice(available_emojis)
-            # Add emoji naturally at end
+    # Only add emojis if none present, content is substantial, and not too long
+    has_existing_emoji = any(emoji.is_emoji(char) for char in main_content)
+    content_length = len(main_content.strip())
+    
+    if (not has_existing_emoji and 
+        content_length > 20 and 
+        content_length < 200 and  # Don't add to very long messages
+        MAX_EMOJI_PER_RESPONSE > 0):
+        
+        # Select single appropriate emoji
+        selected_emoji = random.choice(available_emojis)
+        
+        # Add naturally at end with space
+        if not main_content.rstrip().endswith(('!', '?', '...', '~')):
+            main_content = f"{main_content} {selected_emoji}"
+        else:
             main_content = f"{main_content} {selected_emoji}"
 
     # Format optional content
