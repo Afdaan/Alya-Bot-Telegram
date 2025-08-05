@@ -533,7 +533,10 @@ def format_response(
     intensity: float = 0.5,
     username: str = "user",
     target_name: Optional[str] = None,
-    persona_name: str = "waifu"
+    persona_name: str = "waifu",
+    roleplay_action: Optional[str] = None,
+    russian_expression: Optional[str] = None,
+    **kwargs
 ) -> str:
     """
     Format a bot response with persona, mood, and expressive elements.
@@ -549,6 +552,9 @@ def format_response(
         username: User's display name  
         target_name: Optional target name for responses
         persona_name: Persona configuration to use
+        roleplay_action: Optional roleplay action (deprecated, auto-detected)
+        russian_expression: Optional Russian expression (deprecated, auto-generated)
+        **kwargs: Additional parameters for backward compatibility
         
     Returns:
         Formatted HTML response safe for Telegram
@@ -573,6 +579,12 @@ def format_response(
 
     # Extract existing roleplay and process content
     message, existing_roleplay = detect_roleplay(message)
+    
+    # Handle deprecated roleplay_action parameter for backward compatibility
+    if roleplay_action and not existing_roleplay:
+        existing_roleplay = roleplay_action
+        logger.warning("roleplay_action parameter is deprecated, use embedded roleplay in message instead")
+    
     paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
     main_message = paragraphs[0] if paragraphs else message
     optional_messages = paragraphs[1:2] if len(paragraphs) > 1 else []
