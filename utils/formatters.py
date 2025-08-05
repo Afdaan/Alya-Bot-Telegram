@@ -376,20 +376,22 @@ def format_response(
         """Check if any mood emoji already present in text."""
         return any(e in text for e in mood_emojis)
 
-    # Dynamic emoji mapping by mood (moved to class level to avoid recreating every call)
+    # Dynamic emoji mapping by mood - more comprehensive and mood-specific
     MOOD_EMOJI_MAPPING = {
-        "neutral": ["✨", "💭", "🌸", "💫", "🤍", "🫧", "🌱", "🦋", "🍀", "🕊️", "🌿", "🌾", "🪴", "🌼", "🧘", "🫶"],
-        "happy": ["😊", "💕", "✨", "🌟", "😄", "🥰", "😆", "🎉", "😺", "💖", "🥳", "🎈", "🦄", "🍰", "🍀", "🥂", "🤗", "😍", "😹", "🎶", "🫶"],
-        "sad": ["😔", "💔", "🥺", "💧", "😭", "😢", "🌧️", "🫥", "😿", "😞", "🥲", "🫤", "🥀", "🕯️", "🫠", "😓", "😩", "🫣"],
-        "surprised": ["😳", "⁉️", "🙀", "❗", "😮", "😲", "🤯", "😱", "👀", "😯", "😦", "😧", "😵", "🫢", "🫨", "🫣"],
-        "angry": ["😤", "💢", "😠", "🔥", "😡", "👿", "😾", "🤬", "🗯️", "🥵", "🥊", "🧨", "💣", "😾", "🥶"],
-        "embarrassed": ["😳", "😅", "💦", "🙈", "😬", "😶‍🌫️", "🫣", "🫦", "🫥", "😶"],
-        "excited": ["💫", "✨", "🌟", "😳", "🤩", "🎊", "🥳", "😻", "🦄", "🎉", "🎈", "🫶", "😆", "😍", "😺", "🥰"],
-        "genuinely_caring": ["🥰", "💕", "💖", "✨", "🤗", "🌷", "🫂", "💝", "🧸", "🫶", "🤍", "🌸", "🦋"],
-        "defensive_flustered": ["😳", "💥", "🔥", "❗", "😤", "😒", "😡", "😾", "😬", "😑", "😏", "😼", "😹", "🫥", "🫠", "🫤", "🫣", "🫦"],
-        "academic_confident": ["📝", "🎓", "📚", "🧐", "📖", "🔬", "💡", "🧠", "📊"],
-        "comfortable_tsundere": ["😒", "💢", "❄️", "🙄", "😤", "😑", "😏", "😼", "😹", "🫥", "🫠", "🫤", "🫣", "🫦", "😾", "😡", "🤬"],
-        "default": ["✨", "💫", "🌸", "🦋", "🤍", "🫧", "🍀", "🕊️", "🌿", "🌾", "🪴", "🌼", "🧘", "🫶"]
+        "neutral": ["✨", "💭", "🌸", "💫", "🤍", "🫧", "🌱", "🦋"],
+        "happy": ["😊", "💕", "🌟", "😄", "🥰", "😆", "🎉", "😺"],
+        "sad": ["😔", "💔", "🥺", "💧", "😭", "😢", "🌧️", "🫥"],
+        "surprised": ["😳", "⁉️", "🙀", "❗", "😮", "😲", "🤯", "😱"],
+        "angry": ["😤", "💢", "😠", "🔥", "😡", "👿", "😾", "🤬"],
+        "embarrassed": ["😳", "😅", "💦", "🙈", "😬", "😶‍🌫️", "🫣"],
+        "excited": ["💫", "✨", "🌟", "😳", "🤩", "🎊", "🥳", "😻"],
+        "genuinely_caring": ["🥰", "💕", "💖", "🤗", "🌷", "🫂", "💝"],
+        "defensive_flustered": ["😳", "💥", "🔥", "❗", "😤", "😒", "😡"],
+        "academic_confident": ["📝", "🎓", "📚", "🧐", "📖", "🔬", "💡"],
+        "comfortable_tsundere": ["😒", "💢", "❄️", "🙄", "😤", "😑", "😏"],
+        "tsundere": ["�", "💢", "🙄", "😒", "❄️", "�", "�", "�"],
+        "waifu": ["🥰", "�", "✨", "🌸", "😊", "💖", "�", "�"],
+        "default": ["✨", "�", "�", "🦋", "�", "🫧", "🍀", "🕊️"]
     }
     current_mood = mood if mood != "default" else "neutral"
     mood_emojis = MOOD_EMOJI_MAPPING.get(current_mood, MOOD_EMOJI_MAPPING["default"])
@@ -473,60 +475,47 @@ def _inject_mood_emojis(content: str, mood_emojis: List[str], emoji_count: int) 
     Returns:
         Content with strategically placed emojis
     """
+    if not content.strip() or not mood_emojis:
+        return content
+        
     words = content.split()
     if len(words) < 2:
         # Short content - just add emoji at end
         return f"{content} {mood_emojis[0]}"
     
-    # Determine strategic positions for emoji placement
-    positions = []
+    # Ensure we have enough emoji variety
+    available_emojis = mood_emojis[:emoji_count] if len(mood_emojis) >= emoji_count else mood_emojis
     
-    # Always consider start and end positions
-    positions.extend(["start", "end"])
+    # Determine strategic positions for emoji placement
+    positions = ["end"]  # Always include end position
+    
+    # Add start position for longer content
+    if len(words) > 5:
+        positions.append("start")
     
     # Add middle position for longer content
-    if len(words) > 6:
+    if len(words) > 10:
         positions.append("middle")
     
-    # Add quarter positions for very long content
-    if len(words) > 12:
-        positions.extend(["quarter", "three_quarter"])
+    # Select positions to use based on available emojis and content length
+    max_positions = min(len(available_emojis), len(positions), 3)  # Cap at 3 emojis max
+    selected_positions = positions[:max_positions]
     
-    # Select positions to use (avoid over-emoji-ing)
-    max_positions = min(emoji_count, len(positions), 3)  # Cap at 3 emojis max
-    selected_positions = random.sample(positions, k=max_positions)
-    
-    # Apply emojis at selected positions
-    used_positions = set()
+    # Apply emojis at selected positions with different emojis
     for idx, position in enumerate(selected_positions):
-        emoji_char = mood_emojis[idx % len(mood_emojis)]
+        emoji_char = available_emojis[idx % len(available_emojis)]
         
-        if position == "start" and "start" not in used_positions:
+        if position == "start":
             if not content.startswith(emoji_char):
                 content = f"{emoji_char} {content}"
-                used_positions.add("start")
-        elif position == "end" and "end" not in used_positions:
-            if not content.endswith(emoji_char):
-                content = f"{content} {emoji_char}"
-                used_positions.add("end")
-        elif position == "middle" and "middle" not in used_positions and len(words) > 4:
+        elif position == "middle":
             words = content.split()
             mid_pos = len(words) // 2
             words.insert(mid_pos, emoji_char)
             content = " ".join(words)
-            used_positions.add("middle")
-        elif position == "quarter" and "quarter" not in used_positions and len(words) > 8:
-            words = content.split()
-            quarter_pos = len(words) // 4
-            words.insert(quarter_pos, emoji_char)
-            content = " ".join(words)
-            used_positions.add("quarter")
-        elif position == "three_quarter" and "three_quarter" not in used_positions and len(words) > 8:
-            words = content.split()
-            three_quarter_pos = (len(words) * 3) // 4
-            words.insert(three_quarter_pos, emoji_char)
-            content = " ".join(words)
-            used_positions.add("three_quarter")
+        elif position == "end":
+            if not content.endswith(emoji_char):
+                content = f"{content} {emoji_char}"
     
     return content
 
