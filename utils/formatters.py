@@ -646,28 +646,36 @@ def format_response(
     )
     main_content = escape_html(main_content)
 
-    # Smart emoji injection based on mood - more conservative
+    # Smart emoji injection based on mood - improved detection
     mood_emojis = _get_mood_emojis()
     current_mood = mood if mood != "default" else "neutral"
     available_emojis = mood_emojis.get(current_mood, mood_emojis["default"])
     
-    # Only add emojis if none present, content is substantial, and not too long
-    has_existing_emoji = any(emoji.is_emoji(char) for char in main_content)
+    # Better emoji detection - filter out false positives
+    def has_real_emoji(text: str) -> bool:
+        """Check for actual emoji characters, not just Unicode symbols."""
+        real_emojis = [char for char in text if emoji.is_emoji(char)]
+        # Filter out common false positives (Russian chars, etc.)
+        actual_emojis = [
+            e for e in real_emojis 
+            if ord(e) > 0x1F000  # Most real emojis are in higher Unicode ranges
+        ]
+        return len(actual_emojis) > 0
+    
+    has_existing_emoji = has_real_emoji(main_content)
     content_length = len(main_content.strip())
     
+    # More permissive conditions for emoji injection
     if (not has_existing_emoji and 
-        content_length > 20 and 
-        content_length < 200 and  # Don't add to very long messages
+        content_length > 15 and  # Lowered from 20
+        content_length < 300 and  # Increased from 200
         MAX_EMOJI_PER_RESPONSE > 0):
         
         # Select single appropriate emoji
         selected_emoji = random.choice(available_emojis)
         
-        # Add naturally at end with space
-        if not main_content.rstrip().endswith(('!', '?', '...', '~')):
-            main_content = f"{main_content} {selected_emoji}"
-        else:
-            main_content = f"{main_content} {selected_emoji}"
+        # Add naturally at end with proper spacing
+        main_content = f"{main_content.rstrip()} {selected_emoji}"
 
     # Format optional content
     formatted_optionals = []
