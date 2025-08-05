@@ -70,6 +70,10 @@ def escape_markdown_v2_safe(text: str) -> str:
     
     return text
 
+def escape_markdown_v2(text: str) -> str:
+    """Alias for escape_markdown_v2_safe for backward compatibility."""
+    return escape_markdown_v2_safe(text)
+
 def clean_html_entities(text: str) -> str:
     """Clean malformed HTML for Telegram compatibility."""
     if not text:
