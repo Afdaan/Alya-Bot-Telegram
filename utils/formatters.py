@@ -15,8 +15,9 @@ from pathlib import Path
 
 from config.settings import (
     FORMAT_ROLEPLAY, 
-    FORMAT_EMOTION,  
-    MAX_EMOJI_PER_RESPONSE, 
+    FORMAT_EMOTION,
+    MAX_EMOJI_PER_RESPONSE
+    
 )
 from core.persona import PersonaManager
 
@@ -193,8 +194,7 @@ def format_markdown_response(
     username: Optional[str] = None,
     telegram_username: Optional[str] = None,
     mentioned_username: Optional[str] = None,
-    mentioned_text: Optional[str] = None,
-    lang: str = "id"
+    mentioned_text: Optional[str] = None
 ) -> str:
     """
     Format bot response with proper spacing and styling for MarkdownV2.
@@ -205,7 +205,6 @@ def format_markdown_response(
         telegram_username: User's Telegram username
         mentioned_username: Username that was mentioned
         mentioned_text: Text that was mentioned
-        lang: User's preferred language code (e.g., 'id', 'en')
         
     Returns:
         Formatted response safe for MarkdownV2 parsing
@@ -228,7 +227,7 @@ def format_markdown_response(
             text = text.replace(placeholder, escaped_value)
 
     # Use main response formatter
-    return format_response(text, lang=lang)
+    return format_response(text)
 
 
 def detect_roleplay(text: str) -> Tuple[str, Optional[str]]:
@@ -342,69 +341,43 @@ def _sanitize_response(response: str, username: str) -> str:
 
 def _split_content_intelligently(content: str) -> Tuple[str, List[str]]:
     """
-    Intelligently split content into main message and additional parts for Telegram output.
-    Includes as much content as possible up to a safe character limit (default 3000 chars),
-    prioritizing paragraph boundaries, then sentences if needed.
+    Intelligently split content into main message and optional additional parts.
+    
     Args:
         content: Content to split
+        
     Returns:
         Tuple of (main_content, additional_parts)
     """
     if not content or len(content) <= 150:
         return content, []
-
-    SAFE_LIMIT = 3000
-    content = content.strip()
-
-    # Try paragraph-based splitting first
-    paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
-    if len(paragraphs) > 1:
-        main_parts = []
-        char_count = 0
-        for para in paragraphs:
-            if char_count + len(para) + 2 <= SAFE_LIMIT:  # +2 for newlines
-                main_parts.append(para)
-                char_count += len(para) + 2
-            else:
-                break
-        main_content = '\n\n'.join(main_parts)
-        additional_parts = paragraphs[len(main_parts):]
-        # If still nothing in additional_parts, try sentence split on the last paragraph
-        if additional_parts and len(main_content) < SAFE_LIMIT:
-            last_para = additional_parts.pop(0)
-            sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z\(])', last_para)
-            sent_accum = []
-            for sent in sentences:
-                if len(main_content) + sum(len(s) for s in sent_accum) + len(sent) + 1 <= SAFE_LIMIT:
-                    sent_accum.append(sent)
+    
+    # Look for natural breaks first
+    if '\n\n' in content:
+        parts = [p.strip() for p in content.split('\n\n') if p.strip()]
+        return parts[0], parts[1:2]  # Main + max 1 additional
+    
+    # For very long single paragraphs, try sentence-based splitting
+    if len(content) > 500:
+        # Split on sentence boundaries with emotional cues
+        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z\(])', content)
+        if len(sentences) > 2:
+            # Find natural break point (around 150-200 chars)
+            main_sentences = []
+            char_count = 0
+            
+            for sentence in sentences:
+                if char_count + len(sentence) < 500 or not main_sentences:
+                    main_sentences.append(sentence)
+                    char_count += len(sentence)
                 else:
                     break
-            if sent_accum:
-                main_content = main_content + '\n\n' + ' '.join(sent_accum)
-                rest = sentences[len(sent_accum):]
-                if rest:
-                    additional_parts = [' '.join(rest)] + additional_parts
-        return main_content, additional_parts
-
-    # If only one paragraph, split by sentences
-    sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z\(])', content)
-    if len(sentences) > 1:
-        main_sentences = []
-        char_count = 0
-        for sentence in sentences:
-            if char_count + len(sentence) + 1 <= SAFE_LIMIT:
-                main_sentences.append(sentence)
-                char_count += len(sentence) + 1
-            else:
-                break
-        main_content = ' '.join(main_sentences).strip()
-        remaining = ' '.join(sentences[len(main_sentences):]).strip()
-        additional_parts = [remaining] if remaining else []
-        return main_content, additional_parts
-
-    # Fallback: just truncate to SAFE_LIMIT
-    if len(content) > SAFE_LIMIT:
-        return content[:SAFE_LIMIT], [content[SAFE_LIMIT:]]
+            
+            main_content = ' '.join(main_sentences).strip()
+            remaining = ' '.join(sentences[len(main_sentences):]).strip()
+            
+            return main_content, [remaining] if remaining else []
+    
     return content, []
 
 
@@ -579,29 +552,6 @@ def _is_content_redundant(main_content: str, other_content: str, threshold: floa
     
     return False
 
-def ensure_language(text: str, lang: str = "id") -> str:
-    """
-    Ensure the response is in the correct language. If not, fallback or translate.
-    Args:
-        text: The response text
-        lang: Target language code (e.g., 'id', 'en')
-    Returns:
-        Text in the correct language
-    """
-    if not text:
-        return ""
-    if lang == "id":
-        en_keywords = ["the", "and", "is", "are", "you", "your", "what", "can", "help", "how"]
-        count_en = sum(1 for w in en_keywords if w in text.lower())
-        if count_en > 2:
-            return "Maaf, Alya lagi error bahasa... 😳 Coba ulangi atau ganti ke /lang id."
-    elif lang == "en":
-        id_keywords = ["kamu", "aku", "bisa", "apa", "saja", "bagaimana", "dengan", "kenapa"]
-        count_id = sum(1 for w in id_keywords if w in text.lower())
-        if count_id > 2:
-            return "Sorry, Alya is having a language issue... Please try /lang en."
-    return text
-
 def format_response(
     message: str,
     emotion: str = "neutral",
@@ -612,25 +562,28 @@ def format_response(
     persona_name: str = "waifu",
     roleplay_action: Optional[str] = None,
     russian_expression: Optional[str] = None,
-    lang: str = "id",
     **kwargs
 ) -> str:
     """
     Format a bot response with persona, mood, and expressive elements.
+    
+    Creates enterprise-grade response with proper formatting, emoji injection,
+    roleplay elements, and HTML-safe output for Telegram.
+    
     Args:
         message: Raw response text to format
         emotion: Detected emotion (neutral, happy, sad, etc.)
         mood: Persona mood state (default, tsundere, waifu, etc.)
         intensity: Emotion intensity (0.0-1.0)
-        username: User's display name
+        username: User's display name  
         target_name: Optional target name for responses
         persona_name: Persona configuration to use
         roleplay_action: Optional roleplay action (deprecated, auto-detected)
         russian_expression: Optional Russian expression (deprecated, auto-generated)
-        lang: User's preferred language code (e.g., 'id', 'en')
         **kwargs: Additional parameters for backward compatibility
+        
     Returns:
-        Formatted HTML response safe for Telegram, in user's preferred language
+        Formatted HTML response safe for Telegram
     """
     try:
         persona_manager = PersonaManager()
@@ -639,47 +592,50 @@ def format_response(
         logger.warning(f"Failed to load persona {persona_name}: {e}")
         persona = {}
 
+    # Sanitize and clean response
     message = _sanitize_response(message, username)
     if not message:
-        return ensure_language("Maaf, aku tidak bisa merespons sekarang... 😳", lang)
+        return "Maaf, aku tidak bisa merespons sekarang... 😳"
 
+    # Replace placeholders with proper HTML formatting
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
 
+    # Extract existing roleplay and process content
     message, existing_roleplay = detect_roleplay(message)
-
+    
+    # Handle deprecated roleplay_action parameter for backward compatibility
     if roleplay_action and not existing_roleplay:
         existing_roleplay = roleplay_action
         logger.warning("roleplay_action parameter is deprecated, use embedded roleplay in message instead")
-
+    
+    # Smart content splitting for better readability
     main_message, additional_parts = _split_content_intelligently(message)
+    
+    # Limit additional parts to prevent overwhelming responses
     optional_messages = additional_parts[:1] if additional_parts else []
 
+    # Generate roleplay if needed
     roleplay = existing_roleplay
     if not roleplay and FORMAT_ROLEPLAY:
         try:
-            persona_lang = persona.get(lang, persona.get("id", {}))
-            expressions = persona_lang.get("emotions", {}).get(
-                mood if mood != "default" else "neutral",
+            expressions = persona.get("emotions", {}).get(
+                mood if mood != "default" else "neutral", 
                 {}
             ).get("expressions", [])
-            if not expressions and lang != "id":
-                expressions = persona.get("id", {}).get("emotions", {}).get(
-                    mood if mood != "default" else "neutral",
-                    {}
-                ).get("expressions", [])
             if expressions:
                 roleplay = random.choice(expressions)
                 if "{username}" in roleplay:
                     roleplay = roleplay.replace("{username}", username)
         except Exception as e:
             logger.warning(f"Failed to generate roleplay: {e}")
-
+    
     if roleplay:
         roleplay = f"<i>{escape_html(roleplay)}</i>"
 
+    # Process main content with formatting
     main_content = main_message
     main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_content)
     main_content = re.sub(
@@ -689,25 +645,45 @@ def format_response(
     )
     main_content = escape_html(main_content)
 
+    # Smart emoji injection based on mood - improved detection
     mood_emojis = _get_mood_emojis()
     current_mood = mood if mood != "default" else "neutral"
     available_emojis = mood_emojis.get(current_mood, mood_emojis["default"])
+    
+    # Better emoji detection - filter out false positives
     def has_real_emoji(text: str) -> bool:
+        """Check for actual emoji characters, not just Unicode symbols."""
         real_emojis = [char for char in text if emoji.is_emoji(char)]
-        actual_emojis = [e for e in real_emojis if ord(e) > 0x1F000]
+        # Filter out common false positives (Russian chars, etc.)
+        actual_emojis = [
+            e for e in real_emojis 
+            if ord(e) > 0x1F000  # Most real emojis are in higher Unicode ranges
+        ]
         return len(actual_emojis) > 0
+    
     has_existing_emoji = has_real_emoji(main_content)
     content_length = len(main_content.strip())
-    if (not has_existing_emoji and content_length > 15 and content_length < 300 and MAX_EMOJI_PER_RESPONSE > 0):
+    
+    # More permissive conditions for emoji injection
+    if (not has_existing_emoji and 
+        content_length > 15 and  # Lowered from 20
+        content_length < 300 and  # Increased from 200
+        MAX_EMOJI_PER_RESPONSE > 0):
+        
+        # Select single appropriate emoji
         selected_emoji = random.choice(available_emojis)
+        
+        # Add naturally at end with proper spacing
         main_content = f"{main_content.rstrip()} {selected_emoji}"
 
+    # Format optional content
     formatted_optionals = []
     for opt_msg in optional_messages:
         opt_msg = re.sub(r'\*(.*?)\*', r'<i>\1</i>', opt_msg)
         opt_msg = escape_html(opt_msg)
         formatted_optionals.append(opt_msg)
 
+    # Generate mood display if configured
     mood_display = None
     if mood != "default" and FORMAT_EMOTION:
         try:
@@ -725,6 +701,7 @@ def format_response(
         except Exception as e:
             logger.warning(f"Failed to load emotion display: {e}")
 
+    # Assemble final response
     result_parts = []
     if roleplay:
         result_parts.append(roleplay)
@@ -735,46 +712,56 @@ def format_response(
         result_parts.append(mood_display)
 
     final_response = '\n\n'.join([part for part in result_parts if part and part.strip()])
-    return ensure_language(clean_html_entities(final_response), lang)
+    return clean_html_entities(final_response)
 
-def format_error_response(error_message: str, username: str = "user", lang: str = "id") -> str:
+
+def format_error_response(error_message: str, username: str = "user") -> str:
     """
-    Format an error response with appropriate apologetic tone and language.
+    Format an error response with appropriate apologetic tone.
+    
     Args:
         error_message: Error message to format
         username: User's name for personalization
-        lang: User's preferred language code (e.g., 'id', 'en')
+        
     Returns:
-        Formatted HTML error response with roleplay and emotion, in user's preferred language
+        Formatted HTML error response with roleplay and emotion
     """
     try:
+        # Handle username placeholder
         if "{username}" in error_message:
             error_message = error_message.replace(
                 "{username}", 
                 f"<b>{escape_html(username)}</b>"
             )
+        
+        # Get persona for apologetic expressions
         persona_manager = PersonaManager()
         persona = persona_manager.get_persona()
+        
+        # Default apologetic roleplay
         roleplay = "terlihat bingung dan khawatir"
+        
+        # Try to get persona-specific apologetic expression
         try:
-            persona_lang = persona.get(lang, persona.get("id", {}))
-            apologetic_mood = persona_lang.get("emotions", {}).get("apologetic_sincere", {})
+            apologetic_mood = persona.get("emotions", {}).get("apologetic_sincere", {})
             expressions = apologetic_mood.get("expressions", [])
-            if not expressions and lang != "id":
-                apologetic_mood = persona.get("id", {}).get("emotions", {}).get("apologetic_sincere", {})
-                expressions = apologetic_mood.get("expressions", [])
             if expressions:
                 roleplay = random.choice(expressions)
                 if "{username}" in roleplay:
                     roleplay = roleplay.replace("{username}", username)
         except Exception as e:
             logger.warning(f"Failed to get apologetic expressions: {e}")
+        
+        # Assemble error response
         result_parts = [
             f"<i>{escape_html(roleplay)}</i>",
             f"{escape_html(error_message)} 😳"
         ]
+        
         final_response = '\n\n'.join(result_parts)
-        return ensure_language(clean_html_entities(final_response), lang)
+        return clean_html_entities(final_response)
+        
     except Exception as e:
         logger.error(f"Error formatting error response: {e}")
-        return ensure_language(f"Maaf, ada kesalahan {escape_html(username)}-kun... 😳", lang)
+        # Ultra-safe fallback
+        return f"Maaf, ada kesalahan {escape_html(username)}-kun... 😳"
