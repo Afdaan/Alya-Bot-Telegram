@@ -15,12 +15,8 @@ from pathlib import Path
 
 from config.settings import (
     FORMAT_ROLEPLAY, 
-    FORMAT_EMOTION, 
-    FORMAT_RUSSIAN, 
+    FORMAT_EMOTION,  
     MAX_EMOJI_PER_RESPONSE, 
-    RUSSIAN_EXPRESSIONS,
-    DEFAULT_LANGUAGE,  # Add default language config
-    SUPPORTED_LANGUAGES
 )
 from core.persona import PersonaManager
 
