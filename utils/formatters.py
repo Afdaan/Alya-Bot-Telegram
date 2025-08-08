@@ -342,43 +342,69 @@ def _sanitize_response(response: str, username: str) -> str:
 
 def _split_content_intelligently(content: str) -> Tuple[str, List[str]]:
     """
-    Intelligently split content into main message and optional additional parts.
-    
+    Intelligently split content into main message and additional parts for Telegram output.
+    Includes as much content as possible up to a safe character limit (default 3000 chars),
+    prioritizing paragraph boundaries, then sentences if needed.
     Args:
         content: Content to split
-        
     Returns:
         Tuple of (main_content, additional_parts)
     """
     if not content or len(content) <= 150:
         return content, []
-    
-    # Look for natural breaks first
-    if '\n\n' in content:
-        parts = [p.strip() for p in content.split('\n\n') if p.strip()]
-        return parts[0], parts[1:2]  # Main + max 1 additional
-    
-    # For very long single paragraphs, try sentence-based splitting
-    if len(content) > 500:
-        # Split on sentence boundaries with emotional cues
-        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z\(])', content)
-        if len(sentences) > 2:
-            # Find natural break point (around 150-200 chars)
-            main_sentences = []
-            char_count = 0
-            
-            for sentence in sentences:
-                if char_count + len(sentence) < 200 or not main_sentences:
-                    main_sentences.append(sentence)
-                    char_count += len(sentence)
+
+    SAFE_LIMIT = 3000
+    content = content.strip()
+
+    # Try paragraph-based splitting first
+    paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
+    if len(paragraphs) > 1:
+        main_parts = []
+        char_count = 0
+        for para in paragraphs:
+            if char_count + len(para) + 2 <= SAFE_LIMIT:  # +2 for newlines
+                main_parts.append(para)
+                char_count += len(para) + 2
+            else:
+                break
+        main_content = '\n\n'.join(main_parts)
+        additional_parts = paragraphs[len(main_parts):]
+        # If still nothing in additional_parts, try sentence split on the last paragraph
+        if additional_parts and len(main_content) < SAFE_LIMIT:
+            last_para = additional_parts.pop(0)
+            sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z\(])', last_para)
+            sent_accum = []
+            for sent in sentences:
+                if len(main_content) + sum(len(s) for s in sent_accum) + len(sent) + 1 <= SAFE_LIMIT:
+                    sent_accum.append(sent)
                 else:
                     break
-            
-            main_content = ' '.join(main_sentences).strip()
-            remaining = ' '.join(sentences[len(main_sentences):]).strip()
-            
-            return main_content, [remaining] if remaining else []
-    
+            if sent_accum:
+                main_content = main_content + '\n\n' + ' '.join(sent_accum)
+                rest = sentences[len(sent_accum):]
+                if rest:
+                    additional_parts = [' '.join(rest)] + additional_parts
+        return main_content, additional_parts
+
+    # If only one paragraph, split by sentences
+    sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z\(])', content)
+    if len(sentences) > 1:
+        main_sentences = []
+        char_count = 0
+        for sentence in sentences:
+            if char_count + len(sentence) + 1 <= SAFE_LIMIT:
+                main_sentences.append(sentence)
+                char_count += len(sentence) + 1
+            else:
+                break
+        main_content = ' '.join(main_sentences).strip()
+        remaining = ' '.join(sentences[len(main_sentences):]).strip()
+        additional_parts = [remaining] if remaining else []
+        return main_content, additional_parts
+
+    # Fallback: just truncate to SAFE_LIMIT
+    if len(content) > SAFE_LIMIT:
+        return content[:SAFE_LIMIT], [content[SAFE_LIMIT:]]
     return content, []
 
 
