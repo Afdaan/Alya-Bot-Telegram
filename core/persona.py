@@ -141,53 +141,7 @@ class PersonaManager:
         error_template = lang_errors.get("generic", default_error)
         
         return error_template.format(username=username)
-        
-    def get_help_message(self, username: str, prefix: str, lang: str = 'id') -> str:
-        """Get help message in specified language.
-        
-        Args:
-            username: User's name
-            prefix: Command prefix
-            lang: Language code ('id' or 'en')
-            
-        Returns:
-            Help message string
-        """
-        if lang == 'en':
-            return f"""<b>Hi {username}-kun!</b> ✨
-
-Alya is here to chat and help with various tasks!
-
-<b>🎓 How to Use:</b>
-• Just chat naturally with Alya
-• In groups: use `{prefix}` before your message
-• Ask about images, get help with studies, or just talk!
-
-<b>📚 Commands:</b>
-• `/help` - Show this message
-• `/stats` - Your stats with Alya
-• `/lang` - Change language
-• `/reset` - Reset conversation
-
-<i>Don't be shy... Alya will remember our conversations! 😤</i>"""
-        else:
-            return f"""<b>Hai {username}-kun!</b> ✨
-
-Alya di sini siap nemenin ngobrol dan bantuin berbagai keperluan!
-
-<b>🎓 Cara Pakai:</b>
-• Langsung ngobrol natural sama Alya
-• Di grup: pakai `{prefix}` sebelum pesan
-• Tanya tentang gambar, minta bantuan belajar, atau sekadar curhat!
-
-<b>📚 Perintah:</b>
-• `/help` - Tampilkan pesan ini
-• `/stats` - Statistik kamu dengan Alya
-• `/lang` - Ganti bahasa
-• `/reset` - Reset percakapan
-
-<i>Jangan malu-malu... Alya akan ingat percakapan kita! 😤</i>"""
-
+    
     def get_chat_prompt(
         self,
         username: str,
@@ -337,7 +291,6 @@ Analyze the media content and answer {username}'s question in **{persona_lang.ge
         """
         try:
             persona = self.get_persona()
-            # Handle admin special case
             if is_admin:
                 if lang == 'en':
                     return (
@@ -355,13 +308,11 @@ Analyze the media content and answer {username}'s question in **{persona_lang.ge
                         f"sangat perhatian padanya. Gunakan sesekali honorifik -sama dan tunjukkan "
                         f"bahwa Alya sangat menyayangi {username}."
                     )
-            # Get relationship contexts from YAML if available
             relationship_contexts = persona.get("relationship_levels", {})
             if lang == 'en' and isinstance(relationship_contexts.get("en"), dict):
                 relationship_contexts = relationship_contexts["en"]
             elif lang == 'id' and isinstance(relationship_contexts.get("id"), dict):
                 relationship_contexts = relationship_contexts["id"]
-            # Fallback to hardcoded if YAML not available
             if not relationship_contexts:
                 relationship_contexts = {
                     0: (
