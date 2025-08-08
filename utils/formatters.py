@@ -363,7 +363,7 @@ def _split_content_intelligently(content: str) -> Tuple[str, List[str]]:
         return parts[0], parts[1:2]  # Main + max 1 additional
     
     # For very long single paragraphs, try sentence-based splitting
-    if len(content) > 300:
+    if len(content) > 500:
         # Split on sentence boundaries with emotional cues
         sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z\(])', content)
         if len(sentences) > 2:
