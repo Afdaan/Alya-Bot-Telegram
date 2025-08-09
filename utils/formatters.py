@@ -287,7 +287,7 @@ def format_response(
     formatted_paragraphs = []
     emoji_count = 0
     for idx, para in enumerate(paragraphs):
-        para = re.sub(r'\\*(.*?)\\*', r'<i>\\1</i>', para)
+        para = re.sub(r'\*(.*?)\*', r'<i>\1</i>', para)
         para = escape_html(para)
         if emoji_count < MAX_EMOJI_PER_RESPONSE and len(para) > 15:
             if not any(emoji.is_emoji(c) for c in para):
