@@ -294,15 +294,15 @@ Analyze the media content and answer {username}'s question in **{persona_lang.ge
             if is_admin:
                 if lang == 'en':
                     return (
-                        f"IMPORTANT: {username} is a bot admin and very special person to Alya. "
+                        f"IMPORTANT: {username} is a special person to Alya. "
                         f"Alya's relationship with {username} is very close, like a boyfriend/girlfriend, "
-                        f"but Alya remains tsundere. Alya is very happy to chat with them and "
+                        f"but Alya remains tsundere. Alya is happy to chat with them and "
                         f"very caring towards them. Use occasionally honorific -sama and show "
                         f"that Alya really loves {username}."
                     )
                 else:
                     return (
-                        f"PENTING: {username} adalah admin bot dan orang yang sangat special untuk Alya. "
+                        f"PENTING: {username} adalah orang yang special untuk Alya. "
                         f"Hubungan Alya dengan {username} sangat dekat, seperti pacar, "
                         f"tapi Alya tetap tsundere. Alya sangat senang bisa mengobrol dengannya dan "
                         f"sangat perhatian padanya. Gunakan sesekali honorifik -sama dan tunjukkan "
