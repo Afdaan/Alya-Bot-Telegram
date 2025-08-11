@@ -167,6 +167,14 @@ def _sanitize_response(response: str, username: str) -> str:
     response = re.sub(r'\n\s*\n\s*\n+', '\n\n', response)
     return response.strip()
 
+def _get_fallback_message(lang: str = "id") -> str:
+    """Return fallback message based on language."""
+    fallback_map = {
+        "id": "Maaf, aku tidak bisa merespons sekarang... 😳",
+        "en": "Sorry, I can't respond right now... 😳"
+    }
+    return fallback_map.get(lang, fallback_map["id"])
+
 def _get_mood_emojis() -> Dict[str, List[str]]:
     """Return mapping of mood to emoji list."""
     return {
@@ -329,17 +337,12 @@ def format_response(
     relationship_level: int = 1,
     **kwargs
 ) -> Union[str, List[str]]:
-    """Format a bot response with natural, human-like flow."""
-    
+    """Format a bot response with natural, human-like flow and language fallback."""
     message = _sanitize_response(message, username)
-    fallback = (
-        "Maaf, aku tidak bisa merespons sekarang... 😳"
-        if lang == 'id' else "Sorry, I can't respond right now... 😳"
-    )
-    
+    fallback = _get_fallback_message(lang)
     if not message or not message.strip():
         return fallback
-        
+
     # Handle username placeholders
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
@@ -385,12 +388,12 @@ def format_response(
     # Join with natural spacing
     final = '\n\n'.join([line for line in processed_lines if line.strip()])
     final = clean_html_entities(final)
-    
+
     # Handle splitting if too long
     MAX_LEN = 4096
     if len(final) <= MAX_LEN:
         return final if final.strip() else fallback
-    
+
     # Split naturally at paragraph boundaries
     parts = []
     current = ""
@@ -413,11 +416,11 @@ def format_response(
     parts = [p for p in parts if p.strip()]
     if not parts:
         return fallback
-        
+
     return parts[0] if len(parts) == 1 else parts
 
-def format_error_response(error_message: str, username: str = "user") -> str:
-    """Format error response with persona and apology."""
+def format_error_response(error_message: str, username: str = "user", lang: str = "id") -> str:
+    """Format error response with persona and apology, following language preference."""
     try:
         if "{username}" in error_message:
             error_message = error_message.replace(
@@ -425,8 +428,8 @@ def format_error_response(error_message: str, username: str = "user") -> str:
                 f"<b>{escape_html(username)}</b>"
             )
         persona_manager = PersonaManager()
-        persona = persona_manager.get_persona()
-        roleplay = "terlihat bingung dan khawatir"
+        persona = persona_manager.get_persona(lang=lang)
+        roleplay = "terlihat bingung dan khawatir" if lang == "id" else "looks confused and worried"
         try:
             apologetic_mood = persona.get("emotions", {}).get("apologetic_sincere", {})
             expressions = apologetic_mood.get("expressions", [])
@@ -444,4 +447,4 @@ def format_error_response(error_message: str, username: str = "user") -> str:
         return clean_html_entities(final_response)
     except Exception as e:
         logger.error(f"Error formatting error response: {e}")
-        return f"Maaf, ada kesalahan {escape_html(username)}-kun... 😳"
+        return _get_fallback_message(lang)
