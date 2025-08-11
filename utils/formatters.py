@@ -243,9 +243,9 @@ def format_response(
     intensity: float = 0.5,
     username: str = "user",
     target_name: Optional[str] = None,
-    persona_name: str = "waifu"
+    persona_name: str = "waifu",
+    roleplay_action: Optional[str] = None
 ) -> str:
-    """Format a bot response with persona, mood, and expressive emoji. Output is valid HTML."""
     persona_manager = PersonaManager()
     persona = persona_manager.get_persona(persona_name)
 
@@ -273,8 +273,12 @@ def format_response(
     optional_messages = filtered_optionals[:1]
 
     # Roleplay formatting
-    roleplay = existing_roleplay
-    if not roleplay and FORMAT_ROLEPLAY:
+    roleplay = None
+    if roleplay_action:
+        roleplay = roleplay_action
+    elif existing_roleplay:
+        roleplay = existing_roleplay
+    elif FORMAT_ROLEPLAY:
         expressions = persona.get("emotions", {}).get(mood if mood != "default" else "neutral", {}).get("expressions", [])
         if expressions:
             roleplay = random.choice(expressions)
