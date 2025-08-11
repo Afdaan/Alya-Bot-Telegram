@@ -238,6 +238,73 @@ def _split_into_readable_paragraphs(text: str) -> List[str]:
             cleaned_paragraphs.append(cleaned)
     return cleaned_paragraphs
 
+def _format_roleplay_and_actions(text: str) -> str:
+    """
+    Detect and wrap all roleplay/actions (e.g. *...*, [ ... ], ( ... )) and Russian expressions in <i>...</i>.
+    Ensures roleplay/action is not merged with main narrative.
+    """
+    if not text:
+        return ""
+    # Format *...* or _..._ or [ ... ] or ( ... ) as italic
+    def repl_roleplay(match):
+        content = match.group(1).strip()
+        return f"<i>{escape_html(content)}</i>"
+    # *...* or _..._ or [ ... ] or ( ... )
+    text = re.sub(r"\\*(.*?)\\*", repl_roleplay, text)
+    text = re.sub(r"_(.*?)_", repl_roleplay, text)
+    text = re.sub(r"\\[(.*?)\\]", repl_roleplay, text)
+    text = re.sub(r"\\((.*?)\\)", repl_roleplay, text)
+    # Russian expressions (Cyrillic) as italic if not already inside <i>
+    text = re.sub(r"([А-Яа-яЁё][^.,!?\n]*)", lambda m: f"<i>{escape_html(m.group(1))}</i>" if '<i>' not in m.group(1) else m.group(1), text)
+    # Remove duplicate spaces before/after <i>...</i>
+    text = re.sub(r"\s*<i>(.*?)</i>\s*", r" <i>\1</i> ", text)
+    # Clean up: avoid double spaces
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip()
+
+def _split_and_format_humanlike_paragraphs(text: str) -> List[str]:
+    """
+    Split text into humanlike chat-style paragraphs:
+    - Pisahkan narasi dan aksi (roleplay) ke baris sendiri
+    - Setiap aksi/roleplay (italic) selalu di baris terpisah
+    - Narasi tidak nempel ke aksi
+    - Bersihkan spasi dan baris kosong
+    """
+    if not text:
+        return []
+    # Pisahkan berdasarkan baris ganda atau baris baru
+    raw_lines = re.split(r'\n{2,}|(?<=\.)\s*\n', text)
+    result = []
+    for line in raw_lines:
+        line = line.strip()
+        if not line:
+            continue
+        # Pisahkan inline <i>...</i> ke baris sendiri
+        parts = re.split(r'(<i>.*?</i>)', line)
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            if part.startswith('<i>') and part.endswith('</i>'):
+                result.append(part)
+            else:
+                # Jika narasi, split jika terlalu panjang
+                if len(part) > 180:
+                    sentences = re.split(r'(?<=[.!?])\s+', part)
+                    buf = ''
+                    for s in sentences:
+                        if len(buf) + len(s) > 180 and buf:
+                            result.append(buf.strip())
+                            buf = s
+                        else:
+                            buf += ' ' + s if buf else s
+                    if buf:
+                        result.append(buf.strip())
+                else:
+                    result.append(part)
+    # Bersihkan baris double
+    return [r for r in result if r.strip()]
+
 def format_response(
     message: str,
     user_id: Optional[int] = None,
@@ -270,32 +337,34 @@ def format_response(
     emotion = context.get("emotion", "neutral")
     intensity = context.get("intensity", 0.5)
 
-    # Split paragraphs, but keep all
+    # Format paragraphs humanlike
     paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
     if not paragraphs:
         paragraphs = [message.strip()]
-    # Emoji logic: only inject if not present in main_message
+    formatted_paragraphs = []
     mood_emoji_mapping = _get_mood_emojis()
     current_mood = mood if mood != "default" else "neutral"
     mood_emojis = mood_emoji_mapping.get(current_mood, mood_emoji_mapping["default"])
-    # Format all paragraphs, keep inline roleplay, only inject emoji in first paragraph if needed
-    formatted_paragraphs = []
     for idx, para in enumerate(paragraphs):
-        # Inline roleplay: *...* -> <i>...</i>
-        para = re.sub(r'\*(.*?)\*', r'<i>\1</i>', para)
-        para = re.sub(r'([A-ZaZ]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', para)
-        para = escape_html(para)
-        # Only inject emoji in first paragraph if not present
-        if idx == 0 and not any(e in para for e in mood_emojis):
-            words = para.split()
-            if len(words) > 2:
-                pos = random.randint(1, len(words)-1)
-                emoji_ = random.choice(mood_emojis)
-                words.insert(pos, emoji_)
-                para = " ".join(words)
-            else:
-                para = f"{para} {random.choice(mood_emojis)}"
-        formatted_paragraphs.append(para)
+        para = _format_roleplay_and_actions(para)
+        # Split narasi dan aksi ke baris sendiri
+        lines = _split_and_format_humanlike_paragraphs(para)
+        for i, line in enumerate(lines):
+            # Inject emoji di narasi pertama (bukan <i>...)</i>)
+            if idx == 0 and i == 0 and not any(e in line for e in mood_emojis) and not line.startswith('<i>'):
+                words = line.split()
+                if len(words) > 2:
+                    pos = random.randint(1, len(words)-1)
+                    emoji_ = random.choice(mood_emojis)
+                    words.insert(pos, emoji_)
+                    line = " ".join(words)
+                else:
+                    line = f"{line} {random.choice(mood_emojis)}"
+            # Bold honorifics
+            line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', line)
+            line = escape_html(line)
+            formatted_paragraphs.append(line)
+    # Gabung dengan satu baris kosong antar chat
     final = '\n\n'.join([r for r in formatted_paragraphs if r and r.strip()])
     final = clean_html_entities(final)
     # --- SPLIT IF TOO LONG (Telegram limit) ---
