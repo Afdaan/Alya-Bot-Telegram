@@ -252,7 +252,7 @@ def format_response(
 ) -> str:
     """
     Format a bot response with persona, mood, and expressive emoji. Output is valid HTML.
-    Only parses and styles AI output, does not generate roleplay/mood.
+    Only wraps and styles Gemini output, does not cut or move roleplay/mood/emoji.
     """
     message = _sanitize_response(message, username)
     if not message:
@@ -261,51 +261,34 @@ def format_response(
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
-    # Extract roleplay (from AI output) and split paragraphs
-    message, detected_roleplay = detect_roleplay(message)
-    roleplay = roleplay_action or detected_roleplay
+    # Split paragraphs, but keep all
     paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
-    main_message = paragraphs[0] if paragraphs else message
-    optional_messages = paragraphs[1:] if len(paragraphs) > 1 else []
-    # Remove duplicate optionals
-    filtered_optionals = []
-    for opt_msg in optional_messages:
-        if opt_msg and opt_msg != main_message:
-            filtered_optionals.append(opt_msg)
-    optional_messages = filtered_optionals[:1]
-    # Emoji logic: inject at natural position (start, middle, or end)
+    if not paragraphs:
+        paragraphs = [message.strip()]
+    # Emoji logic: only inject if not present in main_message
     mood_emoji_mapping = _get_mood_emojis()
     current_mood = mood if mood != "default" else "neutral"
     mood_emojis = mood_emoji_mapping.get(current_mood, mood_emoji_mapping["default"])
-    emoji_count = min(MAX_EMOJI_PER_RESPONSE, 2)
-    main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_message)
-    main_content = re.sub(r'([A-ZaZ]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', main_content)
-    main_content = escape_html(main_content)
-    # Only inject emoji if not already present
-    if not any(e in main_content for e in mood_emojis):
-        words = main_content.split()
-        if len(words) > 2:
-            pos = random.randint(1, len(words)-1)
-            emoji_ = random.choice(mood_emojis)
-            words.insert(pos, emoji_)
-            main_content = " ".join(words)
-        else:
-            main_content = f"{main_content} {random.choice(mood_emojis)}"
-    # Format optionals
-    formatted_optionals = []
-    if optional_messages:
-        opt_msg = optional_messages[0]
-        opt_msg = re.sub(r'\*(.*?)\*', r'<i>\1</i>', opt_msg)
-        opt_msg = escape_html(opt_msg)
-        formatted_optionals.append(opt_msg)
-    # Compose result: roleplay (italic) at top, then main, then optionals
-    result = []
-    if roleplay:
-        result.append(f"<i>{escape_html(roleplay)}</i>")
-    result.append(main_content)
-    if formatted_optionals:
-        result.extend(formatted_optionals)
-    final = '\n\n'.join([r for r in result if r and r.strip()])
+    # Format all paragraphs, keep inline roleplay, only inject emoji in first paragraph if needed
+    formatted_paragraphs = []
+    for idx, para in enumerate(paragraphs):
+        # Inline roleplay: *...* -> <i>...</i>
+        para = re.sub(r'\\*(.*?)\\*', r'<i>\\1</i>', para)
+        para = re.sub(r'([A-ZaZ]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\\1</b>', para)
+        para = escape_html(para)
+        # Only inject emoji in first paragraph if not present
+        if idx == 0 and not any(e in para for e in mood_emojis):
+            words = para.split()
+            if len(words) > 2:
+                pos = random.randint(1, len(words)-1)
+                emoji_ = random.choice(mood_emojis)
+                words.insert(pos, emoji_)
+                para = " ".join(words)
+            else:
+                para = f"{para} {random.choice(mood_emojis)}"
+        formatted_paragraphs.append(para)
+    # Compose result: no header roleplay, just all paragraphs as-is
+    final = '\n\n'.join([r for r in formatted_paragraphs if r and r.strip()])
     return clean_html_entities(final)
 
 def format_error_response(error_message: str, username: str = "user") -> str:
