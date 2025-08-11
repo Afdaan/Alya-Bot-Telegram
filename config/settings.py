@@ -134,12 +134,12 @@ AFFECTION_POINTS: Dict[str, int] = {
 # NLP Settings
 NLP_MODELS_DIR: str = os.getenv("NLP_MODELS_DIR", "data/models")
 EMOTION_DETECTION_MODEL: str = os.getenv(
-    "EMOTION_DETECTION_MODEL", 
-    "AnasAlokla/multilingual_go_emotions_V1.1"  # HuggingFace hosted model
+    "EMOTION_DETECTION_MODEL",
+    "data/models/AnasAlokla/multilingual-go-emotions-v1"
 )
 SENTIMENT_MODEL: str = os.getenv(
     "SENTIMENT_MODEL",
-    "ayameRushia/bert-base-indonesian-1.5G-sentiment-analysis-smsa"  # HuggingFace hosted #distilbert-base-uncased-finetuned-sst-2-english mdhugol/indonesia-bert-sentiment-classification
+    "data/models/ayameRushia/bert-base-indonesian-1.5G-sentiment-analysis-smsa"
 )
 SUPPORTED_EMOTIONS: List[str] = ["joy", "sadness", "anger", "fear", "surprise", "neutral"]
 EMOTION_CONFIDENCE_THRESHOLD: float = 0.4  # Minimum confidence to assign an emotion

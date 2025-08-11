@@ -290,6 +290,7 @@ def format_response(
     Format a bot response with persona, mood, and expressive emoji. Output is valid HTML.
     Uses NLPEngine to analyze Gemini output for emotion, mood, and intensity.
     Auto-splits if output >4096 chars (Telegram limit).
+    NOTE: If return type is list, handler must send each part separately (jangan lempar ke format_paragraphs).
     """
     message = _sanitize_response(message, username)
     if not message:
@@ -324,7 +325,7 @@ def format_response(
                 line = f"{line} {random.choice(mood_emojis)}"
             emoji_injected = True
         # Bold honorifics
-        line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', line)
+        line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', line)
         line = escape_html(line)
         formatted.append(line)
     final = '\n\n'.join(formatted)
