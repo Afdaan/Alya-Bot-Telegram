@@ -6,7 +6,7 @@ with deterministic output and proper error handling.
 """
 import logging
 import random
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Union
 import html
 import re
 import emoji
@@ -18,6 +18,7 @@ from config.settings import (
     MAX_EMOJI_PER_RESPONSE
 )
 from core.persona import PersonaManager
+from core.nlp import NLPEngine
 
 logger = logging.getLogger(__name__)
 
@@ -239,20 +240,19 @@ def _split_into_readable_paragraphs(text: str) -> List[str]:
 
 def format_response(
     message: str,
-    emotion: str = "neutral",
-    mood: str = "default",
-    intensity: float = 0.5,
+    user_id: Optional[int] = None,
     username: str = "user",
     target_name: Optional[str] = None,
     persona_name: str = "waifu",
-    roleplay_action: Optional[str] = None,
-    russian_expression: Optional[str] = None,
     lang: str = "id",
+    nlp_engine: Optional[NLPEngine] = None,
+    relationship_level: int = 1,
     **kwargs
-) -> str:
+) -> Union[str, List[str]]:
     """
     Format a bot response with persona, mood, and expressive emoji. Output is valid HTML.
-    Only wraps and styles Gemini output, does not cut or move roleplay/mood/emoji.
+    Uses NLPEngine to analyze Gemini output for emotion, mood, and intensity.
+    Auto-splits if output >4096 chars (Telegram limit).
     """
     message = _sanitize_response(message, username)
     if not message:
@@ -261,6 +261,15 @@ def format_response(
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
+
+    # --- NLP Analysis ---
+    if nlp_engine is None:
+        nlp_engine = NLPEngine()
+    context = nlp_engine.get_message_context(message, user_id=user_id)
+    mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
+    emotion = context.get("emotion", "neutral")
+    intensity = context.get("intensity", 0.5)
+
     # Split paragraphs, but keep all
     paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
     if not paragraphs:
@@ -273,8 +282,8 @@ def format_response(
     formatted_paragraphs = []
     for idx, para in enumerate(paragraphs):
         # Inline roleplay: *...* -> <i>...</i>
-        para = re.sub(r'\\*(.*?)\\*', r'<i>\\1</i>', para)
-        para = re.sub(r'([A-ZaZ]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\\1</b>', para)
+        para = re.sub(r'\*(.*?)\*', r'<i>\1</i>', para)
+        para = re.sub(r'([A-ZaZ]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', para)
         para = escape_html(para)
         # Only inject emoji in first paragraph if not present
         if idx == 0 and not any(e in para for e in mood_emojis):
@@ -287,9 +296,28 @@ def format_response(
             else:
                 para = f"{para} {random.choice(mood_emojis)}"
         formatted_paragraphs.append(para)
-    # Compose result: no header roleplay, just all paragraphs as-is
     final = '\n\n'.join([r for r in formatted_paragraphs if r and r.strip()])
-    return clean_html_entities(final)
+    final = clean_html_entities(final)
+    # --- SPLIT IF TOO LONG (Telegram limit) ---
+    MAX_LEN = 4096
+    if len(final) <= MAX_LEN:
+        return final
+    # Split by paragraph, try to keep tag integrity
+    parts = []
+    current = ""
+    for para in final.split('\n\n'):
+        if len(current) + len(para) + 2 > MAX_LEN:
+            if current:
+                parts.append(current.strip())
+            current = para
+        else:
+            if current:
+                current += '\n\n' + para
+            else:
+                current = para
+    if current:
+        parts.append(current.strip())
+    return parts
 
 def format_error_response(error_message: str, username: str = "user") -> str:
     try:
