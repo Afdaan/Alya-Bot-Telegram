@@ -10,7 +10,6 @@ from typing import Dict, List, Optional, Any, Tuple
 import html
 import re
 import emoji
-import difflib
 from pathlib import Path
 
 from config.settings import (
@@ -246,98 +245,63 @@ def format_response(
     username: str = "user",
     target_name: Optional[str] = None,
     persona_name: str = "waifu",
-    lang: str = "id",
     roleplay_action: Optional[str] = None,
+    russian_expression: Optional[str] = None,
+    lang: str = "id",
     **kwargs
 ) -> str:
     """
-    Format a bot response for Telegram. Only formats and escapes the response, does not generate
-    or select roleplay/mood/expressive text. All such content must be provided by Gemini (LLM).
-    Args:
-        message: Main message content (should already include roleplay/mood if needed)
-        emotion: Detected emotion label (for emoji injection only)
-        mood: Persona mood (for emoji injection only)
-        intensity: Emotion intensity (0-1)
-        username: User's display name
-        target_name: Optional target name for response
-        persona_name: Persona config to use (for future use)
-        lang: Language code (default 'id')
-        roleplay_action: Optional explicit roleplay action to display (overrides detection)
-    Returns:
-        Formatted HTML string for Telegram
+    Format a bot response with persona, mood, and expressive emoji. Output is valid HTML.
+    Only parses and styles AI output, does not generate roleplay/mood.
     """
-    # Sanitize message first
     message = _sanitize_response(message, username)
-    # Replace username/target placeholders
+    if not message:
+        return "Maaf, aku tidak bisa merespons sekarang... 😳" if lang == 'id' else "Sorry, I can't respond right now... 😳"
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
-    # Extract roleplay (if any) from message, but do NOT generate/select it here
+    # Extract roleplay (from AI output) and split paragraphs
     message, detected_roleplay = detect_roleplay(message)
+    roleplay = roleplay_action or detected_roleplay
     paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
     main_message = paragraphs[0] if paragraphs else message
     optional_messages = paragraphs[1:] if len(paragraphs) > 1 else []
     # Remove duplicate optionals
     filtered_optionals = []
     for opt_msg in optional_messages:
-        ratio = difflib.SequenceMatcher(None, main_message.lower(), opt_msg.lower()).ratio()
-        if ratio < 0.85:
+        if opt_msg and opt_msg != main_message:
             filtered_optionals.append(opt_msg)
     optional_messages = filtered_optionals[:1]
-    # Roleplay formatting: ONLY format if already present (from LLM), do NOT generate/select
-    roleplay = roleplay_action or detected_roleplay
-    if roleplay:
-        roleplay = f"<i>{escape_html(roleplay)}</i>"
-    # Emoji logic: dynamic, mood-based, natural placement
-    def contains_mood_emoji(text: str, mood_emojis: List[str]) -> bool:
-        return any(e in text for e in mood_emojis)
+    # Emoji logic: inject at natural position (start, middle, or end)
     mood_emoji_mapping = _get_mood_emojis()
     current_mood = mood if mood != "default" else "neutral"
     mood_emojis = mood_emoji_mapping.get(current_mood, mood_emoji_mapping["default"])
-    emoji_count = min(MAX_EMOJI_PER_RESPONSE, 4)
-    main_content = re.sub(r'\\*(.*?)\\*', r'<i>\\1</i>', main_message)
-    main_content = re.sub(r'([A-ZaZ]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\\1</b>', main_content)
+    emoji_count = min(MAX_EMOJI_PER_RESPONSE, 2)
+    main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', main_message)
+    main_content = re.sub(r'([A-ZaZ]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', main_content)
     main_content = escape_html(main_content)
     # Only inject emoji if not already present
-    if not contains_mood_emoji(main_content, mood_emojis):
-        positions = ["start", "end"]
-        if len(main_content.split()) > 4:
-            positions.append("middle")
-        max_positions = min(emoji_count, len(positions))
-        chosen_positions = random.sample(positions, k=max_positions)
-        if emoji_count > len(positions):
-            extra_positions = random.choices(positions, k=emoji_count - len(positions))
-            for pos in extra_positions:
-                if pos not in chosen_positions:
-                    chosen_positions.append(pos)
-        used_positions = set()
-        for idx, pos in enumerate(chosen_positions):
-            emoji_ = mood_emojis[idx % len(mood_emojis)]
-            if pos == "start" and "start" not in used_positions and not main_content.startswith(emoji_):
-                main_content = f"{emoji_} {main_content}"
-                used_positions.add("start")
-            elif pos == "end" and "end" not in used_positions and not main_content.endswith(emoji_):
-                main_content = f"{main_content} {emoji_}"
-                used_positions.add("end")
-            elif pos == "middle" and "middle" not in used_positions:
-                words = main_content.split()
-                if len(words) > 2:
-                    mid = len(words) // 2
-                    words.insert(mid, emoji_)
-                    main_content = " ".join(words)
-                    used_positions.add("middle")
+    if not any(e in main_content for e in mood_emojis):
+        words = main_content.split()
+        if len(words) > 2:
+            pos = random.randint(1, len(words)-1)
+            emoji_ = random.choice(mood_emojis)
+            words.insert(pos, emoji_)
+            main_content = " ".join(words)
+        else:
+            main_content = f"{main_content} {random.choice(mood_emojis)}"
     # Format optionals
     formatted_optionals = []
     if optional_messages:
         opt_msg = optional_messages[0]
-        opt_msg = re.sub(r'\\*(.*?)\\*', r'<i>\\1</i>', opt_msg)
+        opt_msg = re.sub(r'\*(.*?)\*', r'<i>\1</i>', opt_msg)
         opt_msg = escape_html(opt_msg)
         formatted_optionals.append(opt_msg)
-    # NO mood display, NO YAML, NO persona expressions: all handled by Gemini/LLM
+    # Compose result: roleplay (italic) at top, then main, then optionals
     result = []
     if roleplay:
-        result.append(roleplay)
+        result.append(f"<i>{escape_html(roleplay)}</i>")
     result.append(main_content)
     if formatted_optionals:
         result.extend(formatted_optionals)
