@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Any, Tuple
 import html
 import re
 import emoji
+import difflib
 from pathlib import Path
 
 from config.settings import (
@@ -245,96 +246,103 @@ def format_response(
     username: str = "user",
     target_name: Optional[str] = None,
     persona_name: str = "waifu",
-    roleplay_action: Optional[str] = None,
-    russian_expression: Optional[str] = None,
     lang: str = "id",
+    roleplay_action: Optional[str] = None,
     **kwargs
 ) -> str:
     """
-    Format Alya's response to feel alive and humanlike, with natural placement of emoji, mood, and roleplay.
+    Format a bot response for Telegram. Only formats and escapes the response, does not generate
+    or select roleplay/mood/expressive text. All such content must be provided by Gemini (LLM).
+    Args:
+        message: Main message content (should already include roleplay/mood if needed)
+        emotion: Detected emotion label (for emoji injection only)
+        mood: Persona mood (for emoji injection only)
+        intensity: Emotion intensity (0-1)
+        username: User's display name
+        target_name: Optional target name for response
+        persona_name: Persona config to use (for future use)
+        lang: Language code (default 'id')
+        roleplay_action: Optional explicit roleplay action to display (overrides detection)
+    Returns:
+        Formatted HTML string for Telegram
     """
-    try:
-        persona_manager = PersonaManager()
-        persona = persona_manager.get_persona(persona_name)
-        persona_lang = persona.get(lang, persona.get('id', {}))
-    except Exception as e:
-        logger.warning(f"Failed to load persona {persona_name}: {e}")
-        persona = {}
-        persona_lang = {}
+    # Sanitize message first
     message = _sanitize_response(message, username)
-    if not message:
-        return "Maaf, aku tidak bisa merespons sekarang... 😳" if lang == 'id' else "Sorry, I can't respond right now... 😳"
+    # Replace username/target placeholders
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
+    # Extract roleplay (if any) from message, but do NOT generate/select it here
     message, detected_roleplay = detect_roleplay(message)
+    paragraphs = [p.strip() for p in message.split('\n\n') if p.strip()]
+    main_message = paragraphs[0] if paragraphs else message
+    optional_messages = paragraphs[1:] if len(paragraphs) > 1 else []
+    # Remove duplicate optionals
+    filtered_optionals = []
+    for opt_msg in optional_messages:
+        ratio = difflib.SequenceMatcher(None, main_message.lower(), opt_msg.lower()).ratio()
+        if ratio < 0.85:
+            filtered_optionals.append(opt_msg)
+    optional_messages = filtered_optionals[:1]
+    # Roleplay formatting: ONLY format if already present (from LLM), do NOT generate/select
     roleplay = roleplay_action or detected_roleplay
-    mood_emojis = _get_mood_emojis()
-    current_mood = mood if mood != "default" else "neutral"
-    available_emojis = mood_emojis.get(current_mood, mood_emojis["default"])
-    paragraphs = _split_into_readable_paragraphs(message)
-    formatted_paragraphs = []
-    emoji_count = 0
-    used_emoji = set()
-    # Randomize where to put mood/russian expression (between paragraphs, not always at end)
-    insert_mood_at = random.randint(0, len(paragraphs)) if len(paragraphs) > 1 else None
-    insert_russian_at = None
-    if russian_expression:
-        insert_russian_at = random.randint(0, len(paragraphs))
-    # Randomize roleplay position: top or between paragraphs (but not always at top)
-    insert_roleplay_at = 0 if not paragraphs or random.random() < 0.7 else random.randint(0, len(paragraphs))
-    for idx, para in enumerate(paragraphs):
-        para = re.sub(r'\*(.*?)\*', r'<i>\1</i>', para)
-        para = escape_html(para)
-        # Insert emoji at a random word boundary in the paragraph (not always at end)
-        if emoji_count < MAX_EMOJI_PER_RESPONSE and len(para) > 15:
-            if not any(emoji.is_emoji(c) for c in para):
-                chosen_emoji = random.choice([e for e in available_emojis if e not in used_emoji] or available_emojis)
-                used_emoji.add(chosen_emoji)
-                words = para.split()
-                if len(words) > 4:
-                    pos = random.randint(1, len(words)-2)
-                    words.insert(pos, chosen_emoji)
-                    para = ' '.join(words)
-                else:
-                    para = f"{para} {chosen_emoji}"
-                emoji_count += 1
-        # Insert mood or russian expression at randomized paragraph boundary
-        if insert_mood_at == idx:
-            mood_display = None
-            if mood != "default" and FORMAT_EMOTION:
-                try:
-                    yaml_path = Path(__file__).parent.parent / "config" / "persona" / "emotion_display.yml"
-                    if yaml_path.exists():
-                        import yaml
-                        with open(yaml_path, "r", encoding="utf-8") as f:
-                            mood_yaml = yaml.safe_load(f)
-                        mood_list = mood_yaml.get("moods", {}).get(lang, {}).get(mood, [])
-                        if not mood_list:
-                            mood_list = mood_yaml.get("moods", {}).get(lang, {}).get("default", [])
-                        if not mood_list:
-                            mood_list = mood_yaml.get("moods", {}).get("id", {}).get(mood, [])
-                        if not mood_list:
-                            mood_list = mood_yaml.get("moods", {}).get("id", {}).get("default", [])
-                        if mood_list:
-                            chosen = random.choice(mood_list)
-                            mood_display = f"<i>{escape_html(chosen)}</i>"
-                except Exception as e:
-                    logger.warning(f"Failed to load emotion display: {e}")
-            if mood_display:
-                formatted_paragraphs.append(mood_display)
-        if insert_russian_at == idx and russian_expression:
-            formatted_paragraphs.append(f"<i>{escape_html(russian_expression)}</i>")
-        if insert_roleplay_at == idx and roleplay:
-            formatted_paragraphs.append(f"<i>{escape_html(roleplay)}</i>")
-            roleplay = None  # Only insert once
-        formatted_paragraphs.append(para)
-    # If roleplay not yet inserted, put at top
     if roleplay:
-        formatted_paragraphs.insert(0, f"<i>{escape_html(roleplay)}</i>")
-    final_response = '\n\n'.join([part for part in formatted_paragraphs if part and part.strip()])
-    return clean_html_entities(final_response)
+        roleplay = f"<i>{escape_html(roleplay)}</i>"
+    # Emoji logic: dynamic, mood-based, natural placement
+    def contains_mood_emoji(text: str, mood_emojis: List[str]) -> bool:
+        return any(e in text for e in mood_emojis)
+    mood_emoji_mapping = _get_mood_emojis()
+    current_mood = mood if mood != "default" else "neutral"
+    mood_emojis = mood_emoji_mapping.get(current_mood, mood_emoji_mapping["default"])
+    emoji_count = min(MAX_EMOJI_PER_RESPONSE, 4)
+    main_content = re.sub(r'\\*(.*?)\\*', r'<i>\\1</i>', main_message)
+    main_content = re.sub(r'([A-ZaZ]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\\1</b>', main_content)
+    main_content = escape_html(main_content)
+    # Only inject emoji if not already present
+    if not contains_mood_emoji(main_content, mood_emojis):
+        positions = ["start", "end"]
+        if len(main_content.split()) > 4:
+            positions.append("middle")
+        max_positions = min(emoji_count, len(positions))
+        chosen_positions = random.sample(positions, k=max_positions)
+        if emoji_count > len(positions):
+            extra_positions = random.choices(positions, k=emoji_count - len(positions))
+            for pos in extra_positions:
+                if pos not in chosen_positions:
+                    chosen_positions.append(pos)
+        used_positions = set()
+        for idx, pos in enumerate(chosen_positions):
+            emoji_ = mood_emojis[idx % len(mood_emojis)]
+            if pos == "start" and "start" not in used_positions and not main_content.startswith(emoji_):
+                main_content = f"{emoji_} {main_content}"
+                used_positions.add("start")
+            elif pos == "end" and "end" not in used_positions and not main_content.endswith(emoji_):
+                main_content = f"{main_content} {emoji_}"
+                used_positions.add("end")
+            elif pos == "middle" and "middle" not in used_positions:
+                words = main_content.split()
+                if len(words) > 2:
+                    mid = len(words) // 2
+                    words.insert(mid, emoji_)
+                    main_content = " ".join(words)
+                    used_positions.add("middle")
+    # Format optionals
+    formatted_optionals = []
+    if optional_messages:
+        opt_msg = optional_messages[0]
+        opt_msg = re.sub(r'\\*(.*?)\\*', r'<i>\\1</i>', opt_msg)
+        opt_msg = escape_html(opt_msg)
+        formatted_optionals.append(opt_msg)
+    # NO mood display, NO YAML, NO persona expressions: all handled by Gemini/LLM
+    result = []
+    if roleplay:
+        result.append(roleplay)
+    result.append(main_content)
+    if formatted_optionals:
+        result.extend(formatted_optionals)
+    final = '\n\n'.join([r for r in result if r and r.strip()])
+    return clean_html_entities(final)
 
 def format_error_response(error_message: str, username: str = "user") -> str:
     try:
