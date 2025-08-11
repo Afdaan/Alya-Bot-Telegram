@@ -23,6 +23,7 @@ from core.nlp import NLPEngine
 logger = logging.getLogger(__name__)
 
 def escape_html(text: str) -> str:
+    """Escape HTML for Telegram, allowing only safe tags."""
     if not text:
         return ""
     escaped = html.escape(text)
@@ -35,6 +36,7 @@ def escape_html(text: str) -> str:
     return escaped
 
 def escape_markdown_v2(text: str) -> str:
+    """Escape special characters for MarkdownV2 formatting."""
     if not text:
         return ""
     special_chars = [
@@ -47,6 +49,7 @@ def escape_markdown_v2(text: str) -> str:
     return text
 
 def escape_markdown_v2_safe(text: str) -> str:
+    """Escape special characters for MarkdownV2, safer version."""
     if not text:
         return ""
     text = str(text)
@@ -60,6 +63,13 @@ def escape_markdown_v2_safe(text: str) -> str:
     return text
 
 def format_paragraphs(text: str, markdown: bool = True) -> str:
+    """
+    Format text into readable paragraphs for Telegram.
+    Only accepts string input. If input is not string, logs error and returns empty string.
+    """
+    if not isinstance(text, str):
+        logger.error("format_paragraphs: input must be str, got %s", type(text))
+        return ""
     if not text:
         return ""
     paragraphs = re.split(r'(?:\n\s*\n|(?<=[^\n])\n(?=[^\n]))', text.strip())
@@ -72,6 +82,7 @@ def format_paragraphs(text: str, markdown: bool = True) -> str:
     return formatted
 
 def clean_html_entities(text: str) -> str:
+    """Clean up HTML entities and tags for Telegram HTML mode."""
     if not text:
         return ""
     text = re.sub(r'<([bius])\\">', r'<\1>', text)
@@ -91,6 +102,7 @@ def format_markdown_response(
     mentioned_username: Optional[str] = None,
     mentioned_text: Optional[str] = None
 ) -> str:
+    """Format response for MarkdownV2, with username substitutions."""
     if not text:
         return ""
     substitutions = {
@@ -106,6 +118,7 @@ def format_markdown_response(
     return format_response(text)
 
 def detect_roleplay(text: str) -> Tuple[str, Optional[str]]:
+    """Detect and extract roleplay/action from text."""
     if not text:
         return text, None
     roleplay_patterns = [
@@ -122,6 +135,7 @@ def detect_roleplay(text: str) -> Tuple[str, Optional[str]]:
     return text, None
 
 def extract_emoji_sentiment(text: str) -> Tuple[str, List[str]]:
+    """Extract emojis from text, limited by MAX_EMOJI_PER_RESPONSE."""
     if not text:
         return text, []
     emojis = [char for char in text if emoji.is_emoji(char)]
@@ -130,6 +144,7 @@ def extract_emoji_sentiment(text: str) -> Tuple[str, List[str]]:
     return text, emojis
 
 def _sanitize_response(response: str, username: str) -> str:
+    """Clean up model output, remove speaker prefixes and excessive punctuation."""
     if not response:
         return ""
     lines = response.splitlines()
@@ -156,6 +171,7 @@ def _sanitize_response(response: str, username: str) -> str:
     return response
 
 def _get_mood_emojis() -> Dict[str, List[str]]:
+    """Return mapping of mood to emoji list."""
     return {
         "neutral": [
             "✨", "💭", "🌸", "💫", "🤍", "🫧", "🌱", "🦋", 
@@ -212,6 +228,7 @@ def _get_mood_emojis() -> Dict[str, List[str]]:
     }
 
 def _split_into_readable_paragraphs(text: str) -> List[str]:
+    """Split long text into readable paragraphs."""
     if not text or not text.strip():
         return []
     text = re.sub(r'\s+', ' ', text.strip())
@@ -306,7 +323,6 @@ def format_response(
     mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
     mood_emojis = _get_mood_emojis().get(mood if mood != "default" else "neutral", _get_mood_emojis()["default"])
 
-    # Format: roleplay/action italic, narasi satu baris, emoji inject di narasi pertama
     lines = _split_humanlike_lines(_format_roleplay_and_actions(message))
     formatted = []
     emoji_injected = False
@@ -351,6 +367,7 @@ def format_response(
     return parts
 
 def format_error_response(error_message: str, username: str = "user") -> str:
+    """Format error response with persona and apology."""
     try:
         if "{username}" in error_message:
             error_message = error_message.replace(
