@@ -310,8 +310,12 @@ def format_response(
     NOTE: If return type is list, handler must send each part separately (jangan lempar ke format_paragraphs).
     """
     message = _sanitize_response(message, username)
-    if not message:
-        return "Maaf, aku tidak bisa merespons sekarang... 😳" if lang == 'id' else "Sorry, I can't respond right now... 😳"
+    fallback = (
+        "Maaf, aku tidak bisa merespons sekarang... 😳"
+        if lang == 'id' else "Sorry, I can't respond right now... 😳"
+    )
+    if not message or not message.strip():
+        return fallback
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
@@ -327,7 +331,7 @@ def format_response(
     formatted = []
     emoji_injected = False
     for i, line in enumerate(lines):
-        if not line:
+        if not line or not line.strip():
             continue
         # Inject emoji di narasi pertama (bukan <i>...)</i>)
         if not emoji_injected and not line.startswith('<i>') and not any(e in line for e in mood_emojis):
@@ -344,17 +348,19 @@ def format_response(
         line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', line)
         line = escape_html(line)
         formatted.append(line)
-    final = '\n\n'.join(formatted)
+    final = '\n\n'.join([f for f in formatted if f.strip()])
     final = clean_html_entities(final)
     # Split jika >4096 char
     MAX_LEN = 4096
     if len(final) <= MAX_LEN:
-        return final
+        return final if final.strip() else fallback
     parts = []
     current = ""
     for line in final.split('\n\n'):
+        if not line or not line.strip():
+            continue
         if len(current) + len(line) + 2 > MAX_LEN:
-            if current:
+            if current and current.strip():
                 parts.append(current.strip())
             current = line
         else:
@@ -362,8 +368,14 @@ def format_response(
                 current += '\n\n' + line
             else:
                 current = line
-    if current:
+    if current and current.strip():
         parts.append(current.strip())
+    # Filter out any empty parts
+    parts = [p for p in parts if p.strip()]
+    if not parts:
+        return fallback
+    if len(parts) == 1:
+        return parts[0]
     return parts
 
 def format_error_response(error_message: str, username: str = "user") -> str:
