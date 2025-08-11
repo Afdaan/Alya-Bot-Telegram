@@ -253,35 +253,70 @@ def _split_into_readable_paragraphs(text: str) -> List[str]:
     return cleaned_paragraphs
 
 def _format_roleplay_and_actions(text: str) -> str:
-    """Wrap *...*, _..._, [ ... ], ( ... ) and Russian (Cyrillic) phrases in <i>...</i>."""
+    """Format roleplay actions more naturally."""
     if not text:
         return ""
+    
+    # Convert roleplay markers to italic, but keep them more natural
     text = re.sub(r"\*(.*?)\*", lambda m: f"<i>{m.group(1).strip()}</i>", text)
     text = re.sub(r"_(.*?)_", lambda m: f"<i>{m.group(1).strip()}</i>", text)
     text = re.sub(r"\[(.*?)\]", lambda m: f"<i>{m.group(1).strip()}</i>", text)
-    text = re.sub(r"\((.*?)\)", lambda m: f"<i>{m.group(1).strip()}</i>", text)
-    text = re.sub(r"([А-Яа-яЁё][^.,!?\n]*)", 
+    
+    # Handle Russian text more naturally
+    text = re.sub(r"([А-Яа-яЁё][А-Яа-яЁё\s]*[А-Яа-яЁё])", 
                   lambda m: f"<i>{m.group(1).strip()}</i>" if '<i>' not in m.group(1) else m.group(1), 
                   text)
+    
     return text.strip()
 
 def _split_humanlike_lines(text: str) -> List[str]:
-    """Split text into lines, each roleplay/action (italic) or narasi satu baris."""
+    """Split text into natural conversation flow."""
     if not text:
         return []
-    lines = re.split(r'\n{2,}|\n', text)
+    
+    # Split by double newlines first (natural paragraph breaks)
+    paragraphs = re.split(r'\n\s*\n', text.strip())
     result = []
-    for line in lines:
-        line = line.strip()
-        if not line:
+    
+    for paragraph in paragraphs:
+        paragraph = paragraph.strip()
+        if not paragraph:
             continue
-        parts = re.split(r'(<i>.*?</i>)', line)
-        for part in parts:
-            part = part.strip()
-            if not part:
-                continue
-            result.append(part)
+            
+        # Keep dialogue and narration together more naturally
+        # Only split if there's a clear action -> dialogue transition
+        if '<i>' in paragraph and '"' in paragraph:
+            # Mixed action and dialogue - keep together for flow
+            result.append(paragraph)
+        else:
+            # Pure dialogue or pure action
+            result.append(paragraph)
+    
     return result
+
+def _get_contextual_emoji(text: str, mood: str, relationship_level: int) -> str:
+    """Get contextually appropriate emoji based on content and mood."""
+    text_lower = text.lower()
+    
+    # Emotional context detection
+    if any(word in text_lower for word in ['khawatir', 'cemas', 'takut', 'was-was']):
+        return random.choice(['😰', '🥺', '😟', '💔', '😔'])
+    elif any(word in text_lower for word in ['maaf', 'sorry', 'minta maaf']):
+        return random.choice(['😔', '🥺', '😢', '💔'])
+    elif any(word in text_lower for word in ['senang', 'gembira', 'bahagia', 'suka']):
+        return random.choice(['😊', '🥰', '😄', '💕', '✨'])
+    elif any(word in text_lower for word in ['marah', 'kesal', 'jengkel']):
+        return random.choice(['😤', '💢', '😠', '🔥'])
+    elif any(word in text_lower for word in ['malu', 'embarrass', 'blush']):
+        return random.choice(['😳', '😅', '🙈', '💦'])
+    elif any(word in text_lower for word in ['kaget', 'surprised', 'shock']):
+        return random.choice(['😳', '😲', '🙀', '😱'])
+    
+    # Relationship-based defaults
+    if relationship_level >= 3:
+        return random.choice(['💕', '🥰', '😊', '✨', '🌸'])
+    else:
+        return random.choice(['😊', '🌸', '✨', '🦋'])
 
 def format_response(
     message: str,
@@ -294,72 +329,92 @@ def format_response(
     relationship_level: int = 1,
     **kwargs
 ) -> Union[str, List[str]]:
-    """Format a bot response with persona, mood, and expressive emoji. Output is valid HTML."""
+    """Format a bot response with natural, human-like flow."""
+    
     message = _sanitize_response(message, username)
     fallback = (
         "Maaf, aku tidak bisa merespons sekarang... 😳"
         if lang == 'id' else "Sorry, I can't respond right now... 😳"
     )
+    
     if not message or not message.strip():
         return fallback
+        
+    # Handle username placeholders
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
 
+    # Get mood context
     if nlp_engine is None:
         nlp_engine = NLPEngine()
     context = nlp_engine.get_message_context(message, user_id=user_id)
     mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
-    mood_emojis = _get_mood_emojis().get(mood if mood != "default" else "neutral", _get_mood_emojis()["default"])
-
-    lines = _split_humanlike_lines(_format_roleplay_and_actions(message))
-    formatted = []
-    emoji_injected = False
-    for i, line in enumerate(lines):
-        if not line or not line.strip():
+    
+    # Format roleplay elements
+    formatted_text = _format_roleplay_and_actions(message)
+    
+    # Split into natural conversation chunks
+    lines = _split_humanlike_lines(formatted_text)
+    
+    # Process each chunk
+    processed_lines = []
+    emoji_added = False
+    
+    for line in lines:
+        if not line.strip():
             continue
-        if not emoji_injected and not line.startswith('<i>') and not any(e in line for e in mood_emojis):
-            words = line.split()
-            if len(words) > 2:
-                pos = random.randint(1, len(words)-1)
-                emoji_ = random.choice(mood_emojis)
-                words.insert(pos, emoji_)
-                line = " ".join(words)
-            else:
-                line = f"{line} {random.choice(mood_emojis)}"
-            emoji_injected = True
-        line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', line)
+            
+        # Escape HTML
         line = escape_html(line)
-        formatted.append(line)
-    final = '\n\n'.join([f for f in formatted if f.strip()])
+        
+        # Add contextual emoji naturally (only once, at the end)
+        if not emoji_added and not line.startswith('<i>'):
+            # Add emoji at natural pause points
+            if '...' in line or line.endswith(('.', '!', '?')):
+                contextual_emoji = _get_contextual_emoji(line, mood, relationship_level)
+                line = f"{line} {contextual_emoji}"
+                emoji_added = True
+        
+        # Bold honorifics
+        line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', line)
+        
+        processed_lines.append(line)
+    
+    # Join with natural spacing
+    final = '\n\n'.join([line for line in processed_lines if line.strip()])
     final = clean_html_entities(final)
     
+    # Handle splitting if too long
     MAX_LEN = 4096
     if len(final) <= MAX_LEN:
         return final if final.strip() else fallback
+    
+    # Split naturally at paragraph boundaries
     parts = []
     current = ""
+    
     for line in final.split('\n\n'):
-        if not line or not line.strip():
+        if not line.strip():
             continue
+            
         if len(current) + len(line) + 2 > MAX_LEN:
-            if current and current.strip():
+            if current.strip():
                 parts.append(current.strip())
             current = line
         else:
-            if current:
-                current += '\n\n' + line
-            else:
-                current = line
-    if current and current.strip():
+            current = current + '\n\n' + line if current else line
+    
+    if current.strip():
         parts.append(current.strip())
+    
+    # Filter empty parts
     parts = [p for p in parts if p.strip()]
     if not parts:
         return fallback
-    if len(parts) == 1:
-        return parts[0]
-    return parts
+        
+    return parts[0] if len(parts) == 1 else parts
 
 def format_error_response(error_message: str, username: str = "user") -> str:
     """Format error response with persona and apology."""
