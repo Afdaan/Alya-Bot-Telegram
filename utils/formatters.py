@@ -250,6 +250,9 @@ def format_response(
     lang: str = "id",
     **kwargs
 ) -> str:
+    """
+    Format Alya's response to feel alive and humanlike, with natural placement of emoji, mood, and roleplay.
+    """
     try:
         persona_manager = PersonaManager()
         persona = persona_manager.get_persona(persona_name)
@@ -266,55 +269,71 @@ def format_response(
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
     message, detected_roleplay = detect_roleplay(message)
-    roleplay = detected_roleplay or roleplay_action
+    roleplay = roleplay_action or detected_roleplay
     mood_emojis = _get_mood_emojis()
     current_mood = mood if mood != "default" else "neutral"
     available_emojis = mood_emojis.get(current_mood, mood_emojis["default"])
     paragraphs = _split_into_readable_paragraphs(message)
     formatted_paragraphs = []
     emoji_count = 0
+    used_emoji = set()
+    # Randomize where to put mood/russian expression (between paragraphs, not always at end)
+    insert_mood_at = random.randint(0, len(paragraphs)) if len(paragraphs) > 1 else None
+    insert_russian_at = None
+    if russian_expression:
+        insert_russian_at = random.randint(0, len(paragraphs))
+    # Randomize roleplay position: top or between paragraphs (but not always at top)
+    insert_roleplay_at = 0 if not paragraphs or random.random() < 0.7 else random.randint(0, len(paragraphs))
     for idx, para in enumerate(paragraphs):
         para = re.sub(r'\*(.*?)\*', r'<i>\1</i>', para)
         para = escape_html(para)
+        # Insert emoji at a random word boundary in the paragraph (not always at end)
         if emoji_count < MAX_EMOJI_PER_RESPONSE and len(para) > 15:
             if not any(emoji.is_emoji(c) for c in para):
-                chosen_emoji = random.choice(available_emojis)
-                if "," in para:
-                    parts = para.rsplit(",", 1)
-                    para = f"{parts[0]}, {chosen_emoji}{parts[1]}"
+                chosen_emoji = random.choice([e for e in available_emojis if e not in used_emoji] or available_emojis)
+                used_emoji.add(chosen_emoji)
+                words = para.split()
+                if len(words) > 4:
+                    pos = random.randint(1, len(words)-2)
+                    words.insert(pos, chosen_emoji)
+                    para = ' '.join(words)
                 else:
                     para = f"{para} {chosen_emoji}"
                 emoji_count += 1
+        # Insert mood or russian expression at randomized paragraph boundary
+        if insert_mood_at == idx:
+            mood_display = None
+            if mood != "default" and FORMAT_EMOTION:
+                try:
+                    yaml_path = Path(__file__).parent.parent / "config" / "persona" / "emotion_display.yml"
+                    if yaml_path.exists():
+                        import yaml
+                        with open(yaml_path, "r", encoding="utf-8") as f:
+                            mood_yaml = yaml.safe_load(f)
+                        mood_list = mood_yaml.get("moods", {}).get(lang, {}).get(mood, [])
+                        if not mood_list:
+                            mood_list = mood_yaml.get("moods", {}).get(lang, {}).get("default", [])
+                        if not mood_list:
+                            mood_list = mood_yaml.get("moods", {}).get("id", {}).get(mood, [])
+                        if not mood_list:
+                            mood_list = mood_yaml.get("moods", {}).get("id", {}).get("default", [])
+                        if mood_list:
+                            chosen = random.choice(mood_list)
+                            mood_display = f"<i>{escape_html(chosen)}</i>"
+                except Exception as e:
+                    logger.warning(f"Failed to load emotion display: {e}")
+            if mood_display:
+                formatted_paragraphs.append(mood_display)
+        if insert_russian_at == idx and russian_expression:
+            formatted_paragraphs.append(f"<i>{escape_html(russian_expression)}</i>")
+        if insert_roleplay_at == idx and roleplay:
+            formatted_paragraphs.append(f"<i>{escape_html(roleplay)}</i>")
+            roleplay = None  # Only insert once
         formatted_paragraphs.append(para)
-    result_parts = []
+    # If roleplay not yet inserted, put at top
     if roleplay:
-        result_parts.append(f"<i>{escape_html(roleplay)}</i>")
-    result_parts.extend(formatted_paragraphs)
-    mood_display = None
-    if mood != "default" and FORMAT_EMOTION:
-        try:
-            yaml_path = Path(__file__).parent.parent / "config" / "persona" / "emotion_display.yml"
-            if yaml_path.exists():
-                import yaml
-                with open(yaml_path, "r", encoding="utf-8") as f:
-                    mood_yaml = yaml.safe_load(f)
-                mood_list = mood_yaml.get("moods", {}).get(lang, {}).get(mood, [])
-                if not mood_list:
-                    mood_list = mood_yaml.get("moods", {}).get(lang, {}).get("default", [])
-                if not mood_list:
-                    mood_list = mood_yaml.get("moods", {}).get("id", {}).get(mood, [])
-                if not mood_list:
-                    mood_list = mood_yaml.get("moods", {}).get("id", {}).get("default", [])
-                if mood_list:
-                    chosen = random.choice(mood_list)
-                    mood_display = f"<i>{escape_html(chosen)}</i>"
-        except Exception as e:
-            logger.warning(f"Failed to load emotion display: {e}")
-    if mood_display:
-        result_parts.append(mood_display)
-    if russian_expression:
-        result_parts.append(f"<i>{escape_html(russian_expression)}</i>")
-    final_response = '\n\n'.join([part for part in result_parts if part and part.strip()])
+        formatted_paragraphs.insert(0, f"<i>{escape_html(roleplay)}</i>")
+    final_response = '\n\n'.join([part for part in formatted_paragraphs if part and part.strip()])
     return clean_html_entities(final_response)
 
 def format_error_response(error_message: str, username: str = "user") -> str:
