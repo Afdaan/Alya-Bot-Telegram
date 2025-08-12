@@ -337,7 +337,7 @@ def format_response(
     relationship_level: int = 1,
     **kwargs
 ) -> Union[str, List[str]]:
-    """Format a bot response with natural, human-like flow and language fallback."""
+    """Format a bot response with natural, human-like flow, persona-driven mood, and language fallback."""
     message = _sanitize_response(message, username)
     fallback = _get_fallback_message(lang)
     if not message or not message.strip():
@@ -349,74 +349,68 @@ def format_response(
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
 
-    # Get mood context
+    # Persona & mood context
     if nlp_engine is None:
         nlp_engine = NLPEngine()
     context = nlp_engine.get_message_context(message, user_id=user_id)
     mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
-    
+    # Get emoji pool from NLP engine (contextual, not hardcoded)
+    emoji_pool = nlp_engine.suggest_emojis(message, mood, count=min(MAX_EMOJI_PER_RESPONSE, 3))
+    # Russian expressions (for tsundere/emosi)
+    persona_manager = PersonaManager()
+    persona = persona_manager.get_persona(persona_name=persona_name, lang=lang)
+    russian_expressions = persona.get("russian_expressions", ["дурак", "что", "глупый", "бaka"])
+
     # Format roleplay elements
     formatted_text = _format_roleplay_and_actions(message)
-    
-    # Split into natural conversation chunks
+    # Split into paragraphs/lines
     lines = _split_humanlike_lines(formatted_text)
-    
-    # Process each chunk
+
     processed_lines = []
-    emoji_added = False
-    
-    for line in lines:
+    emoji_count = 0
+    for idx, line in enumerate(lines):
         if not line.strip():
             continue
-            
         # Escape HTML
         line = escape_html(line)
-        
-        # Add contextual emoji naturally (only once, at the end)
-        if not emoji_added and not line.startswith('<i>'):
-            # Add emoji at natural pause points
-            if '...' in line or line.endswith(('.', '!', '?')):
-                contextual_emoji = _get_contextual_emoji(line, mood, relationship_level)
-                line = f"{line} {contextual_emoji}"
-                emoji_added = True
-        
         # Bold honorifics
         line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', line)
-        
+        # Inject Russian exp randomly if mood tsundere/angry/embarrassed
+        if mood in ("defensive_flustered", "comfortable_tsundere", "angry", "embarrassed") and random.random() < 0.25:
+            rus = random.choice(russian_expressions)
+            line = f"{line} <i>{rus}</i>"
+        # Add emoji at natural spots (end of para, or after roleplay)
+        if emoji_count < len(emoji_pool) and (line.endswith(('.', '!', '?')) or idx == len(lines)-1):
+            emoji_to_add = emoji_pool[emoji_count]
+            line = f"{line} {emoji_to_add}"
+            emoji_count += 1
         processed_lines.append(line)
-    
-    # Join with natural spacing
-    final = '\n\n'.join([line for line in processed_lines if line.strip()])
+
+    # Gabung dengan spasi natural
+    final = '\n\n'.join([l for l in processed_lines if l.strip()])
     final = clean_html_entities(final)
 
     # Handle splitting if too long
     MAX_LEN = 4096
     if len(final) <= MAX_LEN:
         return final if final.strip() else fallback
-
     # Split naturally at paragraph boundaries
     parts = []
     current = ""
-    
     for line in final.split('\n\n'):
         if not line.strip():
             continue
-            
         if len(current) + len(line) + 2 > MAX_LEN:
             if current.strip():
                 parts.append(current.strip())
             current = line
         else:
             current = current + '\n\n' + line if current else line
-    
     if current.strip():
         parts.append(current.strip())
-    
-    # Filter empty parts
     parts = [p for p in parts if p.strip()]
     if not parts:
         return fallback
-
     return parts[0] if len(parts) == 1 else parts
 
 def format_error_response(error_message: str, username: str = "user", lang: str = "id") -> str:
