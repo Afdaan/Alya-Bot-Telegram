@@ -350,15 +350,17 @@ def format_response(
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
 
     # Persona & mood context
+    persona_manager = PersonaManager()
+    persona = persona_manager.get_persona(persona_name=persona_name)  # FIX: remove lang param
     if nlp_engine is None:
         nlp_engine = NLPEngine()
     context = nlp_engine.get_message_context(message, user_id=user_id)
     mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
-    # Get emoji pool from NLP engine (contextual, not hardcoded)
-    emoji_pool = nlp_engine.suggest_emojis(message, mood, count=min(MAX_EMOJI_PER_RESPONSE, 3))
+
+    # Get persona mood/emoji mapping (fallback ke default)
+    persona_emojis = persona.get("emojis", {})
+    mood_emojis = persona_emojis.get(mood, _get_mood_emojis().get(mood, _get_mood_emojis()["default"]))
     # Russian expressions (for tsundere/emosi)
-    persona_manager = PersonaManager()
-    persona = persona_manager.get_persona(persona_name=persona_name, lang=lang)
     russian_expressions = persona.get("russian_expressions", ["дурак", "что", "глупый", "бaka"])
 
     # Format roleplay elements
@@ -368,6 +370,7 @@ def format_response(
 
     processed_lines = []
     emoji_count = 0
+    max_emoji = min(MAX_EMOJI_PER_RESPONSE, 3)  # Biar ga spam, max 3 per response
     for idx, line in enumerate(lines):
         if not line.strip():
             continue
@@ -380,8 +383,8 @@ def format_response(
             rus = random.choice(russian_expressions)
             line = f"{line} <i>{rus}</i>"
         # Add emoji at natural spots (end of para, or after roleplay)
-        if emoji_count < len(emoji_pool) and (line.endswith(('.', '!', '?')) or idx == len(lines)-1):
-            emoji_to_add = emoji_pool[emoji_count]
+        if emoji_count < max_emoji and (line.endswith(('.', '!', '?')) or idx == len(lines)-1):
+            emoji_to_add = random.choice(mood_emojis)
             line = f"{line} {emoji_to_add}"
             emoji_count += 1
         processed_lines.append(line)
