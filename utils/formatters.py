@@ -240,13 +240,8 @@ def _format_roleplay_and_actions(text: str) -> str:
     # Convert roleplay markers to italic, but keep them more natural
     text = re.sub(r"\*(.*?)\*", lambda m: f"<i>{m.group(1).strip()}</i>", text)
     text = re.sub(r"_(.*?)_", lambda m: f"<i>{m.group(1).strip()}</i>", text)
-    text = re.sub(r"\[(.*?)\]", lambda m: f"<i>{m.group(1).strip()}</i>", text)
-    
-    # Handle Russian text more naturally
-    text = re.sub(r"([А-Яа-яЁё][А-Яа-яЁё\s]*[А-Яа-яЁё])", 
-                  lambda m: f"<i>{m.group(1).strip()}</i>" if '<i>' not in m.group(1) else m.group(1), 
-                  text)
-    
+    text = re.sub(r"\\[(.*?)\\]", lambda m: f"<i>{m.group(1).strip()}</i>", text)
+    text = re.sub(r"([А-Яа-яЁё][А-Яа-яЁё\s]*[А-Яа-яЁё])", lambda m: f"<i>{m.group(1).strip()}</i>" if '<i>' not in m.group(1) else m.group(1), text)
     return text.strip()
 
 def _split_humanlike_lines(text: str) -> List[str]:
@@ -325,11 +320,11 @@ def format_response(
     if nlp_engine is None:
         nlp_engine = NLPEngine()
     persona_manager = PersonaManager()
-    persona = persona_manager.get_persona(persona_name=persona_name)
+    persona = persona_manager.get_persona(persona_name=persona_name, lang=lang)
     russian_expressions = persona.get("russian_expressions", ["дурак", "что", "глупый", "бaka"])
 
     # Format roleplay elements
-    formatted_text = _format_roleplay_and_actions(message)
+    formatted_text = _format_roleplay_and_actions(message, lang=lang)
     # Split into paragraphs/lines
     lines = _split_humanlike_lines(formatted_text)
 
@@ -340,7 +335,7 @@ def format_response(
         if not line.strip():
             continue
         line = escape_html(line)
-        line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', line)
+        line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', line)
         context = nlp_engine.get_message_context(line, user_id=user_id)
         mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
         mood_emojis = nlp_engine.suggest_emojis(line, mood, count=2)
@@ -350,7 +345,9 @@ def format_response(
         if emoji_count < max_emoji and (line.endswith(('.', '!', '?', '...')) or '<i>' in line or idx == len(lines)-1):
             for emj in mood_emojis:
                 if emoji_count < max_emoji:
-                    line = f"{line} {emj}"
+                    if not line.endswith(' '):
+                        line += ' '
+                    line = f"{line}{emj}"
                     emoji_count += 1
         processed_lines.append(line)
     final = '\n\n'.join([l for l in processed_lines if l.strip()])
