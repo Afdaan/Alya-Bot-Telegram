@@ -1,4 +1,3 @@
-# /home/afdaan/alya-telegram-new/handlers/response/lang.py
 """
 Bilingual response generator for the /lang command.
 """
@@ -18,17 +17,16 @@ def get_lang_response(lang: str, new_lang: Optional[str] = None) -> str:
     if new_lang:
         if new_lang == 'id':
             return "✨ Bahasa berhasil diubah ke Bahasa Indonesia."
-        else: # en
+        else:
             return "✨ Language successfully changed to English."
     else:
-        # This is the usage message
         if lang == 'id':
             return (
-                "Pengaturan bahasa saat ini adalah: `Indonesia`\n\n"
-                "Untuk mengubah, gunakan: `/lang en` atau `/lang id`"
+                "Pengaturan bahasa saat ini adalah: <code>Indonesia</code>\n\n"
+                "Untuk mengubah, gunakan: <code>/lang en</code> atau <code>/lang id</code>"
             )
-        else: # en
+        else:
             return (
-                "Current language setting is: `English`\n\n"
-                "To change, use: `/lang en` or `/lang id`"
+                "Current language setting is: <code>English</code>\n\n"
+                "To change, use: <code>/lang en</code> or <code>/lang id</code>"
             )

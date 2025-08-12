@@ -1,4 +1,3 @@
-# /home/afdaan/alya-telegram-new/handlers/response/system.py
 from typing import Literal
 
 def get_system_error_response(lang: Literal['id', 'en']) -> str:

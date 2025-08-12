@@ -51,16 +51,17 @@ def get_reset_confirmation_response(lang: str = "id") -> str:
     """
     text = {
         "id": (
-            "Hah? Kamu yakin mau mengatur ulang riwayat percakapan kita? "
-            "Semua yang pernah kita bicarakan akan hilang selamanya... "
-            "Kalau kamu yakin, kirim <code>/reset confirm</code>. "
-            "B-bukan berarti aku akan merindukan percakapan kita atau apa..."
+            "Hah?! Kamu serius mau reset semua percakapan kita? "
+            "Semua obrolan kita yang sudah keren itu bakal hilang begitu saja... "
+            "Kalau kamu yakin banget, kirim <code>/reset confirm</code>, ya. "
+            "Tapi, jangan salah, aku juga nggak peduli kok... bukan berarti aku akan kangen atau apa gitu!"
+
         ),
         "en": (
-            "Huh? Are you sure you want to reset our conversation history? "
-            "Everything we've ever talked about will be gone forever... "
-            "If you're sure, send <code>/reset confirm</code>. "
-            "I-it's not like I'll miss our conversations or anything..."
+            "Wh-what?! You really want to reset all our conversations? "
+            "All our awesome chats will be gone forever... "
+            "If you're absolutely sure, just send <code>/reset confirm</code>. "
+            "Not that I care or anything... It's not like I’ll miss our talks or whatever!"
         ),
     }
     return text.get(lang, text["id"])
