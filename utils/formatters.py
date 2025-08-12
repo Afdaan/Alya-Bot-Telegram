@@ -337,7 +337,9 @@ def format_response(
     relationship_level: int = 1,
     **kwargs
 ) -> Union[str, List[str]]:
-    """Format a bot response with natural, human-like flow, persona-driven mood, and language fallback."""
+    """Format a bot response with natural, human-like flow, persona-driven mood, and language fallback.
+    Now routes response through NLP engine for postprocessing (mood, emoji, roleplay, etc).
+    """
     message = _sanitize_response(message, username)
     fallback = _get_fallback_message(lang)
     if not message or not message.strip():
@@ -349,28 +351,25 @@ def format_response(
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
 
-    # Persona & mood context
-    persona_manager = PersonaManager()
-    persona = persona_manager.get_persona(persona_name=persona_name)  # FIX: remove lang param
+    # NLP engine setup
     if nlp_engine is None:
         nlp_engine = NLPEngine()
     context = nlp_engine.get_message_context(message, user_id=user_id)
     mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
+    # Dapatkan emoji yang sesuai mood dari NLP, bukan random
+    mood_emojis = nlp_engine.suggest_emojis(message, mood, count=min(MAX_EMOJI_PER_RESPONSE, 3))
 
-    # Get persona mood/emoji mapping (fallback ke default)
-    persona_emojis = persona.get("emojis", {})
-    mood_emojis = persona_emojis.get(mood, _get_mood_emojis().get(mood, _get_mood_emojis()["default"]))
-    # Russian expressions (for tsundere/emosi)
+    # PersonaManager hanya untuk ekspresi Rusia/roleplay
+    persona_manager = PersonaManager()
+    persona = persona_manager.get_persona(persona_name=persona_name)
     russian_expressions = persona.get("russian_expressions", ["дурак", "что", "глупый", "бaka"])
 
     # Format roleplay elements
     formatted_text = _format_roleplay_and_actions(message)
-    # Split into paragraphs/lines
     lines = _split_humanlike_lines(formatted_text)
 
     processed_lines = []
     emoji_count = 0
-    max_emoji = min(MAX_EMOJI_PER_RESPONSE, 3)  # Biar ga spam, max 3 per response
     for idx, line in enumerate(lines):
         if not line.strip():
             continue
@@ -382,22 +381,18 @@ def format_response(
         if mood in ("defensive_flustered", "comfortable_tsundere", "angry", "embarrassed") and random.random() < 0.25:
             rus = random.choice(russian_expressions)
             line = f"{line} <i>{rus}</i>"
-        # Add emoji at natural spots (end of para, or after roleplay)
-        if emoji_count < max_emoji and (line.endswith(('.', '!', '?')) or idx == len(lines)-1):
-            emoji_to_add = random.choice(mood_emojis)
-            line = f"{line} {emoji_to_add}"
+        # Add emoji dari NLP engine
+        if emoji_count < len(mood_emojis) and (line.endswith(('.', '!', '?')) or idx == len(lines)-1):
+            line = f"{line} {mood_emojis[emoji_count]}"
             emoji_count += 1
         processed_lines.append(line)
 
-    # Gabung dengan spasi natural
     final = '\n\n'.join([l for l in processed_lines if l.strip()])
     final = clean_html_entities(final)
 
-    # Handle splitting if too long
     MAX_LEN = 4096
     if len(final) <= MAX_LEN:
         return final if final.strip() else fallback
-    # Split naturally at paragraph boundaries
     parts = []
     current = ""
     for line in final.split('\n\n'):
@@ -416,7 +411,7 @@ def format_response(
         return fallback
     return parts[0] if len(parts) == 1 else parts
 
-def format_error_response(error_message: str, username: str = "user", lang: str = "id") -> str:
+def format_error_response(error_message: str, username: str = "user", lang: str = "id", persona_name: str = "waifu") -> str:
     """Format error response with persona and apology, following language preference."""
     try:
         if "{username}" in error_message:
@@ -425,7 +420,7 @@ def format_error_response(error_message: str, username: str = "user", lang: str 
                 f"<b>{escape_html(username)}</b>"
             )
         persona_manager = PersonaManager()
-        persona = persona_manager.get_persona(lang=lang)
+        persona = persona_manager.get_persona(persona_name=persona_name, lang=lang)
         roleplay = "terlihat bingung dan khawatir" if lang == "id" else "looks confused and worried"
         try:
             apologetic_mood = persona.get("emotions", {}).get("apologetic_sincere", {})
