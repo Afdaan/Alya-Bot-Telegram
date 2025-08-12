@@ -16,7 +16,8 @@ from pathlib import Path
 from config.settings import (
     FORMAT_ROLEPLAY, 
     FORMAT_EMOTION,
-    MAX_EMOJI_PER_RESPONSE
+    MAX_EMOJI_PER_RESPONSE,
+    DEFAULT_LANGUAGE
 )
 from core.persona import PersonaManager
 from core.nlp import NLPEngine
@@ -299,13 +300,13 @@ def format_response(
     username: str = "user",
     target_name: Optional[str] = None,
     persona_name: str = "waifu",
-    lang: str = "id",
+    lang: str = None,
     nlp_engine: Optional[NLPEngine] = None,
     relationship_level: int = 1,
     **kwargs
 ) -> Union[str, List[str]]:
-    """Format a bot response with natural, human-like flow, persona-driven mood, and language fallback.
-    Now does per-paragraph mood & emoji mapping for more humanlike Alya."""
+    if lang is None:
+        lang = DEFAULT_LANGUAGE
     message = _sanitize_response(message, username)
     fallback = _get_fallback_message(lang)
     if not message or not message.strip():
@@ -320,7 +321,7 @@ def format_response(
     if nlp_engine is None:
         nlp_engine = NLPEngine()
     persona_manager = PersonaManager()
-    persona = persona_manager.get_persona(persona_name=persona_name, lang=lang)
+    persona = persona_manager.get_persona(persona_name=persona_name)
     russian_expressions = persona.get("russian_expressions", ["дурак", "что", "глупый", "бaka"])
 
     # Format roleplay elements
@@ -382,7 +383,7 @@ def format_error_response(error_message: str, username: str = "user", lang: str 
                 f"<b>{escape_html(username)}</b>"
             )
         persona_manager = PersonaManager()
-        persona = persona_manager.get_persona(persona_name=persona_name, lang=lang)
+        persona = persona_manager.get_persona(persona_name=persona_name)
         roleplay = "terlihat bingung dan khawatir" if lang == "id" else "looks confused and worried"
         try:
             apologetic_mood = persona.get("emotions", {}).get("apologetic_sincere", {})
