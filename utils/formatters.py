@@ -233,15 +233,14 @@ def _get_mood_emojis() -> Dict[str, List[str]]:
         ]
     }
 
-def _format_roleplay_and_actions(text: str) -> str:
-    """Format roleplay actions more naturally."""
+def _format_roleplay_and_actions(text: str, lang: str = None) -> str:
     if not text:
         return ""
     
     # Convert roleplay markers to italic, but keep them more natural
     text = re.sub(r"\*(.*?)\*", lambda m: f"<i>{m.group(1).strip()}</i>", text)
     text = re.sub(r"_(.*?)_", lambda m: f"<i>{m.group(1).strip()}</i>", text)
-    text = re.sub(r"\\[(.*?)\\]", lambda m: f"<i>{m.group(1).strip()}</i>", text)
+    text = re.sub(r"\[(.*?)\]", lambda m: f"<i>{m.group(1).strip()}</i>", text)
     text = re.sub(r"([А-Яа-яЁё][А-Яа-яЁё\s]*[А-Яа-яЁё])", lambda m: f"<i>{m.group(1).strip()}</i>" if '<i>' not in m.group(1) else m.group(1), text)
     return text.strip()
 
