@@ -211,12 +211,13 @@ class MemoryManager:
             
         return self.db.reset_conversation(user_id)
     
-    def create_context_prompt(self, user_id: int, query: str) -> str:
+    def create_context_prompt(self, user_id: int, query: str, lang: str = 'id') -> str:
         """Create a context-aware prompt with relevant memories.
         
         Args:
             user_id: Telegram user ID
             query: User query
+            lang: Language for context prompt ('id' or 'en')
             
         Returns:
             Enhanced prompt with context
@@ -227,13 +228,18 @@ class MemoryManager:
         if not memories:
             return query
             
-        # Create a context-enhanced prompt
-        context_prompt = "Berdasarkan informasi sebelumnya:\n\n"
+        # Create a context-enhanced prompt with language support
+        if lang == 'en':
+            context_prompt = "Based on previous information:\n\n"
+            question_prefix = "\nQuestion: "
+        else:  # Indonesian (default)
+            context_prompt = "Berdasarkan informasi sebelumnya:\n\n"
+            question_prefix = "\nPertanyaan: "
         
         # Add memories as context
         for i, memory in enumerate(memories[:3]):  # Limit to top 3 for conciseness
             context_prompt += f"- {memory}\n"
             
-        context_prompt += f"\nPertanyaan: {query}"
+        context_prompt += f"{question_prefix}{query}"
         
         return context_prompt

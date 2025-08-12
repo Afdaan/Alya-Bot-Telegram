@@ -30,8 +30,13 @@ class GeminiClient:
         self.model: str = GEMINI_MODEL
         self.working_keys: List[str] = []
         self.recent_response_hashes: Dict[int, List[str]] = {}  # Last response hashes by user_id
+        self.persona_manager = None # Will be set later
         self._initialize_client()
         
+    def set_persona_manager(self, persona_manager: Any) -> None:
+        """Sets the persona manager for the client."""
+        self.persona_manager = persona_manager
+
     def _initialize_client(self) -> None:
         """Initialize the Gemini client with the current API key."""
         if not self.api_keys:
@@ -121,86 +126,91 @@ class GeminiClient:
             
         return False
         
-    async def generate_content(
-        self, 
-        user_input: str, 
-        system_prompt: Optional[str] = None,
-        history: Optional[List[Dict[str, Any]]] = None,
-        safe_mode: bool = False,
-        user_id: Optional[int] = None
-    ) -> Optional[str]:
-        """
-        Generate content using Gemini API with automatic key rotation and deduplication.
+    async def generate_response(
+        self,
+        user_id: int,
+        username: str,
+        message: str,
+        context: str,
+        relationship_level: int,
+        is_admin: bool,
+        lang: str = 'id', # Add lang parameter
+        retry_count: int = 3,
+        is_media_analysis: bool = False,
+        media_context: Optional[str] = None
+    ) -> str:
+        """Generate a response using Gemini, with retry and key rotation logic.
         
         Args:
-            user_input: The user's input message
-            system_prompt: System prompt with persona instructions
-            history: Optional conversation history
-            safe_mode: Whether to use Google's default safety settings
-            user_id: User ID for tracking duplicates
+            user_id: User ID
+            username: User's name
+            message: User's message
+            context: Conversation context
+            relationship_level: User's relationship level with Alya
+            is_admin: Whether the user is an admin
+            lang: The user's preferred language ('id' or 'en')
+            retry_count: Number of retries
+            is_media_analysis: Flag for media analysis prompts
+            media_context: Context from media analysis
             
         Returns:
-            Generated response text or None if generation failed
+            Generated response text
         """
-        if not self.api_keys:
-            logger.error("No Gemini API keys available")
-            return None
-            
-        # Prepare generation config
-        generation_config = GenerationConfig(
-            temperature=TEMPERATURE,
-            top_p=TOP_P,
-            top_k=TOP_K,
-            max_output_tokens=MAX_OUTPUT_TOKENS,
-        )
-        
-        # Use our custom safety settings by default
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-        }
-        
-        # If safe_mode is explicitly requested, use Google's default safety settings
-        if safe_mode:
-            safety_settings = None
-            
-        # Try to generate content, with key rotation on failure
-        max_attempts = len(self.api_keys) + 1  # +1 for initial try
-        for attempt in range(max_attempts):
+        if not self.persona_manager:
+            raise ValueError("Persona manager not set for GeminiClient")
+
+        for attempt in range(retry_count):
             try:
-                # Initialize model
+                # Construct the prompt using the persona manager
+                if is_media_analysis:
+                    prompt = self.persona_manager.get_media_analysis_prompt(
+                        username=username,
+                        query=message,
+                        media_context=media_context,
+                        lang=lang
+                    )
+                else:
+                    prompt = self.persona_manager.get_chat_prompt(
+                        username=username,
+                        message=message,
+                        context=context,
+                        relationship_level=relationship_level,
+                        is_admin=is_admin,
+                        lang=lang
+                    )
+
+                generation_config = GenerationConfig(
+                    max_output_tokens=MAX_OUTPUT_TOKENS,
+                    temperature=TEMPERATURE,
+                    top_p=TOP_P,
+                    top_k=TOP_K,
+                )
+                
+                safety_settings = {
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                }
+                
                 model = genai.GenerativeModel(
                     model_name=self.model,
                     generation_config=generation_config,
                     safety_settings=safety_settings,
                 )
                 
-                # Prepare chat
-                chat_session = model.start_chat(history=history or [])
+                response_obj = model.generate_content(prompt)
+                response = response_obj.text
                 
-                # Add system prompt if not in history
-                if system_prompt and (not history or "role" not in history[0] or history[0]["role"] != "system"):
-                    chat_session.send_message(system_prompt, stream=False)
-                
-                # Generate response
-                response = chat_session.send_message(user_input, stream=False).text
-                
-                # Check for response duplication if user_id provided
                 if user_id is not None and response:
-                    # Check if this is a duplicate response for this user
                     if self._is_duplicate_response(response, user_id):
                         logger.warning(f"Duplicate response detected for user {user_id}, regenerating...")
                         
-                        # Try again with higher temperature for more variation (up to 3 additional attempts)
                         duplicate_attempts = 0
-                        max_duplicate_attempts = 3
+                        max_duplicate_attempts = 2 # Try 2 more times
                         
                         while duplicate_attempts < max_duplicate_attempts:
                             duplicate_attempts += 1
-                            
-                            # Gradually increase temperature with each attempt
                             temp_boost = 0.1 * duplicate_attempts
                             varied_config = GenerationConfig(
                                 temperature=min(TEMPERATURE + temp_boost, 1.0),
@@ -209,32 +219,19 @@ class GeminiClient:
                                 max_output_tokens=MAX_OUTPUT_TOKENS,
                             )
                             
-                            # Add variation hint to system prompt
-                            varied_prompt = system_prompt
-                            if system_prompt:
-                                varied_prompt = (f"{system_prompt}\n\n"
-                                               f"IMPORTANT: Please provide a different response with "
-                                               f"different phrasing and approach than your previous responses.")
-                                               
+                            varied_prompt = (f"{prompt}\n\n"
+                                           f"IMPORTANT: Please provide a different response with "
+                                           f"different phrasing and approach than your previous responses.")
+                                           
                             try:
-                                # Create new model with varied config
                                 varied_model = genai.GenerativeModel(
                                     model_name=self.model,
                                     generation_config=varied_config,
                                     safety_settings=safety_settings,
                                 )
+                                varied_response_obj = varied_model.generate_content(varied_prompt)
+                                varied_response = varied_response_obj.text
                                 
-                                # Start new chat
-                                varied_chat = varied_model.start_chat(history=history or [])
-                                
-                                # Add system prompt with variation hint
-                                if varied_prompt and (not history or "role" not in history[0] or history[0]["role"] != "system"):
-                                    varied_chat.send_message(varied_prompt, stream=False)
-                                    
-                                # Generate new response
-                                varied_response = varied_chat.send_message(user_input, stream=False).text
-                                
-                                # Check if this varied response is unique
                                 if not self._is_duplicate_response(varied_response, user_id):
                                     response = varied_response
                                     logger.info(f"Generated varied non-duplicate response after {duplicate_attempts} attempts")
@@ -243,21 +240,20 @@ class GeminiClient:
                             except Exception as varied_e:
                                 logger.error(f"Error generating varied response: {varied_e}")
                         
-                        # If we still have a duplicate after all attempts, just use it
                         if duplicate_attempts >= max_duplicate_attempts:
                             logger.warning(f"Could not generate non-duplicate response after {max_duplicate_attempts} attempts, using last response")
-                
+
                 return response
                 
             except Exception as e:
                 logger.error(f"Gemini API error on attempt {attempt+1}: {str(e)}")
-                if attempt < max_attempts - 1:
+                if attempt < retry_count - 1:
                     success = self._rotate_key()
                     if not success:
                         logger.critical("All API keys exhausted. Unable to generate content.")
-                        return None
+                        return "Maaf, sepertinya Alya lagi ada masalah internal. Coba lagi nanti ya. 😓"
                 else:
                     logger.critical(f"Failed to generate content after trying all API keys: {e}")
-                    return None
+                    return "Aduh, maaf banget, semua koneksi Alya ke pusat data lagi gagal. Mungkin bisa coba beberapa saat lagi? 😥"
                     
-        return None
+        return "Duh, Alya coba berkali-kali tapi tetep gagal. Kayaknya ada yang gak beres. Coba lagi nanti ya. 😔"

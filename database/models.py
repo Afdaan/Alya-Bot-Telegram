@@ -31,7 +31,6 @@ class User(Base):
     
     preferences = Column(JSON, default=lambda: {
         "notification_enabled": True,
-        "preferred_language": "id",
         "persona": "waifu",
         "timezone": "Asia/Jakarta"
     })
@@ -196,4 +195,4 @@ class ApiUsage(Base):
     )
     
     def __repr__(self) -> str:
-        return f"<ApiUsage(id={self.id}, provider={self.api_provider}, user_id={self.user_id}, cost={self.estimated_cost_cents}¢)>"
+        return f"<ApiUsage(id={self.id}, provider={self.api_provider}, user_id={self.user_id}, cost={self.estimated_cost_cents}¢>"

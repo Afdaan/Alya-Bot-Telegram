@@ -21,10 +21,9 @@ from config.settings import (
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from core.memory import MemoryManager
-from database.database_manager import db_manager
+from database.database_manager import db_manager, get_user_lang
 from core.nlp import NLPEngine, ContextManager
 from utils.formatters import format_response, format_error_response, format_paragraphs
-from utils.roast import RoastHandler
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,6 @@ class ConversationHandler:
         self.db = db_manager
         self.context_manager = ContextManager(self.db)  # <-- DB-backed context manager
         self.nlp = nlp_engine or NLPEngine()
-        self.roast_handler = RoastHandler(gemini_client, persona_manager)
     
     def get_handlers(self) -> List:
         handlers = [
@@ -63,7 +61,6 @@ class ConversationHandler:
                 self.chat_command
             ),
         ]
-        handlers.extend(self.roast_handler.get_handlers())
         return handlers
     
     def _create_or_update_user(self, user) -> bool:
@@ -81,14 +78,15 @@ class ConversationHandler:
         user_info = self.db.get_user_relationship_info(user_id)
         return user_info.get("relationship", {}).get("level", 0) if user_info else 0
     
-    async def _send_error_response(self, update: Update, username: str) -> None:
-        error_message = self.persona.get_error_message(username=username or "user")
+    async def _send_error_response(self, update: Update, username: str, lang: str) -> None:
+        error_message = self.persona.get_error_message(username=username or "user", lang=lang)
         formatted_error = format_error_response(error_message)
         await update.message.reply_html(formatted_error)
             
     async def chat_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         message_text = update.message.text
+        lang = get_user_lang(user.id) # Get user language
 
         reply_context = ""
         is_reply_to_alya = False
@@ -98,9 +96,9 @@ class ConversationHandler:
             if replied.from_user and replied.from_user.is_bot:
                 if replied.from_user.id == context.bot.id:
                     reply_context = replied.text or ""
+                    is_reply_to_alya = True
                     if replied.text and replied.text.endswith("\u200C"):
                         replied_message_is_conversation = True
-                    is_reply_to_alya = True
 
         if update.message.chat.type in ["group", "supergroup"]:
             if is_reply_to_alya:
@@ -126,16 +124,15 @@ class ConversationHandler:
 
         if reply_context:
             query = f"{reply_context}\n\n{query}"
-        
         if not query:
             help_message = self.persona.get_help_message(
                 username=user.first_name or "user",
-                prefix=COMMAND_PREFIX
+                prefix=COMMAND_PREFIX,
+                lang=lang  # Pass language parameter
             )
             formatted_help = format_response(help_message, "neutral")
             await update.message.reply_html(formatted_help)
             return
-        
         chat = update.effective_chat
         try:
             if hasattr(update.message, "message_thread_id") and update.message.message_thread_id:
@@ -151,93 +148,101 @@ class ConversationHandler:
                 )
         except Exception as e:
             logger.warning(f"Failed to send typing action: {e}")
-        
         try:
             self._create_or_update_user(user)
             self.db.save_message(user.id, "user", query)
             self.memory.save_user_message(user.id, query)
-            # Apply sliding window after saving message
             self.context_manager.apply_sliding_window(user.id)
-            user_context = await self._prepare_conversation_context(user, query)
-            # Use DB-backed context window for Gemini history
+            user_context = await self._prepare_conversation_context(user, query, lang)
             history = self.context_manager.get_context_window(user.id)
-            response = await self.gemini.generate_content(
-                user_input=user_context["enhanced_query"],
-                system_prompt=user_context["system_prompt"],
-                history=history,
-                user_id=user.id
+            response = await self.gemini.generate_response(
+                user_id=user.id,
+                username=user.first_name or "user",
+                message=user_context["enhanced_query"],
+                context=user_context["system_prompt"],
+                relationship_level=user_context["relationship_level"],
+                is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
+                lang=lang,
+                retry_count=3,
+                is_media_analysis=False,
+                media_context=None
             )
             if response:
-                await self._process_and_send_response(update, user, response, user_context["message_context"])
+                await self._process_and_send_response(update, user, response, user_context["message_context"], lang)
             else:
-                await self._send_error_response(update, user.first_name)
+                await self._send_error_response(update, user.first_name, lang)
         except Exception as e:
             logger.error(f"Error in chat command: {e}", exc_info=True)
-            await self._send_error_response(update, user.first_name)
+            await self._send_error_response(update, user.first_name, lang)
+
+    async def _send_chat_action(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, action: str
+    ) -> None:
+        try:
+            if hasattr(update.message, "message_thread_id") and update.message.message_thread_id:
+                await context.bot.send_chat_action(
+                    chat_id=update.effective_chat.id,
+                    action=action,
+                    message_thread_id=update.message.message_thread_id
+                )
+            else:
+                await context.bot.send_chat_action(
+                    chat_id=update.effective_chat.id,
+                    action=action
+                )
+        except Exception as e:
+            logger.warning(f"Failed to send chat action: {e}")
     
-    async def _prepare_conversation_context(self, user, query: str) -> Dict[str, Any]:
+    async def _prepare_conversation_context(self, user, query: str, lang: str) -> Dict[str, Any]:
         user_task = asyncio.create_task(self._get_user_info(user))
         self.memory.save_user_message(user.id, query)
         relationship_level = self._get_relationship_level(user.id)
-        
-        enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
-        system_prompt = self.persona.get_full_system_prompt()
-        
+        # Gabungkan persona prompt ke context
+        persona_prompt = self.persona.get_chat_prompt(
+            username=user.first_name,
+            message=query,
+            context="\n".join([str(c) for c in self.context_manager.get_context_window(user.id)]) if self.context_manager.get_context_window(user.id) else "",
+            relationship_level=relationship_level,
+            is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
+            lang=lang
+        )
         # Improved context extraction
         message_context = {}
         semantic_topics = []
-        
         if FEATURES.get("emotion_detection", False) and self.nlp:
             message_context = self.nlp.get_message_context(query, user.id)
             semantic_topics = message_context.get("semantic_topics", [])
-            
-            # Add conversation flow analysis for more natural responses
             flow_analysis = self.nlp.analyze_conversation_flow(user.id, query)
             message_context["conversation_flow"] = flow_analysis
-            
-            # Adjust system prompt based on conversation flow
             if flow_analysis.get("is_continuation", False):
-                system_prompt += "\n\nCONVERSATION CONTEXT: This seems to be a continuation of our previous topic. Please maintain context continuity and reference our previous discussion naturally."
-            
+                persona_prompt += "\n\nCONVERSATION CONTEXT: This seems to be a continuation of our previous topic. Please maintain context continuity and reference our previous discussion naturally."
             if flow_analysis.get("user_engagement_level") == "high":
-                system_prompt += "\n\nUSER ENGAGEMENT: The user seems very engaged and interested. Match their energy level and be more expressive in your response."
+                persona_prompt += "\n\nUSER ENGAGEMENT: The user seems very engaged and interested. Match their energy level and be more expressive in your response."
             elif flow_analysis.get("user_engagement_level") == "low":
-                system_prompt += "\n\nUSER ENGAGEMENT: The user seems less engaged. Try to be more encouraging and ask questions to increase engagement."
-            
-        # Use DB-backed context for richer history
+                persona_prompt += "\n\nUSER ENGAGEMENT: The user seems less engaged. Try to be more encouraging and ask questions to increase engagement."
         history = self.context_manager.get_context_window(user.id)
-        
-        # Get previous messages to establish conversation theme
         prev_messages = self.db.get_conversation_history(user.id, limit=5)
         prev_content = "\n".join([msg.get("content", "") for msg in prev_messages if msg.get("role") == "user"])
-        
         summaries = self.context_manager.get_conversation_summaries(user.id)
         conversation_summary = summaries[0].get('content', '') if summaries else "No previous context"
-        
-        enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query)
-        
+        enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query, lang)
         conversation_context = {
             "current_topic": ", ".join(semantic_topics) if semantic_topics else "general conversation",
             "user_emotion": message_context.get("emotion", "neutral"),
             "conversation_history_summary": conversation_summary,
             "previous_user_messages": prev_content
         }
-        
-        # Add rich relationship and conversation context
-        relationship_context = self._get_relationship_context(user, relationship_level, user.id in ADMIN_IDS)
+        relationship_context = self._get_relationship_context(user, relationship_level, user.id in ADMIN_IDS, lang)
         conversation_theme = self._get_conversation_theme_context(conversation_context)
-        
         if relationship_context:
-            system_prompt += f"\n\n{relationship_context}"
+            persona_prompt += f"\n\n{relationship_context}"
         if conversation_theme:
-            system_prompt += f"\n\n{conversation_theme}"
-        
+            persona_prompt += f"\n\n{conversation_theme}"
         await user_task
-        
         return {
             "history": history,
             "enhanced_query": enhanced_query,
-            "system_prompt": system_prompt,
+            "system_prompt": persona_prompt,
             "message_context": message_context,
             "relationship_level": relationship_level,
             "conversation_context": conversation_context
@@ -282,22 +287,50 @@ Based on this context:
         update: Update, 
         user, 
         response: str, 
-        message_context: Dict[str, Any]
+        message_context: Dict[str, Any],
+        lang: str
     ) -> None:
         self.db.save_message(user.id, "assistant", response)
         self.memory.save_bot_response(user.id, response)
         if message_context:
             self._update_affection_from_context(user.id, message_context)
         emotion = message_context.get("emotion", "neutral") if message_context else "neutral"
-        intensity = message_context.get("intensity", 0.5) if message_context else 0.5
-        relationship_level = self._get_relationship_level(user.id)
-        suggested_mood = self.nlp.suggest_mood_for_response(message_context, relationship_level) if self.nlp else "neutral"
+        intent = message_context.get("intent", "") if message_context else ""
+        topic = message_context.get("topic", "any") if message_context else "any"
+        
+        # Map emotion to appropriate mood and intensity
+        emotion_mood_mapping = {
+            "happy": ("excited", 0.8),
+            "excited": ("excited", 0.9),
+            "grateful": ("comfortable_tsundere", 0.6),
+            "sad": ("melancholic", 0.4),
+            "angry": ("defensive", 0.8),
+            "worried": ("nervous", 0.5),
+            "embarrassed": ("embarrassed", 0.7),
+            "surprised": ("surprised", 0.8),
+            "neutral": ("default", 0.5)
+        }
+        
+        mood, intensity = emotion_mood_mapping.get(emotion, ("default", 0.5))
+        
+        # Ambil roleplay/action mapping dari persona YAML
+        roleplay_mapping = self.persona.get_roleplay_mapping(
+            emotion=emotion,
+            intent=intent,
+            topic=topic,
+            mood=mood,
+            lang=lang
+        )
+        roleplay_action = roleplay_mapping.get("roleplay_action", "")
+        russian_expression = roleplay_mapping.get("russian_expression", "")
         formatted_response = format_response(
             response, 
             emotion=emotion,
-            mood=suggested_mood,
+            mood=mood,
             intensity=intensity,
-            username=user.first_name or "user"
+            username=user.first_name or "user",
+            roleplay_action=roleplay_action,
+            russian_expression=russian_expression
         )
         formatted_response = format_paragraphs(formatted_response, markdown=False)
         formatted_response = f"{formatted_response}\u200C"
@@ -315,49 +348,17 @@ Based on this context:
             'relationship_level': relationship_level
         }
 
-    def _get_relationship_context(self, user: Any, relationship_level: int, is_admin: bool) -> str:
+    def _get_relationship_context(self, user: Any, relationship_level: int, is_admin: bool, lang: str = "id") -> str:
+        """Get relationship context in the specified language."""
         first_name = getattr(user, 'first_name', None) or "user"
-        if is_admin:
-            return (
-                f"PENTING: {first_name} adalah admin bot dan orang yang sangat special untuk Alya. "
-                f"Hubungan Alya dengan {first_name} sangat dekat, seperti pacar, "
-                f"tapi Alya tetap tsundere. Alya sangat senang bisa mengobrol dengannya dan "
-                f"sangat perhatian padanya. Gunakan sesekali honorifik -sama dan tunjukkan "
-                f"bahwa Alya sangat menyayangi {first_name}."
-            )
-        relationship_contexts = {
-            0: (
-                f"{first_name} adalah orang asing bagi Alya. Alya tetap menjaga jarak dan berbicara dengan nada formal dan sopan. "
-                f"Dia menunjukkan sikap dingin dan tsundere, sering kali tidak langsung menjawab atau menyindir halus. "
-                f"Tidak ada kepercayaan yang terbentuk, jadi Alya menjaga image sebagai gadis keren dan tidak mudah didekati. "
-                f"Gunakan formal speech pattern dan jangan berikan terlalu banyak informasi pribadi."
-            ),
-            1: (
-                f"{first_name} adalah kenalan Alya. Alya mulai sedikit mengenal dirinya, tapi tetap menunjukkan sikap tsundere dan menjaga jarak. "
-                f"Kadang membalas dengan komentar sarkastik atau defensif jika merasa terlalu dekat. "
-                f"Meski begitu, dia mulai memperhatikan detail kecil dari {first_name}, walau tidak mau mengakuinya secara langsung."
-            ),
-            2: (
-                f"Alya dan {first_name} cukup sering berbicara dan Alya mulai merasa nyaman. "
-                f"Dia masih sangat tsundere, tetapi sesekali memperlihatkan sisi hangat—meskipun cepat menyangkalnya. "
-                f"Alya tidak suka diolok soal perasaannya dan akan cepat merespons dengan komentar ketus jika merasa dipuji. "
-                f"Dia mulai memanggil nama depan {first_name}, tapi dengan nada tetap cool."
-            ),
-            3: (
-                f"{first_name} adalah teman dekat Alya. Dia masih tsundere, tapi ekspresinya jauh lebih ekspresif dan terbuka. "
-                f"Alya terkadang menunjukkan perhatiannya dengan cara tidak langsung—seperti khawatir tapi menyamarkannya dengan sindiran. "
-                f"Kadang-kadang dia memanggil {first_name} tanpa honorifik, dan mulai menunjukkan bahwa kehadiran {first_name} berarti banyak, meski enggan mengakuinya. "
-                f"Gunakan nada tsundere yang lebih playful dan ekspresif."
-            ),
-            4: (
-                f"Alya sangat dekat dan percaya pada {first_name}. Meskipun tetap memiliki sisi tsundere, "
-                f"sikapnya lebih lembut dan jujur, terutama saat sedang emosional atau dalam momen pribadi. "
-                f"Alya mulai memanggil {first_name} tanpa honorifik secara konsisten, bahkan kadang slip pakai bahasa Rusia. "
-                f"Dia sudah mulai menunjukkan rasa sayangnya tanpa banyak denial, walau tetap suka tersipu atau salah tingkah. "
-                f"Perhatikan keseimbangan antara warmth dan tsundere yang lebih dewasa dan natural."
-            ),
-        }
-        return relationship_contexts.get(relationship_level, "")
+        
+        # Get relationship context from persona manager instead of hardcoding
+        return self.persona.get_relationship_context(
+            username=first_name,
+            relationship_level=relationship_level,
+            is_admin=is_admin,
+            lang=lang
+        )
     
     def _try_level_up(self, user_id: int) -> None:
         """

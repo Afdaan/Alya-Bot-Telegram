@@ -43,17 +43,15 @@ class AdminHandler:
     def get_handlers(self) -> List[CommandHandler]:
         return [
             CommandHandler("statsall", self.stats_command),
-            CommandHandler("broadcast", self.broadcast_command),
             CommandHandler("cleanup", self.cleanup_command),
             CommandHandler("addadmin", self.add_admin_command),
             CommandHandler("removeadmin", self.remove_admin_command),
-            CommandHandler("update", self.update_command),
             CommandHandler("status", self.status_command),
-            CommandHandler("restart", self.restart_command),
             CommandHandler("spek", self.system_stats_command)
         ]
 
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show bot statistics using MySQL database."""
         user = update.effective_user
         if not self._is_authorized_user(user.id):
             await self._unauthorized_response(update, user.first_name)
@@ -79,34 +77,24 @@ class AdminHandler:
             logger.error(f"Error in admin stats command: {e}")
             await self._error_response(update, user.first_name, str(e))
 
-    async def broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        user = update.effective_user
-        if not self._is_authorized_user(user.id):
-            await self._unauthorized_response(update, user.first_name)
-            return
-        if not context.args:
-            await update.message.reply_text(
-                self._escape_markdown("Usage: /broadcast <message>"),
-                parse_mode=ParseMode.MARKDOWN_V2
-            )
-            return
-        broadcast_text = " ".join(context.args)
-        await update.message.reply_text(
-            self._escape_markdown(
-                f"📢 *Broadcasting to all users:*\n\n{broadcast_text}\n\n"
-                "_(Feature akan diimplementasi dengan database integration)_"
-            ),
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
-
     async def cleanup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Cleanup old conversations and optimize MySQL tables."""
         user = update.effective_user
         if not self._is_authorized_user(user.id):
             await self._unauthorized_response(update, user.first_name)
             return
         try:
             await update.message.chat.send_action(action="typing")
-            await asyncio.sleep(2)
+            conn = self.db._get_connection()
+            try:
+                # Example: delete conversations older than 30 days
+                from datetime import timedelta
+                cutoff = datetime.now() - timedelta(days=30)
+                conn.execute("DELETE FROM conversations WHERE timestamp < %s", (cutoff,))
+                conn.execute("OPTIMIZE TABLE conversations")
+                conn.commit()
+            finally:
+                conn.close()
             await update.message.reply_text(
                 self._escape_markdown(
                     "✨ *Database cleanup completed!* ✨\n\n"
@@ -119,6 +107,7 @@ class AdminHandler:
             await self._error_response(update, user.first_name, str(e))
 
     async def add_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Add a new admin user to MySQL database."""
         user = update.effective_user
         if not self._is_authorized_user(user.id):
             await self._unauthorized_response(update, user.first_name)
@@ -130,15 +119,27 @@ class AdminHandler:
             )
             return
         new_admin_id = int(context.args[0])
-        await update.message.reply_text(
-            self._escape_markdown(
-                f"✅ *User {new_admin_id} is now an admin!*\n\n"
-                "_Alya akan memperlakukan mereka dengan istimewa~ 💫_"
-            ),
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
+        try:
+            conn = self.db._get_connection()
+            try:
+                conn.execute("INSERT IGNORE INTO admins (user_id) VALUES (%s)", (new_admin_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            self.authorized_users.append(new_admin_id)
+            await update.message.reply_text(
+                self._escape_markdown(
+                    f"✅ *User {new_admin_id} is now an admin!*\n\n"
+                    "_Alya akan memperlakukan mereka dengan istimewa~ 💫_"
+                ),
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+        except Exception as e:
+            logger.error(f"Error in add_admin_command: {e}")
+            await self._error_response(update, user.first_name, str(e))
 
     async def remove_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Remove an admin user from MySQL database."""
         user = update.effective_user
         if not self._is_authorized_user(user.id):
             await self._unauthorized_response(update, user.first_name)
@@ -156,19 +157,25 @@ class AdminHandler:
                 parse_mode=ParseMode.MARKDOWN_V2
             )
             return
-        await update.message.reply_text(
-            self._escape_markdown(f"✅ *User {admin_id} is no longer an admin!*"),
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
-
-    async def update_command(self, update: Update, context: CallbackContext) -> None:
-        await self.deployment_manager.update_handler(update, context)
+        try:
+            conn = self.db._get_connection()
+            try:
+                conn.execute("DELETE FROM admins WHERE user_id = %s", (admin_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            if admin_id in self.authorized_users:
+                self.authorized_users.remove(admin_id)
+            await update.message.reply_text(
+                self._escape_markdown(f"✅ *User {admin_id} is no longer an admin!*"),
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+        except Exception as e:
+            logger.error(f"Error in remove_admin_command: {e}")
+            await self._error_response(update, user.first_name, str(e))
 
     async def status_command(self, update: Update, context: CallbackContext) -> None:
         await self.deployment_manager.status_handler(update, context)
-
-    async def restart_command(self, update: Update, context: CallbackContext) -> None:
-        await self.deployment_manager.restart_handler(update, context)
 
     async def system_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
@@ -254,6 +261,7 @@ class AdminHandler:
         return user_id in self.authorized_users
 
     async def _get_bot_stats(self) -> Dict[str, Any]:
+        """Get bot stats from MySQL database."""
         if self.db:
             try:
                 user_count = 0
@@ -268,7 +276,7 @@ class AdminHandler:
                 try:
                     user_count = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
                     active_today = conn.execute(
-                        'SELECT COUNT(*) FROM users WHERE last_interaction >= ?', (today_start,)
+                        'SELECT COUNT(*) FROM users WHERE last_interaction >= %s', (today_start,)
                     ).fetchone()[0]
                     total_messages = conn.execute('SELECT COUNT(*) FROM conversations').fetchone()[0]
                     commands_used = conn.execute(

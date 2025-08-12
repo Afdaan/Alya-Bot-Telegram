@@ -4,9 +4,10 @@ Handles all database operations with proper connection pooling, error handling, 
 """
 import logging
 import hashlib
-import json
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
+
+from sqlalchemy.orm import Session
 
 from database.session import db_session_context, execute_with_session, health_check
 from database.models import User, Conversation, ConversationSummary, ApiUsage
@@ -39,6 +40,26 @@ def get_role_by_relationship_level(relationship_level: int, is_admin: bool = Fal
     return RELATIONSHIP_ROLE_NAMES.get(relationship_level, "Stranger")
 
 
+def get_user_lang(user_id: int) -> str:
+    """
+    Gets a user's preferred language directly from the database.
+
+    Args:
+        user_id: The ID of the user.
+
+    Returns:
+        The user's language code ('id' or 'en'), defaulting to 'id'.
+    """
+    try:
+        with db_session_context() as session:
+            user = session.query(User.language_code).filter(User.id == user_id).first()
+            if user and user.language_code:
+                return user.language_code
+    except Exception as e:
+        logger.error(f"Error getting user language for {user_id}: {e}", exc_info=True)
+    return 'id'
+
+
 class DatabaseManager:
     """
     Enterprise-grade MySQL database manager using SQLAlchemy.
@@ -64,6 +85,84 @@ class DatabaseManager:
             logger.error("Database connection failed during initialization")
             raise ConnectionError("Unable to connect to MySQL database")
     
+    def update_user_settings(self, user_id: int, new_settings: Dict[str, Any]) -> None:
+        """
+        Update user settings in the database, specifically for language.
+        This now updates the `language_code` in the `users` table.
+
+        Args:
+            user_id: The user's ID.
+            new_settings: A dictionary containing the 'language' to set.
+        """
+        if 'language' not in new_settings:
+            logger.warning(f"Attempted to update settings for user {user_id} without 'language' key.")
+            return
+
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter_by(id=user_id).first()
+                
+                if user:
+                    user.language_code = new_settings['language']
+                    session.commit()
+                    logger.info(f"Successfully updated language to '{new_settings['language']}' for user {user_id}")
+                else:
+                    logger.warning(f"User {user_id} not found when trying to update language.")
+        except Exception as e:
+            logger.error(f"Failed to update user settings for {user_id}: {e}", exc_info=True)
+
+    def get_user_settings(self, user_id: int) -> Dict[str, Any]:
+        """
+        Retrieves user-specific settings, primarily language preference from `users.language_code`.
+
+        Args:
+            user_id: The user's Telegram ID.
+
+        Returns:
+            A dictionary with the user's language, defaulting to 'id'.
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user and user.language_code:
+                    return {'language': user.language_code}
+                return {'language': 'id'} 
+        except Exception as e:
+            logger.error(f"Error getting user settings for {user_id}: {e}", exc_info=True)
+            return {'language': 'id'}
+
+    def reset_user_conversation(self, user_id: int) -> bool:
+        """
+        Deletes all conversation history for a specific user.
+
+        Args:
+            user_id: The user's Telegram ID.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            with db_session_context() as session:
+                # Delete from Conversation table
+                session.query(Conversation).filter(Conversation.user_id == user_id).delete(synchronize_session=False)
+                
+                # Delete from ConversationSummary table
+                session.query(ConversationSummary).filter(ConversationSummary.user_id == user_id).delete(synchronize_session=False)
+                
+                # Optionally, reset interaction count and topics in User table
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    user.interaction_count = 0
+                    user.topics_discussed = []
+                    user.last_interaction = datetime.now()
+
+                session.commit()
+                logger.info(f"Successfully reset conversation history for user {user_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Error resetting conversation history for user {user_id}: {e}")
+            return False
+
     def _check_health_periodically(self) -> None:
         """Perform periodic health checks to ensure database connectivity."""
         now = datetime.now()
@@ -672,6 +771,15 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting database stats: {e}")
             return {"error": str(e)}
+
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        Alias for get_database_stats() to maintain compatibility.
+        
+        Returns:
+            Dict containing database statistics
+        """
+        return self.get_database_stats()
     
     def is_admin(self, user_id: int) -> bool:
         """
@@ -767,5 +875,38 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error ensuring user {user_id} exists: {e}")
             return False
+
+    def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves user information from the database.
+
+        Args:
+            user_id: The user's Telegram ID.
+
+        Returns:
+            A dictionary with user information or None if not found.
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    return {
+                        'id': user.id,
+                        'username': user.username,
+                        'first_name': user.first_name,
+                        'last_name': user.last_name,
+                        'language_code': user.language_code,
+                        'is_admin': user.is_admin,
+                        'relationship_level': user.relationship_level,
+                        'interaction_count': user.interaction_count,
+                        'affection_points': user.affection_points,
+                        'last_interaction': user.last_interaction,
+                        'created_at': user.created_at,
+                        'updated_at': user.updated_at
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error getting user {user_id}: {e}", exc_info=True)
+            return None
 
 db_manager = DatabaseManager()

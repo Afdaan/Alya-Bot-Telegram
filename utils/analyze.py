@@ -10,6 +10,8 @@ from telegram.ext import ContextTypes
 
 from core.persona import PersonaManager
 from core.gemini_client import GeminiClient
+from database.database_manager import db_manager, get_user_lang
+from handlers.response.system import get_system_error_response
 
 logger = logging.getLogger(__name__)
 
@@ -20,255 +22,158 @@ class MediaAnalyzer:
     def __init__(self, gemini_client: GeminiClient, persona_manager: PersonaManager) -> None:
         self.gemini_client = gemini_client
         self.persona_manager = persona_manager
+        self.db_manager = db_manager
 
     async def analyze_media(
         self,
         media_content: Union[str, bytes, BinaryIO, bytearray],
         media_type: str,
-        persona: str = "analyze",
-    ) -> Dict[str, Any]:
-        persona_data = self.persona_manager.get_persona(persona) or \
-            self.persona_manager.get_persona("analyze")
-        if not persona_data or "analysis_template" not in persona_data:
-            logger.error("Missing analysis template in persona configuration")
-            raise ValueError(f"Missing analysis template for persona '{persona}'")
+        query: str,
+        user_id: int,
+    ) -> str:
+        """
+        Analyzes media content using Gemini and returns a formatted response.
 
-        analysis_template = self._select_template(persona_data, media_type)
+        Args:
+            media_content: The content of the media to analyze.
+            media_type: The type of media ('image', 'document', 'text').
+            query: The user's query about the media.
+            user_id: The ID of the user requesting the analysis.
+
+        Returns:
+            A string containing the analysis result.
+        """
+        lang = get_user_lang(user_id)
+        
         try:
-            if media_type == "text":
-                system_prompt = (
-                    f"Kamu adalah Alya menganalisis teks. {analysis_template}\n\n"
-                    "FORMAT PENTING: Pastikan responsmu konsisten dengan format berikut:\n"
-                    "1. Gunakan heading yang jelas untuk setiap bagian analisis\n"
-                    "2. Beri jarak antar paragraf agar mudah dibaca\n"
-                    "3. Batasi emoji maksimal 2 buah dan tempatkan di posisi strategis\n"
-                    "4. Ringkas poin-poin dalam format bullet point dengan tanda •\n"
-                    "5. Akhiri dengan insight atau kesimpulan singkat (1-2 kalimat)"
-                )
-                analysis_result = await self.gemini_client.generate_content(
-                    media_content, system_prompt=system_prompt
-                )
-            elif media_type in ("image", "photo", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff"):
-                system_prompt = (
-                    f"Kamu adalah Alya menganalisis gambar. {analysis_template}\n\n"
-                    "FORMAT PENTING: Responsmu harus terstruktur dengan format berikut:\n"
-                    "<b>Deskripsi Gambar:</b>\n"
-                    "[Deskripsi 2-3 kalimat]\n\n"
-                    "<b>Detail yang Terlihat:</b>\n"
-                    "• [Detail 1]\n"
-                    "• [Detail 2]\n"
-                    "• [Detail 3]\n\n"
-                    "<b>Kesan & Analisis:</b>\n"
-                    "[Analisis 2-3 kalimat dengan sentuhan tsundere Alya]\n\n"
-                    "Gunakan maksimal 2 emoji di posisi yang tepat."
-                )
+            # For images, we need to get the content description first
+            if media_type in ("image", "photo"):
                 image = self._to_pil_image(media_content)
-                analysis_result = await self.gemini_client.generate_content(
-                    image, system_prompt=system_prompt
+                # Prepare image description message based on language
+                describe_message = "Describe this image." if lang == 'en' else "Deskripsikan gambar ini."
+                media_context = await self.gemini_client.generate_response(
+                    user_id=user_id,
+                    username="User", # Username is not critical for this part
+                    message=describe_message,
+                    context="",
+                    relationship_level=0,
+                    is_admin=False,
+                    lang=lang,
+                    is_media_analysis=True,
+                    media_context=image # Pass the image object directly if supported
                 )
-            elif media_type in ("document", "pdf", "doc", "docx"):
-                system_prompt = (
-                    f"Kamu adalah Alya menganalisis dokumen {media_type}. {analysis_template}\n\n"
-                    "FORMAT PENTING: Responsmu harus mengikuti struktur berikut:\n"
-                    "<b>Tema Dokumen:</b> [Tema dokumen]\n\n"
-                    "<b>Ringkasan:</b>\n"
-                    "[Ringkasan singkat 2-3 kalimat]\n\n"
-                    "<b>Poin Penting:</b>\n"
-                    "• [Poin 1]\n"
-                    "• [Poin 2]\n"
-                    "• [Poin 3]\n\n"
-                    "<b>Kesimpulan:</b>\n"
-                    "[Kesimpulan singkat dengan sentuhan tsundere Alya]"
-                )
-                text_content = self._to_text(media_content, media_type)
-                analysis_result = await self.gemini_client.generate_content(
-                    text_content, system_prompt=system_prompt
-                )
+            elif media_type == "document":
+                media_context = self._to_text(media_content, media_type)
+            elif media_type == "text":
+                media_context = str(media_content)
             else:
                 raise ValueError(f"Unsupported media type: {media_type}")
 
-            if not analysis_result:
-                raise ValueError("Tidak dapat menganalisis media, API mengembalikan respons kosong")
+            # Now, generate the final response based on the user's query and the extracted context
+            analysis_result = await self.gemini_client.generate_response(
+                user_id=user_id,
+                username="User", # Or fetch the real username
+                message=query,
+                context="", # No prior chat context needed for one-off analysis
+                relationship_level=0,
+                is_admin=False,
+                lang=lang,
+                is_media_analysis=True,
+                media_context=media_context
+            )
 
-            formatted_result = self._post_process_analysis(analysis_result, media_type)
-            return {"summary": formatted_result}
+            if not analysis_result:
+                raise ValueError("API returned an empty response.")
+
+            return analysis_result
+
         except Exception as e:
-            logger.error(f"Error analyzing {media_type} content: {str(e)}", exc_info=True)
+            logger.error(f"Error analyzing {media_type} for user {user_id}: {e}", exc_info=True)
+            return get_system_error_response(lang)
+
+    def _to_pil_image(self, media_content: Union[bytes, BinaryIO, bytearray]) -> Image.Image:
+        """Converts binary media content to a PIL Image."""
+        try:
+            image_stream = io.BytesIO(media_content)
+            return Image.open(image_stream)
+        except UnidentifiedImageError:
+            logger.error("Cannot identify image file.")
+            raise ValueError("Invalid or unsupported image format.")
+        except Exception as e:
+            logger.error(f"Error converting to PIL image: {e}")
             raise
 
-    def _select_template(self, persona_data: Dict[str, Any], media_type: str) -> str:
-        if media_type == "text" and "text_analysis_template" in persona_data:
-            return persona_data["text_analysis_template"]
-        if media_type in ("image", "photo") and "image_analysis_template" in persona_data:
-            return persona_data["image_analysis_template"]
-        if media_type in ("document", "pdf", "doc", "docx") and "document_analysis_template" in persona_data:
-            return persona_data["document_analysis_template"]
-        return persona_data["analysis_template"]
-
-    def _to_pil_image(self, media_content: Union[bytes, bytearray, BinaryIO]) -> Image.Image:
+    def _to_text(self, media_content: Union[bytes, BinaryIO, bytearray], media_type: str) -> str:
+        """A placeholder to convert document content to text."""
+        # In a real implementation, you would use libraries like PyPDF2 for PDFs
+        # or python-docx for DOCX files to extract text.
+        logger.warning(f"Text extraction for '{media_type}' is a placeholder.")
         try:
-            if isinstance(media_content, bytearray):
-                media_content = bytes(media_content)
-            if isinstance(media_content, bytes):
-                image = Image.open(io.BytesIO(media_content))
-                image.load()
-                if image.mode not in ["RGB", "RGBA"]:
-                    image = image.convert("RGB")
-                return image
-            raise ValueError("Unsupported image format")
-        except UnidentifiedImageError:
-            raise ValueError("File bukan format gambar yang valid")
+            if isinstance(media_content, (bytes, bytearray)):
+                # Attempt to decode as UTF-8, with fallbacks.
+                return media_content.decode('utf-8', errors='replace')
+            elif hasattr(media_content, 'read'):
+                # If it's a file-like object
+                content_bytes = media_content.read()
+                return content_bytes.decode('utf-8', errors='replace')
+            return "Document content extraction is not fully implemented."
         except Exception as e:
-            logger.error(f"Error processing image: {str(e)}", exc_info=True)
-            raise ValueError(f"Gagal memproses gambar: {str(e)}")
+            logger.error(f"Error extracting text from document: {e}")
+            return "Failed to extract text from the document."
 
-    def _to_text(self, media_content: Union[str, bytes, bytearray], media_type: str) -> str:
-        if isinstance(media_content, str):
-            return media_content
-        try:
-            if isinstance(media_content, bytearray):
-                media_content = bytes(media_content)
-            return media_content.decode('utf-8', errors='ignore')
-        except Exception:
-            return f"[Dokumen {media_type} tidak dapat dikonversi ke teks]"
-
-    def _post_process_analysis(self, text: str, media_type: str) -> str:
-        if "<b>" in text or "<i>" in text:
-            return text
-        if media_type == "text":
-            return f"<b>Analisis Teks:</b>\n\n{text}"
-        if media_type in ("image", "photo", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff"):
-            return f"<b>Analisis Gambar:</b>\n\n{text}"
-        if media_type in ("document", "pdf", "doc", "docx"):
-            return f"<b>Analisis Dokumen {media_type.upper()}:</b>\n\n{text}"
-        return text
-
-    @classmethod
-    async def handle_analysis_command(cls, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    @staticmethod
+    async def handle_analysis_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Static method to handle the command from the handler."""
         user = update.effective_user
-        username = user.first_name or "user"
-        message = update.message
+        message = update.effective_message
+        
+        # This check is important to ensure the instances are created and available
+        if "gemini_client" not in context.bot_data or "persona_manager" not in context.bot_data:
+            logger.error("GeminiClient or PersonaManager not found in bot_data")
+            await message.reply_html("Sorry, the analysis service is not configured correctly.")
+            return
+            
+        analyzer = MediaAnalyzer(context.bot_data["gemini_client"], context.bot_data["persona_manager"])
+        
+        media_content = None
+        media_type = None
+        
+        if message.photo:
+            media_content_file = await message.photo[-1].get_file()
+            media_content_bytes = await media_content_file.download_as_bytearray()
+            media_content = bytes(media_content_bytes)
+            media_type = "image"
+        elif message.document:
+            media_content_file = await message.document.get_file()
+            media_content_bytes = await media_content_file.download_as_bytearray()
+            media_content = bytes(media_content_bytes)
+            media_type = "document"
+        elif message.text and "!ask" in message.text:
+            media_content = message.text.replace("!ask", "").strip()
+            media_type = "text"
+        
+        query = " ".join(context.args) if context.args else (message.caption or "").replace("!ask", "").strip()
+        if not query and media_type != "text":
+            # If there's no specific question for media, use a default one.
+            lang = get_user_lang(user.id)
+            query = "Analyze this for me, please." if lang == 'en' else "Tolong analisis ini."
 
-        gemini_client = context.bot_data.get("gemini_client")
-        persona_manager = context.bot_data.get("persona_manager")
-        if not gemini_client or not persona_manager:
-            await message.reply_text(
-                "Maaf, Alya sedang mengalami gangguan sistem... 😔",
-                reply_to_message_id=message.message_id
-            )
+        if not media_content:
+            lang = get_user_lang(user.id)
+            await message.reply_html(get_system_error_response(lang, error_type="no_media"))
             return
 
-        analyzer = cls(gemini_client, persona_manager)
-        persona = "analyze"
-        if context.args and context.args[0] in ["waifu", "roast", "academic"]:
-            persona = context.args[0]
-            context.args = context.args[1:]
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
         try:
-            await cls._send_typing_action(update, context)
-            result = await cls._process_media_content(update, context, analyzer, persona)
-            from utils.formatters import format_response
-
-            if not result or not result.get("summary"):
-                if update.effective_chat.type in ["group", "supergroup"] and not context.args:
-                    from handlers.response.analyze import analyze_response
-                    await message.reply_html(
-                        analyze_response(),
-                        reply_to_message_id=message.message_id
-                    )
-                    return
-                await message.reply_text(
-                    f"Maaf {username}-kun, Alya tidak bisa menganalisis media ini... 😔",
-                    reply_to_message_id=message.message_id
-                )
-                return
-
-            summary = result.get("summary", "Analisis tidak tersedia")
-            formatted_response = format_response(
-                str(summary),
-                username=username,
-                emotion="academic_serious",
-                mood="academic_serious"
+            result = await analyzer.analyze_media(
+                media_content=media_content,
+                media_type=media_type,
+                query=query,
+                user_id=user.id
             )
-            await message.reply_html(formatted_response, reply_to_message_id=message.message_id)
-        except ValueError as e:
-            await message.reply_text(
-                f"Maaf {username}-kun, {str(e)} 😔",
-                reply_to_message_id=message.message_id
-            )
+            await message.reply_html(result)
         except Exception as e:
-            logger.error(f"Error in media analysis: {str(e)}", exc_info=True)
-            await message.reply_text(
-                f"Маленькая ошибка! Alya tidak bisa menganalisis media ini... 😔\n\n"
-                f"Detail error: {str(e)[:100]}...",
-                reply_to_message_id=message.message_id
-            )
-
-    @staticmethod
-    async def _send_typing_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        message = update.message
-        try:
-            if getattr(message, "message_thread_id", None):
-                await context.bot.send_chat_action(
-                    chat_id=update.effective_chat.id,
-                    action=ChatAction.TYPING,
-                    message_thread_id=message.message_thread_id
-                )
-            else:
-                await context.bot.send_chat_action(
-                    chat_id=update.effective_chat.id,
-                    action=ChatAction.TYPING
-                )
-        except Exception as e:
-            logger.warning(f"Failed to send typing action: {e}")
-
-    @staticmethod
-    async def _process_media_content(
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE,
-        analyzer: "MediaAnalyzer",
-        persona: str
-    ) -> Optional[Dict[str, Any]]:
-        message = update.message
-
-        # 1. Direct photo
-        if message.photo:
-            photo_file = await context.bot.get_file(message.photo[-1].file_id)
-            photo_bytes = await photo_file.download_as_bytearray()
-            return await analyzer.analyze_media(photo_bytes, "image", persona)
-
-        # 2. Direct document
-        if message.document:
-            document = message.document
-            doc_file = await context.bot.get_file(document.file_id)
-            doc_bytes = await doc_file.download_as_bytearray()
-            if document.mime_type and document.mime_type.startswith('image/'):
-                return await analyzer.analyze_media(doc_bytes, "image", persona)
-            file_ext = Path(document.file_name).suffix.lower()[1:] if document.file_name else ""
-            media_type = file_ext if file_ext in ["pdf", "doc", "docx"] else "document"
-            return await analyzer.analyze_media(doc_bytes, media_type, persona)
-
-        # 3. Reply to photo/document
-        reply = getattr(message, "reply_to_message", None)
-        if reply:
-            if reply.photo:
-                photo = reply.photo[-1]
-                photo_file = await context.bot.get_file(photo.file_id)
-                photo_bytes = await photo_file.download_as_bytearray()
-                return await analyzer.analyze_media(photo_bytes, "image", persona)
-            if reply.document:
-                document = reply.document
-                doc_file = await context.bot.get_file(document.file_id)
-                doc_bytes = await doc_file.download_as_bytearray()
-                if document.mime_type and document.mime_type.startswith('image/'):
-                    return await analyzer.analyze_media(doc_bytes, "image", persona)
-                file_ext = Path(document.file_name).suffix.lower()[1:] if document.file_name else ""
-                media_type = file_ext if file_ext in ["pdf", "doc", "docx"] else "document"
-                return await analyzer.analyze_media(doc_bytes, media_type, persona)
-
-        # 4. Text command
-        if context.args:
-            text_content = " ".join(context.args)
-            return await analyzer.analyze_media(text_content, "text", persona)
-
-        return None
+            logger.error(f"Failed to handle analysis command for user {user.id}: {e}", exc_info=True)
+            lang = get_user_lang(user.id)
+            await message.reply_html(get_system_error_response(lang))

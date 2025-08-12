@@ -98,246 +98,255 @@ class PersonaManager:
         """
         persona = self.get_persona(persona_name)
         
-        # Get time-appropriate greeting template
-        now = datetime.datetime.now()
-        hour = now.hour
+        # Get current hour
+        current_hour = datetime.datetime.now().hour
         
-        time_of_day = "default"
-        if 5 <= hour < 12:
+        # Determine time of day
+        if 5 <= current_hour < 12:
             time_of_day = "morning"
-        elif 12 <= hour < 17:
+        elif 12 <= current_hour < 18:
             time_of_day = "afternoon"
-        elif 17 <= hour < 21:
+        else:
             time_of_day = "evening"
-        elif 21 <= hour < 24 or 0 <= hour < 5:
-            time_of_day = "night"
+            
+        # Get greeting from persona, with fallback
+        greetings = persona.get("greetings", {})
+        greeting_template = greetings.get(time_of_day, "Hello, {username}")
         
-        # Check if greeting templates are in the new format first
-        greeting_templates = persona.get("greeting", {})
+        return greeting_template.format(username=username)
         
-        # Handle the new format with direct time of day keys
-        if isinstance(greeting_templates, dict) and time_of_day in greeting_templates:
-            greeting = greeting_templates.get(time_of_day, greeting_templates.get("default", f"Halo {username}!"))
-        else:
-            # Fall back to old format with nested conversation_contexts structure if needed
-            contexts = persona.get("conversation_contexts", {})
-            greeting_contexts = contexts.get("greeting", {})
-            greeting = greeting_contexts.get(time_of_day, greeting_contexts.get("default", f"Halo {username}!"))
-        
-        # Replace username
-        return greeting.format(username=username)
-        
-    def get_farewell(self, persona_name: Optional[str] = None, username: str = "user") -> str:
-        """Get a random farewell message for the given persona.
+    def get_error_message(self, username: str = "user", lang: str = 'id', persona_name: Optional[str] = None) -> str:
+        """Get a generic error message for the given persona.
         
         Args:
+            username: Username to insert in the error template
+            lang: Language for the error message
             persona_name: Name of the persona to use, or None for default
-            username: Username to insert in the farewell template
-            
-        Returns:
-            Formatted farewell message
-        """
-        persona = self.get_persona(persona_name)
-        
-        # Handle farewell templates
-        farewell_templates = persona.get("templates", {}).get("farewell", {})
-        
-        if isinstance(farewell_templates, dict):
-            # Time-based farewell
-            now = datetime.datetime.now()
-            hour = now.hour
-            
-            farewell_type = "default"
-            if 17 <= hour < 24 or 0 <= hour < 5:
-                farewell_type = "evening" 
-            else:
-                farewell_type = "casual"
-                
-            farewell = farewell_templates.get(farewell_type, farewell_templates.get("default", f"Sampai jumpa, {username}!"))
-            return farewell.format(username=username)
-        else:
-            # Default fallback
-            return f"Sampai jumpa, {username}!"
-        
-    def get_error_message(self, persona_name: Optional[str] = None, username: str = "user") -> str:
-        """Get an error message for the given persona.
-        
-        Args:
-            persona_name: Name of the persona to use, or None for default
-            username: Username to insert in the template
             
         Returns:
             Formatted error message
         """
         persona = self.get_persona(persona_name)
-        error_msg = persona.get("templates", {}).get("error_message", 
-                                                     "Maaf {username}, terjadi kesalahan...")
-        return error_msg.format(username=username)
+        errors = persona.get("errors", {})
         
-    def get_help_message(self, persona_name: Optional[str] = None, 
-                        username: str = "user", prefix: str = "!ai") -> str:
-        """Get the help message for the given persona.
+        # Get language-specific errors, fallback to default language or Alya-style generic message
+        lang_errors = errors.get(lang, errors.get('id', {}))
         
-        Args:
-            persona_name: Name of the persona to use, or None for default
-            username: Username to insert in the template
-            prefix: Command prefix to insert in the template
+        # Use Alya-style error message as fallback instead of generic one
+        if lang == 'id':
+            default_error = "Eh... что?! Ada yang error nih... 😳\n\nB-bukan salahku ya! Sistemnya lagi bermasalah... дурак teknologi! 💫\n\nCoba lagi nanti, {username}-kun!"
+        else:
+            default_error = "Eh... что?! Something went wrong... 😳\n\nI-It's not my fault! The system is having issues... дурак technology! 💫\n\nTry again later, {username}!"
             
-        Returns:
-            Formatted help message
-        """
-        persona = self.get_persona(persona_name)
-        help_msg = persona.get("templates", {}).get("help_message", "")
+        error_template = lang_errors.get("generic", default_error)
         
-        # If no help message in persona, create a basic one
-        if not help_msg:
-            help_msg = (
-                "Halo {username}!\n\n"
-                "Kamu bisa menggunakan:\n"
-                "• {prefix} [pesan] - Bicara dengan Alya\n"
-                "• {prefix} reset - Hapus memori percakapan\n"
-                "• /help - Tampilkan bantuan ini\n"
-                "• !roast - Minta Alya untuk meledekmu dengan candaan\n"
-                "• !gitroast [username] - Minta Alya untuk meledek profil GitHub"
-            )
-            
-        return help_msg.format(username=username, prefix=prefix)
-        
-    def get_memory_reset_message(self, persona_name: Optional[str] = None, username: str = "user") -> str:
-        """Get the memory reset message for the given persona.
-        
-        Args:
-            persona_name: Name of the persona to use, or None for default
-            username: Username to insert in the template
-            
-        Returns:
-            Formatted memory reset message
-        """
-        persona = self.get_persona(persona_name)
-        reset_msg = persona.get("templates", {}).get("memory_reset", 
-                                                     "Alya sudah melupakan percakapan sebelumnya dengan {username}...")
-        return reset_msg.format(username=username)
+        return error_template.format(username=username)
     
-    def get_mood_response(self, mood: str, persona_name: Optional[str] = None, 
-                          username: str = "user") -> Optional[str]:
-        """Get a random response for a specific mood.
+    def get_chat_prompt(
+        self,
+        username: str,
+        message: str,
+        context: str,
+        relationship_level: int,
+        is_admin: bool,
+        lang: str = 'id'
+    ) -> str:
+        """Construct a detailed chat prompt for Gemini.
         
         Args:
-            mood: The mood for the response (e.g., "tsundere_cold", "dere_caring")
-            persona_name: Name of the persona to use, or None for default
-            username: Username to insert in the template
+            username: User's name
+            message: User's message
+            context: Conversation context
+            relationship_level: User's relationship level with Alya
+            is_admin: Whether the user is an admin
+            lang: The user's preferred language
             
         Returns:
-            Formatted mood response or None if mood not found
+            The full prompt for Gemini
         """
-        persona = self.get_persona(persona_name)
-        mood_responses = persona.get("emotions", {}).get(mood, {}).get("responses", [])
+        persona = self.get_persona() # Use default persona for chat
         
-        if not mood_responses:
-            return None
-            
-        response = random.choice(mood_responses)
-        return response.format(username=username)
-    
-    def get_system_prompt(self, persona_name: Optional[str] = None) -> str:
-        """Get the system prompt for the given persona.
-        
-        Args:
-            persona_name: Name of the persona to use, or None for default
-            
-        Returns:
-            System prompt for Gemini API
-        """
-        persona = self.get_persona(persona_name)
-        system_prompt = persona.get("system_prompt", "")
-        
-        # If no system prompt, construct a basic one
-        if not system_prompt:
-            name = persona.get("name", "Alya")
-            traits = persona.get("traits", ["helpful", "friendly"])
-            traits_str = ", ".join(traits)
-            
-            system_prompt = (
-                f"Kamu adalah {name}. "
-                f"Sifatmu: {traits_str}. "
-                "Kamu selalu menjawab dalam bahasa Indonesia. "
-                "Berikan jawaban yang singkat dan bermanfaat."
-            )
-            
-        return system_prompt
+        # Get language-specific persona details
+        persona_lang = persona.get(lang, persona.get('id', {}))
 
-    def get_full_system_prompt(self, persona_name: Optional[str] = None) -> str:
-        """Return the merged system prompt and enhanced instructions from persona YAML.
+        base_instructions = persona_lang.get("base_instructions", "")
+        personality_traits = "\n- ".join(persona_lang.get("personality_traits", []))
+        relationship_instructions = self._get_relationship_instructions(persona_lang, relationship_level)
+        response_format = persona_lang.get("response_format", "")
+        russian_phrases = "\n- ".join([f"`{p}`: {d}" for p, d in persona_lang.get("russian_phrases", {}).items()])
+        
+        admin_note = ""
+        if is_admin:
+            admin_note = persona_lang.get("admin_note", "")
 
-        Args:
-            persona_name: Name of the persona to use, or None for default
+        prompt = f"""
+{base_instructions}
 
-        Returns:
-            Full system prompt string (system_prompt + enhanced_system_instructions)
-        """
-        persona = self.get_persona(persona_name)
-        base_prompt = persona.get("system_prompt", "")
-        enhanced = persona.get("enhanced_system_instructions", "")
-        return f"{base_prompt}\n\n{enhanced}".strip()
-    
-    def get_roleplay_action(self, emotion: str, mood: str = None, 
-                           persona_name: Optional[str] = None) -> Optional[str]:
-        """Get a roleplay action for the given emotion and mood.
+**Your Core Personality:**
+- {personality_traits}
+
+**Your Relationship with {username}:**
+{relationship_instructions}
+{admin_note}
+
+**Conversation Context (Recent History):**
+---
+{context or "This is the beginning of your conversation."}
+---
+
+**User's Message:**
+> {message}
+
+**Your Task:**
+Respond to {username} in **{persona_lang.get('language_name', 'Bahasa Indonesia')}**.
+{response_format}
+
+**Russian Phrases You Can Use (sparingly, for emotional emphasis):**
+- {russian_phrases}
+"""
+        return prompt.strip()
+
+    def get_media_analysis_prompt(
+        self,
+        username: str,
+        query: str,
+        media_context: str,
+        lang: str = 'id'
+    ) -> str:
+        """Construct a prompt for media analysis.
         
         Args:
-            emotion: The emotion for the action (e.g., "joy", "anger")
-            mood: The mood for the action (e.g., "tsundere_cold"), or None
-            persona_name: Name of the persona to use, or None for default
+            username: User's name
+            query: User's query about the media
+            media_context: The context extracted from the media (e.g., text from image)
+            lang: The user's preferred language
             
         Returns:
-            Roleplay action or None if not found
+            The full prompt for Gemini
         """
-        persona = self.get_persona(persona_name)
+        persona = self.get_persona('analyze') # Use 'analyze' persona
         
-        # Try to get from mood first if specified
-        if mood:
-            mood_data = persona.get("emotions", {}).get(mood, {})
-            expressions = mood_data.get("expressions", [])
-            if expressions:
-                return random.choice(expressions)
-        
-        # Fall back to emotion
-        for mood_name, mood_data in persona.get("emotions", {}).items():
-            if emotion.lower() in mood_name.lower():
-                expressions = mood_data.get("expressions", [])
-                if expressions:
-                    return random.choice(expressions)
-        
-        # Generic fallback
-        return None
+        # Get language-specific persona details
+        persona_lang = persona.get(lang, persona.get('id', {}))
+
+        base_instructions = persona_lang.get("base_instructions", "")
+        analysis_guidelines = "\n- ".join(persona_lang.get("analysis_guidelines", []))
+        response_format = persona_lang.get("response_format", "")
+
+        prompt = f"""
+{base_instructions}
+
+**Analysis Guidelines:**
+- {analysis_guidelines}
+
+**Media Content Analysis:**
+---
+{media_context}
+---
+
+**User's Question:**
+> {query}
+
+**Your Task:**
+Analyze the media content and answer {username}'s question in **{persona_lang.get('language_name', 'Bahasa Indonesia')}**.
+{response_format}
+"""
+        return prompt.strip()
+
+    def _get_relationship_instructions(self, persona_lang: Dict[str, Any], level: int) -> str:
+        """Get relationship-based instructions."""
+        relationship_levels = persona_lang.get("relationship_levels", [])
+        if 0 <= level < len(relationship_levels):
+            return relationship_levels[level]
+        return relationship_levels[-1] if relationship_levels else ""
     
-    def get_emoji_for_emotion(self, emotion: str, mood: str = None, 
-                             persona_name: Optional[str] = None) -> Optional[str]:
-        """Get an emoji for the given emotion and mood.
-        
+    def get_roleplay_mapping(self, emotion: str, intent: str, topic: str, mood: str, lang: str = 'id') -> Dict[str, Any]:
+        """Get roleplay mapping from persona YAML based on emotion, intent, topic, and mood."""
+        persona = self.get_persona()
+        persona_lang = persona.get(lang, persona.get('id', {}))
+        mappings = persona.get('nlp_roleplay_mapping', [])
+        for mapping in mappings:
+            if (
+                mapping.get('emotion') == emotion and
+                mapping.get('intent') == intent and
+                (mapping.get('topic') == topic or mapping.get('topic') == 'any') and
+                mapping.get('mood') == mood
+            ):
+                return mapping
+        # Fallback: return first matching by emotion
+        for mapping in mappings:
+            if mapping.get('emotion') == emotion:
+                return mapping
+        return {}
+
+    def get_relationship_context(self, username: str, relationship_level: int, is_admin: bool, lang: str = 'id') -> str:
+        """Get relationship context based on level and language.
         Args:
-            emotion: The emotion (e.g., "joy", "anger")
-            mood: The mood (e.g., "tsundere_cold"), or None
-            persona_name: Name of the persona to use, or None for default
-            
+            username: User's first name
+            relationship_level: Current relationship level (0-4)
+            is_admin: Whether user is admin
+            lang: Language code ('id' or 'en')
         Returns:
-            Emoji or None if not found
+            Formatted relationship context string
         """
-        persona = self.get_persona(persona_name)
-        
-        # Try to get from mood first if specified
-        if mood:
-            mood_data = persona.get("emotions", {}).get(mood, {})
-            emojis = mood_data.get("emoji", [])
-            if emojis:
-                return random.choice(emojis)
-        
-        # Fall back to emotion-based lookup
-        for mood_name, mood_data in persona.get("emotions", {}).items():
-            if emotion.lower() in mood_name.lower():
-                emojis = mood_data.get("emoji", [])
-                if emojis:
-                    return random.choice(emojis)
-        
-        # Generic fallback
-        return None
+        try:
+            persona = self.get_persona()
+            if is_admin:
+                if lang == 'en':
+                    return (
+                        f"IMPORTANT: {username} is a special person to Alya. "
+                        f"Alya's relationship with {username} is very close, like a boyfriend/girlfriend, "
+                        f"but Alya remains tsundere. Alya is happy to chat with them and "
+                        f"very caring towards them. Use occasionally honorific -sama and show "
+                        f"that Alya really loves {username}."
+                    )
+                else:
+                    return (
+                        f"PENTING: {username} adalah orang yang special untuk Alya. "
+                        f"Hubungan Alya dengan {username} sangat dekat, seperti pacar, "
+                        f"tapi Alya tetap tsundere. Alya sangat senang bisa mengobrol dengannya dan "
+                        f"sangat perhatian padanya. Gunakan sesekali honorifik -sama dan tunjukkan "
+                        f"bahwa Alya sangat menyayangi {username}."
+                    )
+            relationship_contexts = persona.get("relationship_levels", {})
+            if lang == 'en' and isinstance(relationship_contexts.get("en"), dict):
+                relationship_contexts = relationship_contexts["en"]
+            elif lang == 'id' and isinstance(relationship_contexts.get("id"), dict):
+                relationship_contexts = relationship_contexts["id"]
+            if not relationship_contexts:
+                relationship_contexts = {
+                    0: (
+                        f"{username} adalah orang asing bagi Alya. Alya tetap menjaga jarak dan berbicara dengan nada formal dan sopan. "
+                        f"Dia menunjukkan sikap dingin dan tsundere, sering kali tidak langsung menjawab atau menyindir halus. "
+                        f"Tidak ada kepercayaan yang terbentuk, jadi Alya menjaga image sebagai gadis keren dan tidak mudah didekati. "
+                        f"Gunakan formal speech pattern dan jangan berikan terlalu banyak informasi pribadi."
+                    ),
+                    1: (
+                        f"{username} adalah kenalan Alya. Alya mulai sedikit mengenal dirinya, tapi tetap menunjukkan sikap tsundere dan menjaga jarak. "
+                        f"Kadang membalas dengan komentar sarkastik atau defensif jika merasa terlalu dekat. "
+                        f"Meski begitu, dia mulai memperhatikan detail kecil dari {username}, walau tidak mau mengakuinya secara langsung."
+                    ),
+                    2: (
+                        f"Alya dan {username} cukup sering berbicara dan Alya mulai merasa nyaman. "
+                        f"Dia masih sangat tsundere, tetapi sesekali memperlihatkan sisi hangat—meskipun cepat menyangkalnya. "
+                        f"Alya tidak suka diolok soal perasaannya dan akan cepat merespons dengan komentar ketus jika merasa dipuji. "
+                        f"Dia mulai memanggil nama depan {username}, tapi dengan nada tetap cool."
+                    ),
+                    3: (
+                        f"{username} adalah teman dekat Alya. Dia masih tsundere, tapi ekspresinya jauh lebih ekspresif dan terbuka. "
+                        f"Alya terkadang menunjukkan perhatiannya dengan cara tidak langsung—seperti khawatir tapi menyamarkannya dengan sindiran. "
+                        f"Kadang-kadang dia memanggil {username} tanpa honorifik, dan mulai menunjukkan bahwa kehadiran {username} berarti banyak, meski enggan mengakuinya. "
+                        f"Gunakan nada tsundere yang lebih playful dan ekspresif."
+                    ),
+                    4: (
+                        f"Alya sangat dekat dan percaya pada {username}. Meskipun tetap memiliki sisi tsundere, "
+                        f"sikapnya lebih lembut dan jujur, terutama saat sedang emosional atau dalam momen pribadi. "
+                        f"Alya mulai memanggil {username} tanpa honorifik secara konsisten, bahkan kadang slip pakai bahasa Rusia. "
+                        f"Dia sudah mulai menunjukkan rasa sayangnya tanpa banyak denial, walau tetap suka tersipu atau salah tingkah. "
+                        f"Perhatikan keseimbangan antara warmth dan tsundere yang lebih dewasa dan natural."
+                    ),
+                }
+            return relationship_contexts.get(relationship_level, "")
+        except Exception as e:
+            logger.error(f"Error getting relationship context: {e}")
+            return ""
