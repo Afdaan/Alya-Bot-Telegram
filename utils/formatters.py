@@ -232,34 +232,6 @@ def _get_mood_emojis() -> Dict[str, List[str]]:
         ]
     }
 
-def _split_into_readable_paragraphs(text: str) -> List[str]:
-    """Split long text into readable paragraphs."""
-    if not text or not text.strip():
-        return []
-    text = re.sub(r'\s+', ' ', text.strip())
-    if len(text) <= 200:
-        return [text]
-    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
-    if len(paragraphs) == 1 and len(text) > 400:
-        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
-        if len(sentences) > 3:
-            grouped_paragraphs = []
-            current_group = []
-            for sentence in sentences:
-                current_group.append(sentence.strip())
-                if len(current_group) >= 3 or sentence.strip().endswith(('!', '?')):
-                    grouped_paragraphs.append(' '.join(current_group))
-                    current_group = []
-            if current_group:
-                grouped_paragraphs.append(' '.join(current_group))
-            paragraphs = grouped_paragraphs
-    cleaned_paragraphs = []
-    for paragraph in paragraphs:
-        cleaned = ' '.join(paragraph.split())
-        if cleaned and len(cleaned.strip()) > 10:
-            cleaned_paragraphs.append(cleaned)
-    return cleaned_paragraphs
-
 def _format_roleplay_and_actions(text: str) -> str:
     """Format roleplay actions more naturally."""
     if not text:
@@ -363,35 +335,26 @@ def format_response(
 
     processed_lines = []
     emoji_count = 0
-    max_emoji = min(MAX_EMOJI_PER_RESPONSE, 5)  # Biar makin ekspresif, tapi ga spam
-
+    max_emoji = min(MAX_EMOJI_PER_RESPONSE, 5)
     for idx, line in enumerate(lines):
         if not line.strip():
             continue
-        # Escape HTML
         line = escape_html(line)
-        # Bold honorifics
         line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', line)
-        # Deteksi mood/intent per paragraf
         context = nlp_engine.get_message_context(line, user_id=user_id)
         mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
         mood_emojis = nlp_engine.suggest_emojis(line, mood, count=2)
-        # Inject Russian exp randomly jika mood tsundere/angry/embarrassed
         if mood in ("defensive_flustered", "comfortable_tsundere", "angry", "embarrassed", "tsundere_cold", "tsundere_defensive") and random.random() < 0.25:
             rus = random.choice(russian_expressions)
             line = f"{line} <i>{rus}</i>"
-        # Add emoji di spot natural (akhir kalimat penting, atau setelah roleplay)
         if emoji_count < max_emoji and (line.endswith(('.', '!', '?', '...')) or '<i>' in line or idx == len(lines)-1):
-            # Pilih emoji yang belum dipakai
             for emj in mood_emojis:
                 if emoji_count < max_emoji:
                     line = f"{line} {emj}"
                     emoji_count += 1
         processed_lines.append(line)
-
     final = '\n\n'.join([l for l in processed_lines if l.strip()])
     final = clean_html_entities(final)
-
     MAX_LEN = 4096
     if len(final) <= MAX_LEN:
         return final if final.strip() else fallback
