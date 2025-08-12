@@ -338,8 +338,7 @@ def format_response(
     **kwargs
 ) -> Union[str, List[str]]:
     """Format a bot response with natural, human-like flow, persona-driven mood, and language fallback.
-    Now routes response through NLP engine for postprocessing (mood, emoji, roleplay, etc).
-    """
+    Now does per-paragraph mood & emoji mapping for more humanlike Alya."""
     message = _sanitize_response(message, username)
     fallback = _get_fallback_message(lang)
     if not message or not message.strip():
@@ -351,25 +350,21 @@ def format_response(
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
 
-    # NLP engine setup
     if nlp_engine is None:
         nlp_engine = NLPEngine()
-    context = nlp_engine.get_message_context(message, user_id=user_id)
-    mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
-    # Dapatkan emoji yang sesuai mood dari NLP, bukan random
-    mood_emojis = nlp_engine.suggest_emojis(message, mood, count=min(MAX_EMOJI_PER_RESPONSE, 3))
-
-    # PersonaManager hanya untuk ekspresi Rusia/roleplay
     persona_manager = PersonaManager()
     persona = persona_manager.get_persona(persona_name=persona_name)
     russian_expressions = persona.get("russian_expressions", ["дурак", "что", "глупый", "бaka"])
 
     # Format roleplay elements
     formatted_text = _format_roleplay_and_actions(message)
+    # Split into paragraphs/lines
     lines = _split_humanlike_lines(formatted_text)
 
     processed_lines = []
     emoji_count = 0
+    max_emoji = min(MAX_EMOJI_PER_RESPONSE, 5)  # Biar makin ekspresif, tapi ga spam
+
     for idx, line in enumerate(lines):
         if not line.strip():
             continue
@@ -377,14 +372,21 @@ def format_response(
         line = escape_html(line)
         # Bold honorifics
         line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', line)
-        # Inject Russian exp randomly if mood tsundere/angry/embarrassed
-        if mood in ("defensive_flustered", "comfortable_tsundere", "angry", "embarrassed") and random.random() < 0.25:
+        # Deteksi mood/intent per paragraf
+        context = nlp_engine.get_message_context(line, user_id=user_id)
+        mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
+        mood_emojis = nlp_engine.suggest_emojis(line, mood, count=2)
+        # Inject Russian exp randomly jika mood tsundere/angry/embarrassed
+        if mood in ("defensive_flustered", "comfortable_tsundere", "angry", "embarrassed", "tsundere_cold", "tsundere_defensive") and random.random() < 0.25:
             rus = random.choice(russian_expressions)
             line = f"{line} <i>{rus}</i>"
-        # Add emoji dari NLP engine
-        if emoji_count < len(mood_emojis) and (line.endswith(('.', '!', '?')) or idx == len(lines)-1):
-            line = f"{line} {mood_emojis[emoji_count]}"
-            emoji_count += 1
+        # Add emoji di spot natural (akhir kalimat penting, atau setelah roleplay)
+        if emoji_count < max_emoji and (line.endswith(('.', '!', '?', '...')) or '<i>' in line or idx == len(lines)-1):
+            # Pilih emoji yang belum dipakai
+            for emj in mood_emojis:
+                if emoji_count < max_emoji:
+                    line = f"{line} {emj}"
+                    emoji_count += 1
         processed_lines.append(line)
 
     final = '\n\n'.join([l for l in processed_lines if l.strip()])
