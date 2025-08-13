@@ -135,7 +135,7 @@ AFFECTION_POINTS: Dict[str, int] = {
 NLP_MODELS_DIR: str = os.getenv("NLP_MODELS_DIR", "data/models")
 EMOTION_DETECTION_MODEL: str = os.getenv(
     "EMOTION_DETECTION_MODEL",
-    "AnasAlokla/multilingual-go-emotions"
+    "AnasAlokla/multilingual_go_emotions"
 )
 SENTIMENT_MODEL: str = os.getenv(
     "SENTIMENT_MODEL",
