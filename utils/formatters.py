@@ -12,6 +12,8 @@ import html
 import re
 import emoji
 from pathlib import Path
+import yaml
+from functools import lru_cache
 
 from config.settings import (
     FORMAT_ROLEPLAY, 
@@ -335,7 +337,7 @@ def format_response(
         if not line.strip():
             continue
         line = escape_html(line)
-        line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', line)
+        line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', line)
         context = nlp_engine.get_message_context(line, user_id=user_id)
         mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
         mood_emojis = nlp_engine.suggest_emojis(line, mood, count=2)
@@ -402,3 +404,37 @@ def format_error_response(error_message: str, username: str = "user", lang: str 
     except Exception as e:
         logger.error(f"Error formatting error response: {e}")
         return _get_fallback_message(lang)
+
+@lru_cache(maxsize=2)
+def _load_translation_map() -> dict:
+    """Load translation mapping from YAML file."""
+    path = Path(__file__).parent.parent / "config" / "persona" / "translate.yml"
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return data
+    except Exception as e:
+        logger.error(f"Failed to load translation YAML: {e}")
+        return {}
+
+def translate_response(text: str, lang: str = "id") -> str:
+    """Translate Alya's response to the target language using YAML mapping."""
+    if not text or lang == "id":
+        return text
+    translations = _load_translation_map()
+    lang_map = translations.get(lang, {})
+    # Simple phrase-based replacement, can be improved for context-aware in future
+    for src, tgt in lang_map.items():
+        if src in text:
+            text = text.replace(src, tgt)
+    return text
+
+def get_translate_prompt(text: str, lang: str = "id") -> str:
+    """Get simple translation prompt for LLM based on user language."""
+    templates = _load_translation_map().get("translate_templates", {})
+    prompt = templates.get(lang)
+    if not prompt:
+        return text
+    return prompt.replace("{text}", text)
