@@ -1,6 +1,7 @@
 from typing import Literal
+from config.settings import DEFAULT_LANGUAGE
 
-def get_system_error_response(lang: Literal['id', 'en']) -> str:
+def get_system_error_response(lang: Literal['id', 'en'] = DEFAULT_LANGUAGE) -> str:
     """
     Returns an Alya-style system error message in the specified language.
 

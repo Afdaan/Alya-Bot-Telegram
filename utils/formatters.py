@@ -12,11 +12,14 @@ import html
 import re
 import emoji
 from pathlib import Path
+import yaml
+from functools import lru_cache
 
 from config.settings import (
     FORMAT_ROLEPLAY, 
     FORMAT_EMOTION,
-    MAX_EMOJI_PER_RESPONSE
+    MAX_EMOJI_PER_RESPONSE,
+    DEFAULT_LANGUAGE
 )
 from core.persona import PersonaManager
 from core.nlp import NLPEngine
@@ -167,13 +170,13 @@ def _sanitize_response(response: str, username: str) -> str:
     response = re.sub(r'\n\s*\n\s*\n+', '\n\n', response)
     return response.strip()
 
-def _get_fallback_message(lang: str = "id") -> str:
+def _get_fallback_message(lang: str = DEFAULT_LANGUAGE) -> str:
     """Return fallback message based on language."""
     fallback_map = {
         "id": "Maaf, aku tidak bisa merespons sekarang... 😳",
         "en": "Sorry, I can't respond right now... 😳"
     }
-    return fallback_map.get(lang, fallback_map["id"])
+    return fallback_map.get(lang, fallback_map[DEFAULT_LANGUAGE])
 
 def _get_mood_emojis() -> Dict[str, List[str]]:
     """Return mapping of mood to emoji list."""
@@ -232,8 +235,7 @@ def _get_mood_emojis() -> Dict[str, List[str]]:
         ]
     }
 
-def _format_roleplay_and_actions(text: str) -> str:
-    """Format roleplay actions more naturally."""
+def _format_roleplay_and_actions(text: str, lang: str = None) -> str:
     if not text:
         return ""
     
@@ -241,12 +243,7 @@ def _format_roleplay_and_actions(text: str) -> str:
     text = re.sub(r"\*(.*?)\*", lambda m: f"<i>{m.group(1).strip()}</i>", text)
     text = re.sub(r"_(.*?)_", lambda m: f"<i>{m.group(1).strip()}</i>", text)
     text = re.sub(r"\[(.*?)\]", lambda m: f"<i>{m.group(1).strip()}</i>", text)
-    
-    # Handle Russian text more naturally
-    text = re.sub(r"([А-Яа-яЁё][А-Яа-яЁё\s]*[А-Яа-яЁё])", 
-                  lambda m: f"<i>{m.group(1).strip()}</i>" if '<i>' not in m.group(1) else m.group(1), 
-                  text)
-    
+    text = re.sub(r"([А-Яа-яЁё][А-Яа-яЁё\s]*[А-Яа-яЁё])", lambda m: f"<i>{m.group(1).strip()}</i>" if '<i>' not in m.group(1) else m.group(1), text)
     return text.strip()
 
 def _split_humanlike_lines(text: str) -> List[str]:
@@ -304,13 +301,13 @@ def format_response(
     username: str = "user",
     target_name: Optional[str] = None,
     persona_name: str = "waifu",
-    lang: str = "id",
+    lang: str = None,
     nlp_engine: Optional[NLPEngine] = None,
     relationship_level: int = 1,
     **kwargs
 ) -> Union[str, List[str]]:
-    """Format a bot response with natural, human-like flow, persona-driven mood, and language fallback.
-    Now does per-paragraph mood & emoji mapping for more humanlike Alya."""
+    if lang is None:
+        lang = DEFAULT_LANGUAGE
     message = _sanitize_response(message, username)
     fallback = _get_fallback_message(lang)
     if not message or not message.strip():
@@ -329,7 +326,7 @@ def format_response(
     russian_expressions = persona.get("russian_expressions", ["дурак", "что", "глупый", "бaka"])
 
     # Format roleplay elements
-    formatted_text = _format_roleplay_and_actions(message)
+    formatted_text = _format_roleplay_and_actions(message, lang=lang)
     # Split into paragraphs/lines
     lines = _split_humanlike_lines(formatted_text)
 
@@ -340,7 +337,7 @@ def format_response(
         if not line.strip():
             continue
         line = escape_html(line)
-        line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-Za-z]+-san|[A-Za-z]+-chan)', r'<b>\1</b>', line)
+        line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', line)
         context = nlp_engine.get_message_context(line, user_id=user_id)
         mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
         mood_emojis = nlp_engine.suggest_emojis(line, mood, count=2)
@@ -350,7 +347,9 @@ def format_response(
         if emoji_count < max_emoji and (line.endswith(('.', '!', '?', '...')) or '<i>' in line or idx == len(lines)-1):
             for emj in mood_emojis:
                 if emoji_count < max_emoji:
-                    line = f"{line} {emj}"
+                    if not line.endswith(' '):
+                        line += ' '
+                    line = f"{line}{emj}"
                     emoji_count += 1
         processed_lines.append(line)
     final = '\n\n'.join([l for l in processed_lines if l.strip()])
@@ -376,7 +375,7 @@ def format_response(
         return fallback
     return parts[0] if len(parts) == 1 else parts
 
-def format_error_response(error_message: str, username: str = "user", lang: str = "id", persona_name: str = "waifu") -> str:
+def format_error_response(error_message: str, username: str = "user", lang: str = DEFAULT_LANGUAGE, persona_name: str = "waifu") -> str:
     """Format error response with persona and apology, following language preference."""
     try:
         if "{username}" in error_message:
@@ -385,7 +384,7 @@ def format_error_response(error_message: str, username: str = "user", lang: str 
                 f"<b>{escape_html(username)}</b>"
             )
         persona_manager = PersonaManager()
-        persona = persona_manager.get_persona(persona_name=persona_name, lang=lang)
+        persona = persona_manager.get_persona(persona_name=persona_name)
         roleplay = "terlihat bingung dan khawatir" if lang == "id" else "looks confused and worried"
         try:
             apologetic_mood = persona.get("emotions", {}).get("apologetic_sincere", {})
@@ -405,3 +404,37 @@ def format_error_response(error_message: str, username: str = "user", lang: str 
     except Exception as e:
         logger.error(f"Error formatting error response: {e}")
         return _get_fallback_message(lang)
+
+@lru_cache(maxsize=2)
+def _load_translation_map() -> dict:
+    """Load translation mapping from YAML file."""
+    path = Path(__file__).parent.parent / "config" / "persona" / "translate.yml"
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return data
+    except Exception as e:
+        logger.error(f"Failed to load translation YAML: {e}")
+        return {}
+
+def translate_response(text: str, lang: str = "id") -> str:
+    """Translate Alya's response to the target language using YAML mapping."""
+    if not text or lang == "id":
+        return text
+    translations = _load_translation_map()
+    lang_map = translations.get(lang, {})
+    # Simple phrase-based replacement, can be improved for context-aware in future
+    for src, tgt in lang_map.items():
+        if src in text:
+            text = text.replace(src, tgt)
+    return text
+
+def get_translate_prompt(text: str, lang: str = "id") -> str:
+    """Get simple translation prompt for LLM based on user language."""
+    templates = _load_translation_map().get("translate_templates", {})
+    prompt = templates.get(lang)
+    if not prompt:
+        return text
+    return prompt.replace("{text}", text)

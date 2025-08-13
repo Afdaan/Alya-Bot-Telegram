@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Optional
 import yaml
 import datetime
 
-from config.settings import PERSONA_DIR, DEFAULT_PERSONA
+from config.settings import PERSONA_DIR, DEFAULT_PERSONA, DEFAULT_LANGUAGE
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ class PersonaManager:
         
         return greeting_template.format(username=username)
         
-    def get_error_message(self, username: str = "user", lang: str = 'id', persona_name: Optional[str] = None) -> str:
+    def get_error_message(self, username: str = "user", lang: str = DEFAULT_LANGUAGE, persona_name: Optional[str] = None) -> str:
         """Get a generic error message for the given persona.
         
         Args:
@@ -130,10 +130,10 @@ class PersonaManager:
         errors = persona.get("errors", {})
         
         # Get language-specific errors, fallback to default language or Alya-style generic message
-        lang_errors = errors.get(lang, errors.get('id', {}))
+        lang_errors = errors.get(lang, errors.get(DEFAULT_LANGUAGE, {}))
         
         # Use Alya-style error message as fallback instead of generic one
-        if lang == 'id':
+        if lang == DEFAULT_LANGUAGE:
             default_error = "Eh... что?! Ada yang error nih... 😳\n\nB-bukan salahku ya! Sistemnya lagi bermasalah... дурак teknologi! 💫\n\nCoba lagi nanti, {username}-kun!"
         else:
             default_error = "Eh... что?! Something went wrong... 😳\n\nI-It's not my fault! The system is having issues... дурак technology! 💫\n\nTry again later, {username}!"
@@ -149,7 +149,7 @@ class PersonaManager:
         context: str,
         relationship_level: int,
         is_admin: bool,
-        lang: str = 'id'
+        lang: str = DEFAULT_LANGUAGE
     ) -> str:
         """Construct a detailed chat prompt for Gemini.
         
@@ -167,7 +167,7 @@ class PersonaManager:
         persona = self.get_persona() # Use default persona for chat
         
         # Get language-specific persona details
-        persona_lang = persona.get(lang, persona.get('id', {}))
+        persona_lang = persona.get(lang, persona.get(DEFAULT_LANGUAGE, {}))
 
         base_instructions = persona_lang.get("base_instructions", "")
         personality_traits = "\n- ".join(persona_lang.get("personality_traits", []))
@@ -211,7 +211,7 @@ Respond to {username} in **{persona_lang.get('language_name', 'Bahasa Indonesia'
         username: str,
         query: str,
         media_context: str,
-        lang: str = 'id'
+        lang: str = DEFAULT_LANGUAGE
     ) -> str:
         """Construct a prompt for media analysis.
         
@@ -227,7 +227,7 @@ Respond to {username} in **{persona_lang.get('language_name', 'Bahasa Indonesia'
         persona = self.get_persona('analyze') # Use 'analyze' persona
         
         # Get language-specific persona details
-        persona_lang = persona.get(lang, persona.get('id', {}))
+        persona_lang = persona.get(lang, persona.get(DEFAULT_LANGUAGE, {}))
 
         base_instructions = persona_lang.get("base_instructions", "")
         analysis_guidelines = "\n- ".join(persona_lang.get("analysis_guidelines", []))
@@ -260,10 +260,10 @@ Analyze the media content and answer {username}'s question in **{persona_lang.ge
             return relationship_levels[level]
         return relationship_levels[-1] if relationship_levels else ""
     
-    def get_roleplay_mapping(self, emotion: str, intent: str, topic: str, mood: str, lang: str = 'id') -> Dict[str, Any]:
+    def get_roleplay_mapping(self, emotion: str, intent: str, topic: str, mood: str, lang: str = DEFAULT_LANGUAGE) -> Dict[str, Any]:
         """Get roleplay mapping from persona YAML based on emotion, intent, topic, and mood."""
         persona = self.get_persona()
-        persona_lang = persona.get(lang, persona.get('id', {}))
+        persona_lang = persona.get(lang, persona.get(DEFAULT_LANGUAGE, {}))
         mappings = persona.get('nlp_roleplay_mapping', [])
         for mapping in mappings:
             if (
@@ -279,7 +279,7 @@ Analyze the media content and answer {username}'s question in **{persona_lang.ge
                 return mapping
         return {}
 
-    def get_relationship_context(self, username: str, relationship_level: int, is_admin: bool, lang: str = 'id') -> str:
+    def get_relationship_context(self, username: str, relationship_level: int, is_admin: bool, lang: str = DEFAULT_LANGUAGE) -> str:
         """Get relationship context based on level and language.
         Args:
             username: User's first name
@@ -309,10 +309,10 @@ Analyze the media content and answer {username}'s question in **{persona_lang.ge
                         f"bahwa Alya sangat menyayangi {username}."
                     )
             relationship_contexts = persona.get("relationship_levels", {})
-            if lang == 'en' and isinstance(relationship_contexts.get("en"), dict):
-                relationship_contexts = relationship_contexts["en"]
-            elif lang == 'id' and isinstance(relationship_contexts.get("id"), dict):
-                relationship_contexts = relationship_contexts["id"]
+            if lang == 'en' and isinstance(relationship_contexts.get('en'), dict):
+                relationship_contexts = relationship_contexts['en']
+            elif lang == DEFAULT_LANGUAGE and isinstance(relationship_contexts.get(DEFAULT_LANGUAGE), dict):
+                relationship_contexts = relationship_contexts[DEFAULT_LANGUAGE]
             if not relationship_contexts:
                 relationship_contexts = {
                     0: (

@@ -2,8 +2,9 @@
 Bilingual response generator for the roast commands.
 """
 from typing import Optional
+from config.settings import DEFAULT_LANGUAGE
 
-def get_roast_response(lang: str, roast_text: Optional[str] = None, error: Optional[str] = None, username: Optional[str] = None) -> str:
+def get_roast_response(lang: str = DEFAULT_LANGUAGE, roast_text: Optional[str] = None, error: Optional[str] = None, username: Optional[str] = None) -> str:
     """
     Generates the final response for the roast command.
 
@@ -28,7 +29,7 @@ def get_roast_response(lang: str, roast_text: Optional[str] = None, error: Optio
     # Fallback for unknown errors
     return _get_error_messages(lang, 'unknown')
 
-def get_usage_response(lang: str, command: str) -> str:
+def get_usage_response(lang: str = DEFAULT_LANGUAGE, command: str = "roast") -> str:
     """
     Returns the usage instructions for !roast or !gitroast.
     """
@@ -47,7 +48,7 @@ def get_usage_response(lang: str, command: str) -> str:
     return "Something is wrong."
 
 
-def _get_error_messages(lang: str, error: str, username: Optional[str] = None) -> str:
+def _get_error_messages(lang: str = DEFAULT_LANGUAGE, error: str = "unknown", username: Optional[str] = None) -> str:
     """Internal function to get error messages."""
     messages = {
         'id': {
@@ -65,4 +66,4 @@ def _get_error_messages(lang: str, error: str, username: Optional[str] = None) -
             'unknown': "Eh... что?! A mysterious error occurred... 😳\n\nYou're safe... for now. дурак system! 💫"
         }
     }
-    return messages[lang].get(error, messages[lang]['unknown'])
+    return messages.get(lang, messages[DEFAULT_LANGUAGE]).get(error, messages.get(lang, messages[DEFAULT_LANGUAGE])['unknown'])

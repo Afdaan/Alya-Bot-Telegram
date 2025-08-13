@@ -1,6 +1,7 @@
 from typing import Literal, Optional
+from config.settings import DEFAULT_LANGUAGE
 
-def get_ping_response(lang: Literal['id', 'en'], latency: Optional[float] = None) -> str:
+def get_ping_response(lang: Literal['id', 'en'] = DEFAULT_LANGUAGE, latency: Optional[float] = None) -> str:
     """
     Generates a ping response for the bot in the specified language.
 

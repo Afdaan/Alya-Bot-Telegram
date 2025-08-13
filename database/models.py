@@ -33,6 +33,7 @@ class User(Base):
         "notification_enabled": True,
         "persona": "waifu",
         "timezone": "Asia/Jakarta"
+        #"preferred_language": "id"
     })
     
     relationship_level = Column(SmallInteger, default=0, index=True)

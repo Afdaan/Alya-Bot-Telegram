@@ -17,6 +17,7 @@ from config.settings import (
     AFFECTION_POINTS,
     RELATIONSHIP_LEVELS,
     RELATIONSHIP_THRESHOLDS,
+    DEFAULT_LANGUAGE
 )
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
@@ -282,23 +283,59 @@ Based on this context:
         else:
             return method(*args, **kwargs)
         
+    async def _ensure_language(self, text: str, lang: str, user) -> str:
+        """Ensure text is in the user's preferred language using LLM translation if needed."""
+        from utils.formatters import get_translate_prompt
+        import langdetect
+        preferred_lang = lang or DEFAULT_LANGUAGE
+        try:
+            detected_lang = langdetect.detect(text)
+        except Exception:
+            detected_lang = preferred_lang
+        if detected_lang != preferred_lang:
+            translate_prompt = get_translate_prompt(text, preferred_lang)
+            try:
+                translated = await self.gemini.generate_response(
+                    user_id=user.id,
+                    username=user.first_name or "user",
+                    message=translate_prompt,
+                    context="",
+                    relationship_level=1,
+                    is_admin=False,
+                    lang=preferred_lang,
+                    retry_count=2,
+                    is_media_analysis=False,
+                    media_context=None
+                )
+                if translated and isinstance(translated, str):
+                    return translated.strip()
+            except Exception as e:
+                logger.error(f"Translation step failed: {e}")
+        return text
+
     async def _process_and_send_response(
-        self, 
-        update: Update, 
-        user, 
-        response: str, 
+        self,
+        update: Update,
+        user,
+        response: str,
         message_context: Dict[str, Any],
         lang: str
     ) -> None:
+        """Process Alya's response: ensure language, format, and send to Telegram."""
         self.db.save_message(user.id, "assistant", response)
         self.memory.save_bot_response(user.id, response)
         if message_context:
             self._update_affection_from_context(user.id, message_context)
+
+        # --- Detect emotion, intent, topic ---
         emotion = message_context.get("emotion", "neutral") if message_context else "neutral"
         intent = message_context.get("intent", "") if message_context else ""
         topic = message_context.get("topic", "any") if message_context else "any"
-        
-        # Map emotion to appropriate mood and intensity
+
+        # --- Ensure response in user language (before formatting) ---
+        response = await self._ensure_language(response, lang, user)
+
+        # --- Map emotion to mood/intensity ---
         emotion_mood_mapping = {
             "happy": ("excited", 0.8),
             "excited": ("excited", 0.9),
@@ -310,10 +347,9 @@ Based on this context:
             "surprised": ("surprised", 0.8),
             "neutral": ("default", 0.5)
         }
-        
         mood, intensity = emotion_mood_mapping.get(emotion, ("default", 0.5))
-        
-        # Ambil roleplay/action mapping dari persona YAML
+
+        # --- Persona roleplay/action mapping ---
         roleplay_mapping = self.persona.get_roleplay_mapping(
             emotion=emotion,
             intent=intent,
@@ -323,8 +359,10 @@ Based on this context:
         )
         roleplay_action = roleplay_mapping.get("roleplay_action", "")
         russian_expression = roleplay_mapping.get("russian_expression", "")
+
+        # --- Format response ---
         formatted_response = format_response(
-            response, 
+            response,
             emotion=emotion,
             mood=mood,
             intensity=intensity,
@@ -334,6 +372,10 @@ Based on this context:
         )
         formatted_response = format_paragraphs(formatted_response, markdown=False)
         formatted_response = f"{formatted_response}\u200C"
+
+        # --- Ensure ALL output in user language (after formatting) ---
+        formatted_response = await self._ensure_language(formatted_response, lang, user)
+
         await update.message.reply_html(formatted_response)
     
     async def _get_user_info(self, user) -> Dict[str, Any]:

@@ -1,0 +1,13 @@
+translate_templates:
+  id: |
+    """
+    Tolong terjemahkan teks berikut ke dalam Bahasa Indonesia. Jangan ubah emoji, markdown, atau HTML tag apapun. Jangan tambahkan penjelasan apapun, hanya hasil terjemahan:
+    
+    {text}
+    """
+  en: |
+    """
+    Please translate the following text to English. Do not change any emoji, markdown, or HTML tags. Do not add any explanation, just the translation:
+    
+    {text}
+    """
