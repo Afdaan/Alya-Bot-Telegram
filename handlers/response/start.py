@@ -1,7 +1,8 @@
 from typing import Literal
+from config.settings import DEFAULT_LANGUAGE
 
 
-def get_start_response(lang: Literal['id', 'en'], username: str) -> str:
+def get_start_response(lang: Literal['id', 'en'] = DEFAULT_LANGUAGE, username: str = "User") -> str:
     """
     Generates a start response for the bot in the specified language.
 

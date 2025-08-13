@@ -5,11 +5,11 @@ Clean separation of display logic from command handling.
 import html
 import random
 from typing import List, Optional, Tuple
-
+from config.settings import DEFAULT_LANGUAGE
 from utils.search_engine import SearchResult, get_google_search_url
 
 
-def search_usage_response(lang: str = "id") -> str:
+def search_usage_response(lang: str = DEFAULT_LANGUAGE) -> str:
     """
     Generates a response explaining how to use the search command.
 
@@ -51,10 +51,10 @@ def search_usage_response(lang: str = "id") -> str:
             "not because I care or anything...~</i> 💫"
         ),
     }
-    return text.get(lang, text["id"])
+    return text.get(lang, text[DEFAULT_LANGUAGE])
 
 
-def search_error_response(lang: str = "id", error_message: str = "") -> str:
+def search_error_response(lang: str = DEFAULT_LANGUAGE, error_message: str = "") -> str:
     """
     Generates a response for a search error.
 
@@ -84,12 +84,12 @@ def search_error_response(lang: str = "id", error_message: str = "") -> str:
         "en": "<i>~Please try again later~</i> 💫"
     }
     
-    chosen_response = random.choice(responses.get(lang, responses["id"]))
+    chosen_response = random.choice(responses.get(lang, responses[DEFAULT_LANGUAGE]))
     debug_info = ""
     if error_message and len(error_message) < 50:
         debug_info = f"\n\n<i>Debug info: {html.escape(error_message)}</i>"
         
-    return f"{chosen_response}{debug_info}\n\n{footer.get(lang, footer['id'])}"
+    return f"{chosen_response}{debug_info}\n\n{footer.get(lang, footer[DEFAULT_LANGUAGE])}"
 
 
 def _get_alya_reaction(search_type: Optional[str], has_results: bool, lang: str) -> str:
@@ -119,7 +119,7 @@ def _get_alya_reaction(search_type: Optional[str], has_results: bool, lang: str)
                 "I-it's not that I didn't try, but there were really no results at all!"
             ]
         }
-        return random.choice(no_results.get(lang, no_results["id"]))
+        return random.choice(no_results.get(lang, no_results[DEFAULT_LANGUAGE]))
 
     reactions = {
         "id": {
@@ -168,7 +168,7 @@ def _get_alya_reaction(search_type: Optional[str], has_results: bool, lang: str)
         }
     }
     
-    lang_reactions = reactions.get(lang, reactions["id"])
+    lang_reactions = reactions.get(lang, reactions[DEFAULT_LANGUAGE])
     search_key = search_type if search_type in lang_reactions else "general"
     return random.choice(lang_reactions[search_key])
 
@@ -202,7 +202,7 @@ def _get_username_tips(query: str, clean_query: str, lang: str) -> Tuple[List[st
         }
     }
     
-    lang_tips = tip_texts.get(lang, tip_texts["id"])
+    lang_tips = tip_texts.get(lang, tip_texts[DEFAULT_LANGUAGE])
 
     if '@' in query:
         tips.append(lang_tips["no_symbol"].format(html.escape(clean_query)))
@@ -230,7 +230,7 @@ def format_search_results(
     results: List[SearchResult], 
     search_type: Optional[str] = None,
     show_username_tip: bool = False,
-    lang: str = "id"
+    lang: str = DEFAULT_LANGUAGE
 ) -> str:
     """
     Formats the search results into a single message.
@@ -263,7 +263,7 @@ def format_search_results(
         }
     }
     
-    lang_headers = headers.get(lang, headers["id"])
+    lang_headers = headers.get(lang, headers[DEFAULT_LANGUAGE])
     header_key = search_type if search_type in lang_headers else "general"
     header_text = lang_headers[header_key]
     

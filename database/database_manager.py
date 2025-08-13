@@ -17,7 +17,8 @@ from config.settings import (
     RELATIONSHIP_LEVELS,
     AFFECTION_POINTS,
     RELATIONSHIP_ROLE_NAMES,
-    ADMIN_IDS
+    ADMIN_IDS,
+    DEFAULT_LANGUAGE
 )
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ def get_user_lang(user_id: int) -> str:
                 return user.language_code
     except Exception as e:
         logger.error(f"Error getting user language for {user_id}: {e}", exc_info=True)
-    return 'id'
+    return DEFAULT_LANGUAGE
 
 
 class DatabaseManager:
@@ -126,10 +127,10 @@ class DatabaseManager:
                 user = session.query(User).filter(User.id == user_id).first()
                 if user and user.language_code:
                     return {'language': user.language_code}
-                return {'language': 'id'} 
+                return {'language': DEFAULT_LANGUAGE}
         except Exception as e:
             logger.error(f"Error getting user settings for {user_id}: {e}", exc_info=True)
-            return {'language': 'id'}
+            return {'language': DEFAULT_LANGUAGE}
 
     def reset_user_conversation(self, user_id: int) -> bool:
         """

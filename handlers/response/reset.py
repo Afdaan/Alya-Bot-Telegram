@@ -1,8 +1,9 @@
 """
 Response formatters for the reset command.
 """
+from config.settings import DEFAULT_LANGUAGE
 
-def get_reset_response(lang: str = "id", success: bool = False) -> str:
+def get_reset_response(lang: str = DEFAULT_LANGUAGE, success: bool = False) -> str:
     """
     Generates a response for the reset command.
 
@@ -37,9 +38,9 @@ def get_reset_response(lang: str = "id", success: bool = False) -> str:
                 "My memory system isn't cooperating... Please try again later."
             ),
         }
-    return text.get(lang, text["id"])
+    return text.get(lang, text[DEFAULT_LANGUAGE])
 
-def get_reset_confirmation_response(lang: str = "id") -> str:
+def get_reset_confirmation_response(lang: str = DEFAULT_LANGUAGE) -> str:
     """
     Generates a confirmation message for the reset command.
 
@@ -64,4 +65,4 @@ def get_reset_confirmation_response(lang: str = "id") -> str:
             "Not that I care or anything... It's not like I’ll miss our talks or whatever!"
         ),
     }
-    return text.get(lang, text["id"])
+    return text.get(lang, text[DEFAULT_LANGUAGE])

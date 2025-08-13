@@ -8,8 +8,9 @@ for the SauceNAO reverse image search feature, supporting multiple languages.
 from typing import Dict, List, Any, Tuple, Optional
 import re
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from config.settings import DEFAULT_LANGUAGE
 
-def get_texts(lang: str) -> Dict[str, str]:
+def get_texts(lang: str = DEFAULT_LANGUAGE) -> Dict[str, str]:
     """
     Returns all SauceNAO related texts in the specified language.
     """
@@ -37,7 +38,7 @@ def get_texts(lang: str) -> Dict[str, str]:
             "no_results": "Hmph! I couldn't find any matching sauce for this image. Maybe try another one? 😳",
             "error_api": "I-I failed to find the sauce... The API is having issues. Please try again later. 😥",
             "error_rate_limit": "Oops, we've hit the rate limit! Too many requests to SauceNAO. Please try again in a bit.",
-            "error_unknown": "Eh... что?! Ada error aneh saat nyari sauce... 😳\n\nB-bukan salahku! Sistemnya yang bermasalah... дурак teknologi! 💫\n\nCoba kirim gambar lain ya?",
+            "error_unknown": "Eh... что?! Ada error aneh saat nyari sauce... 😳\n\nB-bukan salahku! Sistemnya yang bermasalah... дурак технологии! 💫\n\nCoba kirim gambar lain ya?",
             "results_header": "<b>✨ Found {count} sauces for this image!</b>",
             "similarity": "Similarity",
             "author": "Author",
@@ -49,7 +50,7 @@ def get_texts(lang: str) -> Dict[str, str]:
             "view_on": "View on {site}",
         }
     }
-    return texts.get(lang, texts["id"])
+    return texts.get(lang, texts[DEFAULT_LANGUAGE])
 
 def format_sauce_results(
     search_results: Dict[str, Any],

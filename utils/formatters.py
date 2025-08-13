@@ -170,13 +170,13 @@ def _sanitize_response(response: str, username: str) -> str:
     response = re.sub(r'\n\s*\n\s*\n+', '\n\n', response)
     return response.strip()
 
-def _get_fallback_message(lang: str = "id") -> str:
+def _get_fallback_message(lang: str = DEFAULT_LANGUAGE) -> str:
     """Return fallback message based on language."""
     fallback_map = {
         "id": "Maaf, aku tidak bisa merespons sekarang... 😳",
         "en": "Sorry, I can't respond right now... 😳"
     }
-    return fallback_map.get(lang, fallback_map["id"])
+    return fallback_map.get(lang, fallback_map[DEFAULT_LANGUAGE])
 
 def _get_mood_emojis() -> Dict[str, List[str]]:
     """Return mapping of mood to emoji list."""
@@ -375,7 +375,7 @@ def format_response(
         return fallback
     return parts[0] if len(parts) == 1 else parts
 
-def format_error_response(error_message: str, username: str = "user", lang: str = "id", persona_name: str = "waifu") -> str:
+def format_error_response(error_message: str, username: str = "user", lang: str = DEFAULT_LANGUAGE, persona_name: str = "waifu") -> str:
     """Format error response with persona and apology, following language preference."""
     try:
         if "{username}" in error_message:

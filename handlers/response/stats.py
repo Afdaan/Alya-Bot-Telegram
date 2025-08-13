@@ -1,7 +1,8 @@
 import random
 from typing import Dict, Literal, Any
+from config.settings import DEFAULT_LANGUAGE
 
-def get_stats_response(lang: Literal['id', 'en'], db_manager: Any, **kwargs) -> str:
+def get_stats_response(lang: Literal['id', 'en'] = DEFAULT_LANGUAGE, db_manager: Any = None, **kwargs) -> str:
     """
     Fetches user stats and generates a formatted response in the specified language.
 

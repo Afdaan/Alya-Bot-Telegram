@@ -2,8 +2,9 @@
 Bilingual response generator for the /lang command.
 """
 from typing import Optional
+from config.settings import DEFAULT_LANGUAGE
 
-def get_lang_response(lang: str, new_lang: Optional[str] = None) -> str:
+def get_lang_response(lang: str = DEFAULT_LANGUAGE, new_lang: Optional[str] = None) -> str:
     """
     Generates the response for the /lang command.
 

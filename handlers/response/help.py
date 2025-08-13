@@ -1,6 +1,7 @@
 from typing import Literal
+from config.settings import DEFAULT_LANGUAGE
 
-def get_help_response(lang: Literal['id', 'en'], username: str = "user") -> str:
+def get_help_response(lang: Literal['id', 'en'] = DEFAULT_LANGUAGE, username: str = "user") -> str:
     """
     Generates a help response for the bot in the specified language.
 

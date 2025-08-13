@@ -17,6 +17,7 @@ from config.settings import (
     AFFECTION_POINTS,
     RELATIONSHIP_LEVELS,
     RELATIONSHIP_THRESHOLDS,
+    DEFAULT_LANGUAGE
 )
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
@@ -283,22 +284,53 @@ Based on this context:
             return method(*args, **kwargs)
         
     async def _process_and_send_response(
-        self, 
-        update: Update, 
-        user, 
-        response: str, 
+        self,
+        update: Update,
+        user,
+        response: str,
         message_context: Dict[str, Any],
         lang: str
     ) -> None:
+        """Process Alya's response: translate if needed, format, and send to Telegram."""
         self.db.save_message(user.id, "assistant", response)
         self.memory.save_bot_response(user.id, response)
         if message_context:
             self._update_affection_from_context(user.id, message_context)
+
+        # --- Detect emotion, intent, topic ---
         emotion = message_context.get("emotion", "neutral") if message_context else "neutral"
         intent = message_context.get("intent", "") if message_context else ""
         topic = message_context.get("topic", "any") if message_context else "any"
-        
-        # Map emotion to appropriate mood and intensity
+
+        # --- Translation pipeline: ensure output matches user language ---
+        preferred_lang = lang or DEFAULT_LANGUAGE
+        try:
+            import langdetect
+            detected_lang = langdetect.detect(response)
+        except Exception:
+            detected_lang = preferred_lang
+        if detected_lang != preferred_lang:
+            from utils.formatters import get_translate_prompt
+            translate_prompt = get_translate_prompt(response, preferred_lang)
+            try:
+                translated = await self.gemini.generate_response(
+                    user_id=user.id,
+                    username=user.first_name or "user",
+                    message=translate_prompt,
+                    context="",
+                    relationship_level=1,
+                    is_admin=False,
+                    lang=preferred_lang,
+                    retry_count=2,
+                    is_media_analysis=False,
+                    media_context=None
+                )
+                if translated and isinstance(translated, str):
+                    response = translated.strip()
+            except Exception as e:
+                logger.error(f"Translation step failed: {e}")
+
+        # --- Map emotion to mood/intensity ---
         emotion_mood_mapping = {
             "happy": ("excited", 0.8),
             "excited": ("excited", 0.9),
@@ -310,10 +342,9 @@ Based on this context:
             "surprised": ("surprised", 0.8),
             "neutral": ("default", 0.5)
         }
-        
         mood, intensity = emotion_mood_mapping.get(emotion, ("default", 0.5))
-        
-        # Ambil roleplay/action mapping dari persona YAML
+
+        # --- Persona roleplay/action mapping ---
         roleplay_mapping = self.persona.get_roleplay_mapping(
             emotion=emotion,
             intent=intent,
@@ -323,8 +354,10 @@ Based on this context:
         )
         roleplay_action = roleplay_mapping.get("roleplay_action", "")
         russian_expression = roleplay_mapping.get("russian_expression", "")
+
+        # --- Format and send response ---
         formatted_response = format_response(
-            response, 
+            response,
             emotion=emotion,
             mood=mood,
             intensity=intensity,
