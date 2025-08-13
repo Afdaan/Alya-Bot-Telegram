@@ -283,35 +283,17 @@ Based on this context:
         else:
             return method(*args, **kwargs)
         
-    async def _process_and_send_response(
-        self,
-        update: Update,
-        user,
-        response: str,
-        message_context: Dict[str, Any],
-        lang: str
-    ) -> None:
-        """Process Alya's response: translate if needed, format, and send to Telegram."""
-        self.db.save_message(user.id, "assistant", response)
-        self.memory.save_bot_response(user.id, response)
-        if message_context:
-            self._update_affection_from_context(user.id, message_context)
-
-        # --- Detect emotion, intent, topic ---
-        emotion = message_context.get("emotion", "neutral") if message_context else "neutral"
-        intent = message_context.get("intent", "") if message_context else ""
-        topic = message_context.get("topic", "any") if message_context else "any"
-
-        # --- Translation pipeline: ensure output matches user language ---
+    async def _ensure_language(self, text: str, lang: str, user) -> str:
+        """Ensure text is in the user's preferred language using LLM translation if needed."""
+        from utils.formatters import get_translate_prompt
+        import langdetect
         preferred_lang = lang or DEFAULT_LANGUAGE
         try:
-            import langdetect
-            detected_lang = langdetect.detect(response)
+            detected_lang = langdetect.detect(text)
         except Exception:
             detected_lang = preferred_lang
         if detected_lang != preferred_lang:
-            from utils.formatters import get_translate_prompt
-            translate_prompt = get_translate_prompt(response, preferred_lang)
+            translate_prompt = get_translate_prompt(text, preferred_lang)
             try:
                 translated = await self.gemini.generate_response(
                     user_id=user.id,
@@ -326,9 +308,32 @@ Based on this context:
                     media_context=None
                 )
                 if translated and isinstance(translated, str):
-                    response = translated.strip()
+                    return translated.strip()
             except Exception as e:
                 logger.error(f"Translation step failed: {e}")
+        return text
+
+    async def _process_and_send_response(
+        self,
+        update: Update,
+        user,
+        response: str,
+        message_context: Dict[str, Any],
+        lang: str
+    ) -> None:
+        """Process Alya's response: ensure language, format, and send to Telegram."""
+        self.db.save_message(user.id, "assistant", response)
+        self.memory.save_bot_response(user.id, response)
+        if message_context:
+            self._update_affection_from_context(user.id, message_context)
+
+        # --- Detect emotion, intent, topic ---
+        emotion = message_context.get("emotion", "neutral") if message_context else "neutral"
+        intent = message_context.get("intent", "") if message_context else ""
+        topic = message_context.get("topic", "any") if message_context else "any"
+
+        # --- Ensure response in user language (before formatting) ---
+        response = await self._ensure_language(response, lang, user)
 
         # --- Map emotion to mood/intensity ---
         emotion_mood_mapping = {
@@ -355,7 +360,7 @@ Based on this context:
         roleplay_action = roleplay_mapping.get("roleplay_action", "")
         russian_expression = roleplay_mapping.get("russian_expression", "")
 
-        # --- Format and send response ---
+        # --- Format response ---
         formatted_response = format_response(
             response,
             emotion=emotion,
@@ -367,6 +372,10 @@ Based on this context:
         )
         formatted_response = format_paragraphs(formatted_response, markdown=False)
         formatted_response = f"{formatted_response}\u200C"
+
+        # --- Ensure ALL output in user language (after formatting) ---
+        formatted_response = await self._ensure_language(formatted_response, lang, user)
+
         await update.message.reply_html(formatted_response)
     
     async def _get_user_info(self, user) -> Dict[str, Any]:
