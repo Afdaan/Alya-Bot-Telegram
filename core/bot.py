@@ -8,16 +8,15 @@ from typing import Optional
 
 from telegram.ext import (
     Application, ApplicationBuilder, CallbackContext, CommandHandler, 
-    MessageHandler, filters
+    MessageHandler
 )
 
 from config.settings import (
-    BOT_TOKEN, LOG_LEVEL, LOG_FORMAT, PTB_DEFAULTS, 
-    FEATURES, MEMORY_EXPIRY_DAYS
+    BOT_TOKEN, LOG_LEVEL, LOG_FORMAT, FEATURES
 )
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
-from database.memory_manager import MemoryManager
+from core.memory import MemoryManager
 from database.database_manager import db_manager, DatabaseManager
 from core.nlp import NLPEngine
 from handlers.conversation import ConversationHandler
