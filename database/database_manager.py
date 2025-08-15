@@ -179,10 +179,8 @@ class DatabaseManager:
                 # Delete from ConversationSummary table
                 session.query(ConversationSummary).filter(ConversationSummary.user_id == user_id).delete(synchronize_session=False)
                 
-                # Optionally, reset interaction count and topics in User table
                 user = session.query(User).filter(User.id == user_id).first()
                 if user:
-                    user.interaction_count = 0
                     user.topics_discussed = []
                     user.last_interaction = datetime.now()
 
@@ -503,37 +501,67 @@ class DatabaseManager:
 
     def get_user_relationship_info(self, user_id: int) -> Dict[str, Any]:
         """
-        Get user's relationship information and statistics formatted for /stats command.
+        Get user's complete relationship information and statistics for /stat command.
+        Returns all user fields for display, with safe defaults if user not found.
         """
         try:
             with db_session_context() as session:
                 user = session.query(User).filter(User.id == user_id).first()
                 if not user:
+                    # Return full default dict if user not found
                     return {
-                        "relationship_level": 0,
-                        "affection_points": 0,
-                        "interaction_count": 0,
-                        "role_name": get_role_by_relationship_level(0),
-                        "topics_discussed": [],
-                        "persona": "waifu"
+                        'id': user_id,
+                        'username': None,
+                        'first_name': None,
+                        'last_name': None,
+                        'language_code': DEFAULT_LANGUAGE,
+                        'is_admin': user_id in ADMIN_IDS,
+                        'relationship_level': 0,
+                        'affection_points': 0,
+                        'interaction_count': 0,
+                        'last_interaction': None,
+                        'created_at': None,
+                        'updated_at': None,
+                        'role_name': get_role_by_relationship_level(0),
+                        'topics_discussed': [],
+                        'persona': 'waifu'
                     }
+                # Return all relevant user fields
                 return {
-                    "relationship_level": user.relationship_level,
-                    "affection_points": user.affection_points,
-                    "interaction_count": user.interaction_count,
-                    "role_name": get_role_by_relationship_level(user.relationship_level, user_id in ADMIN_IDS),
-                    "topics_discussed": user.topics_discussed or [],
-                    "persona": user.preferences.get("persona", "waifu") if user.preferences else "waifu"
+                    'id': user.id,
+                    'username': user.username,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'language_code': user.language_code,
+                    'is_admin': user_id in ADMIN_IDS,
+                    'relationship_level': user.relationship_level,
+                    'affection_points': user.affection_points,
+                    'interaction_count': user.interaction_count,
+                    'last_interaction': user.last_interaction,
+                    'created_at': user.created_at,
+                    'updated_at': getattr(user, 'updated_at', None),
+                    'role_name': get_role_by_relationship_level(user.relationship_level, user_id in ADMIN_IDS),
+                    'topics_discussed': user.topics_discussed or [],
+                    'persona': user.preferences.get('persona', 'waifu') if user.preferences else 'waifu'
                 }
         except Exception as e:
             logger.error(f"Error getting user relationship info for {user_id}: {e}", exc_info=True)
             return {
-                "relationship_level": 0,
-                "affection_points": 0,
-                "interaction_count": 0,
-                "role_name": get_role_by_relationship_level(0),
-                "topics_discussed": [],
-                "persona": "waifu"
+                'id': user_id,
+                'username': None,
+                'first_name': None,
+                'last_name': None,
+                'language_code': DEFAULT_LANGUAGE,
+                'is_admin': user_id in ADMIN_IDS,
+                'relationship_level': 0,
+                'affection_points': 0,
+                'interaction_count': 0,
+                'last_interaction': None,
+                'created_at': None,
+                'updated_at': None,
+                'role_name': get_role_by_relationship_level(0),
+                'topics_discussed': [],
+                'persona': 'waifu'
             }
     
     def reset_conversation(self, user_id: int) -> bool:
@@ -880,7 +908,7 @@ class DatabaseManager:
                         'first_name': user.first_name,
                         'last_name': user.last_name,
                         'language_code': user.language_code,
-                        'is_admin': user.is_admin,
+                        'is_admin': user_id in ADMIN_IDS,
                         'relationship_level': user.relationship_level,
                         'interaction_count': user.interaction_count,
                         'affection_points': user.affection_points,
@@ -943,5 +971,28 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error deleting conversation messages for user {user_id}: {e}", exc_info=True)
             return 0
+
+    def get_rag_texts(self, user_id: int, limit: int = 10) -> list:
+        """
+        Retrieve relevant conversation texts for RAG (Retrieval-Augmented Generation).
+        Args:
+            user_id: Telegram user ID
+            limit: Number of texts to retrieve
+        Returns:
+            List of conversation texts (str)
+        """
+        try:
+            with db_session_context() as session:
+                conversations = (
+                    session.query(Conversation.content)
+                    .filter(Conversation.user_id == user_id)
+                    .order_by(Conversation.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+                return [conv.content for conv in conversations]
+        except Exception as e:
+            logger.error(f"Error in get_rag_texts for user {user_id}: {e}", exc_info=True)
+            return []
 
 db_manager = DatabaseManager()
