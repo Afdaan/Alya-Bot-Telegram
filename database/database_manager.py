@@ -61,6 +61,35 @@ def get_user_lang(user_id: int) -> str:
     return DEFAULT_LANGUAGE
 
 
+# --- Utility: Centralized user creation (DRY) ---
+def create_default_user(session: Session, user_id: int, username: str = None, first_name: str = None, last_name: str = None) -> 'User':
+    """Create a new user with default values and commit to session."""
+    from config.settings import DEFAULT_LANGUAGE
+    user = User(
+        id=user_id,
+        username=username or None,
+        first_name=first_name or f"User{user_id}",
+        last_name=last_name or None,
+        language_code=DEFAULT_LANGUAGE,
+        created_at=datetime.now(),
+        last_interaction=datetime.now(),
+        is_active=True,
+        relationship_level=0,
+        affection_points=0,
+        interaction_count=0,
+        preferences={
+            "notification_enabled": True,
+            "preferred_language": DEFAULT_LANGUAGE,
+            "persona": "waifu",
+            "timezone": "Asia/Jakarta"
+        },
+        topics_discussed=[]
+    )
+    session.add(user)
+    session.flush()
+    return user
+
+
 class DatabaseManager:
     """
     Enterprise-grade MySQL database manager using SQLAlchemy.
@@ -402,118 +431,66 @@ class DatabaseManager:
             with db_session_context() as session:
                 user = session.query(User).filter(User.id == user_id).first()
                 if not user:
-                    logger.warning(f"User {user_id} not found for affection update")
-                    return False
-                
-                # Ensure we have integer types for calculations
+                    user = create_default_user(session, user_id)
                 current_affection = int(user.affection_points) if user.affection_points is not None else 0
                 current_interactions = int(user.interaction_count) if user.interaction_count is not None else 0
                 old_level = int(user.relationship_level) if user.relationship_level is not None else 0
-                
-                # Update affection points (don't go below 0)
                 new_affection = max(0, current_affection + int(points))
                 user.affection_points = new_affection
-                
-                # Calculate new relationship level
                 new_level = self._calculate_relationship_level(new_affection, current_interactions)
-                
                 if new_level != old_level:
                     user.relationship_level = new_level
-                    logger.info(f"User {user_id} relationship level: {old_level} -> {new_level}")
-                
                 session.commit()
+                logger.info(f"Updated affection for user {user_id}: {current_affection} -> {new_affection}, level {old_level} -> {new_level}")
                 return True
-                
         except Exception as e:
-            logger.error(f"Error updating affection for user {user_id}: {e}")
+            logger.error(f"Error updating affection for user {user_id}: {e}", exc_info=True)
             return False
-    
+
+    def _calculate_relationship_level(self, affection: int, interactions: int) -> int:
+        """
+        Calculate relationship level based on affection and interaction count.
+        """
+        # Example: Use RELATIONSHIP_THRESHOLDS from config
+        for level, threshold in sorted(RELATIONSHIP_THRESHOLDS.items(), reverse=True):
+            if affection >= threshold:
+                return int(level)
+        return 0
+
     def get_user_relationship_info(self, user_id: int) -> Dict[str, Any]:
         """
         Get user's relationship information and statistics formatted for /stats command.
-        
-        Args:
-            user_id: Telegram user ID
-            
-        Returns:
-            Dict containing relationship info in expected format
         """
         try:
             with db_session_context() as session:
                 user = session.query(User).filter(User.id == user_id).first()
                 if not user:
-                    logger.debug(f"User {user_id} not found in database")
-                    return {}
-                
-                logger.debug(f"Found user {user_id}: level={user.relationship_level}, affection={user.affection_points}, interactions={user.interaction_count}")
-                
-                # Calculate relationship progress
-                level = user.relationship_level
-                current_interactions = user.interaction_count
-                current_affection = user.affection_points
-                
-                # Use settings from config
-                level_names = list(RELATIONSHIP_LEVELS.values())
-                interaction_thresholds = RELATIONSHIP_THRESHOLDS["interaction_count"]
-                affection_thresholds = RELATIONSHIP_THRESHOLDS["affection_points"]
-                
-                # Ensure level is within bounds
-                level = min(level, len(level_names) - 1)
-                
-                # Calculate progress to next level
-                if level < len(level_names) - 1:
-                    next_level = level + 1
-                    interaction_needed = interaction_thresholds.get(next_level, float('inf'))
-                    affection_needed = affection_thresholds.get(next_level, float('inf'))
-                    
-                    # Calculate progress based on both interaction and affection requirements
-                    interaction_progress = min(100.0, (current_interactions / interaction_needed) * 100) if interaction_needed != float('inf') else 100.0
-                    affection_progress = min(100.0, (current_affection / affection_needed) * 100) if affection_needed != float('inf') else 100.0
-                    
-                    # Overall progress is the minimum of both (both requirements must be met)
-                    progress_percent = min(interaction_progress, affection_progress)
-                    next_level_at_interaction = interaction_needed
-                    next_level_at_affection = affection_needed
-                else:
-                    # Max level reached
-                    progress_percent = 100.0
-                    next_level_at_interaction = current_interactions
-                    next_level_at_affection = current_affection
-                
-                # Calculate affection progress for display (based on max achievable points)
-                max_affection_for_display = 500  # Reasonable max for progress bar
-                affection_display_percent = min(100.0, max(0.0, (current_affection / max_affection_for_display) * 100))
-                
-                # Get user role
-                role = get_role_by_relationship_level(level, user_id in ADMIN_IDS)
-                
-                return {
-                    "name": user.username or user.first_name or f"User{user_id}",
-                    "relationship": {
-                        "level": level,
-                        "name": level_names[level],
-                        "interactions": current_interactions,
-                        "next_level_at_interaction": next_level_at_interaction,
-                        "next_level_at_affection": next_level_at_affection,
-                        "progress_percent": progress_percent
-                    },
-                    "affection": {
-                        "points": current_affection,
-                        "progress_percent": affection_display_percent
-                    },
-                    "stats": {
-                        "total_messages": current_interactions,
-                        "positive_interactions": max(0, current_affection),  # Positive affection
-                        "negative_interactions": max(0, -current_affection),  # Negative affection
-                        "role": role,
-                        "topics_discussed": len(user.topics_discussed or []),
-                        "last_interaction": user.last_interaction.isoformat() if user.last_interaction else None
+                    return {
+                        "relationship_level": 0,
+                        "affection_points": 0,
+                        "interaction_count": 0,
+                        "role_name": get_role_by_relationship_level(0),
+                        "topics_discussed": [],
+                        "persona": "waifu"
                     }
+                return {
+                    "relationship_level": user.relationship_level,
+                    "affection_points": user.affection_points,
+                    "interaction_count": user.interaction_count,
+                    "role_name": get_role_by_relationship_level(user.relationship_level, user_id in ADMIN_IDS),
+                    "topics_discussed": user.topics_discussed or [],
+                    "persona": user.preferences.get("persona", "waifu") if user.preferences else "waifu"
                 }
-                
         except Exception as e:
-            logger.error(f"Error getting relationship info for user {user_id}: {e}")
-            return {}
+            logger.error(f"Error getting user relationship info for {user_id}: {e}", exc_info=True)
+            return {
+                "relationship_level": 0,
+                "affection_points": 0,
+                "interaction_count": 0,
+                "role_name": get_role_by_relationship_level(0),
+                "topics_discussed": [],
+                "persona": "waifu"
+            }
     
     def reset_conversation(self, user_id: int) -> bool:
         """
@@ -701,44 +678,6 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error tracking API usage: {e}")
             return False
-    
-    def _calculate_relationship_level(self, affection_points: int, interaction_count: int) -> int:
-        """
-        Calculate relationship level based on affection points and interactions.
-        
-        Args:
-            affection_points: Current affection points
-            interaction_count: Total interactions
-            
-        Returns:
-            int: Relationship level (0-10)
-        """
-        # Convert values to int to avoid comparison errors
-        affection_points = int(affection_points) if affection_points is not None else 0
-        interaction_count = int(interaction_count) if interaction_count is not None else 0
-        
-        # Get affection thresholds from nested config
-        affection_thresholds = RELATIONSHIP_THRESHOLDS.get("affection_points", {})
-        interaction_thresholds = RELATIONSHIP_THRESHOLDS.get("interaction_count", {})
-        
-        # Calculate level based on affection points
-        affection_level = 0
-        for level, threshold in affection_thresholds.items():
-            if affection_points >= int(threshold):
-                affection_level = int(level)
-        
-        # Calculate level based on interaction count
-        interaction_level = 0
-        for level, threshold in interaction_thresholds.items():
-            if interaction_count >= int(threshold):
-                interaction_level = int(level)
-        
-        # Take the higher of both levels
-        final_level = max(affection_level, interaction_level)
-        
-        # Cap at maximum level
-        max_level = max(RELATIONSHIP_LEVELS) if RELATIONSHIP_LEVELS else 10
-        return min(final_level, max_level)
     
     def get_database_stats(self) -> Dict[str, Any]:
         """
