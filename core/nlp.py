@@ -10,13 +10,7 @@ from transformers import pipeline, Pipeline
 from pathlib import Path
 
 from config.settings import (
-    EMOTION_DETECTION_MODEL, 
-    SENTIMENT_MODEL,
-    NLP_MODELS_DIR,
-    SUPPORTED_EMOTIONS,
     EMOTION_CONFIDENCE_THRESHOLD,
-    FEATURES,
-    MAX_CONTEXT_MESSAGES,
     SLIDING_WINDOW_SIZE,
     EMOTION_MODEL_ID,
     EMOTION_MODEL_EN
