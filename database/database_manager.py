@@ -501,67 +501,38 @@ class DatabaseManager:
 
     def get_user_relationship_info(self, user_id: int) -> Dict[str, Any]:
         """
-        Get user's complete relationship information and statistics for /stat command.
-        Returns all user fields for display, with safe defaults if user not found.
+        Get user's relationship information and statistics formatted for /stat command.
+        Returns only minimal, always-populated fields.
         """
         try:
             with db_session_context() as session:
                 user = session.query(User).filter(User.id == user_id).first()
                 if not user:
-                    # Return full default dict if user not found
                     return {
-                        'id': user_id,
-                        'username': None,
-                        'first_name': None,
-                        'last_name': None,
-                        'language_code': DEFAULT_LANGUAGE,
-                        'is_admin': user_id in ADMIN_IDS,
-                        'relationship_level': 0,
-                        'affection_points': 0,
-                        'interaction_count': 0,
-                        'last_interaction': None,
-                        'created_at': None,
-                        'updated_at': None,
-                        'role_name': get_role_by_relationship_level(0),
-                        'topics_discussed': [],
-                        'persona': 'waifu'
+                        "relationship_level": 0,
+                        "affection_points": 0,
+                        "interaction_count": 0,
+                        "role_name": get_role_by_relationship_level(0),
+                        "topics_discussed": [],
+                        "persona": "waifu"
                     }
-                # Return all relevant user fields
                 return {
-                    'id': user.id,
-                    'username': user.username,
-                    'first_name': user.first_name,
-                    'last_name': user.last_name,
-                    'language_code': user.language_code,
-                    'is_admin': user_id in ADMIN_IDS,
-                    'relationship_level': user.relationship_level,
-                    'affection_points': user.affection_points,
-                    'interaction_count': user.interaction_count,
-                    'last_interaction': user.last_interaction,
-                    'created_at': user.created_at,
-                    'updated_at': getattr(user, 'updated_at', None),
-                    'role_name': get_role_by_relationship_level(user.relationship_level, user_id in ADMIN_IDS),
-                    'topics_discussed': user.topics_discussed or [],
-                    'persona': user.preferences.get('persona', 'waifu') if user.preferences else 'waifu'
+                    "relationship_level": user.relationship_level,
+                    "affection_points": user.affection_points,
+                    "interaction_count": user.interaction_count,
+                    "role_name": get_role_by_relationship_level(user.relationship_level, user_id in ADMIN_IDS),
+                    "topics_discussed": user.topics_discussed or [],
+                    "persona": user.preferences.get("persona", "waifu") if user.preferences else "waifu"
                 }
         except Exception as e:
             logger.error(f"Error getting user relationship info for {user_id}: {e}", exc_info=True)
             return {
-                'id': user_id,
-                'username': None,
-                'first_name': None,
-                'last_name': None,
-                'language_code': DEFAULT_LANGUAGE,
-                'is_admin': user_id in ADMIN_IDS,
-                'relationship_level': 0,
-                'affection_points': 0,
-                'interaction_count': 0,
-                'last_interaction': None,
-                'created_at': None,
-                'updated_at': None,
-                'role_name': get_role_by_relationship_level(0),
-                'topics_discussed': [],
-                'persona': 'waifu'
+                "relationship_level": 0,
+                "affection_points": 0,
+                "interaction_count": 0,
+                "role_name": get_role_by_relationship_level(0),
+                "topics_discussed": [],
+                "persona": "waifu"
             }
     
     def reset_conversation(self, user_id: int) -> bool:
