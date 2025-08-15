@@ -238,12 +238,18 @@ def _get_mood_emojis() -> Dict[str, List[str]]:
 def _format_roleplay_and_actions(text: str, lang: str = None) -> str:
     if not text:
         return ""
-    
-    # Convert roleplay markers to italic, but keep them more natural
-    text = re.sub(r"\*(.*?)\*", lambda m: f"<i>{m.group(1).strip()}</i>", text)
-    text = re.sub(r"_(.*?)_", lambda m: f"<i>{m.group(1).strip()}</i>", text)
-    text = re.sub(r"\[(.*?)\]", lambda m: f"<i>{m.group(1).strip()}</i>", text)
-    text = re.sub(r"([А-Яа-яЁё][А-Яа-яЁё\s]*[А-Яа-яЁё])", lambda m: f"<i>{m.group(1).strip()}</i>" if '<i>' not in m.group(1) else m.group(1), text)
+    # Convert *action* or [action] or _action_ at start/end of line to <i>action</i>
+    def repl_action(m):
+        content = m.group(1).strip()
+        # Avoid double-wrapping
+        if content.startswith('<i>') and content.endswith('</i>'):
+            return content
+        return f"<i>{content}</i>"
+    # Only match action markers at start/end or surrounded by whitespace
+    text = re.sub(r"(^|\s)\*(.*?)\*(?=\s|$)", lambda m: f"{m.group(1)}<i>{m.group(2).strip()}</i>", text)
+    text = re.sub(r"(^|\s)_(.*?)_(?=\s|$)", lambda m: f"{m.group(1)}<i>{m.group(2).strip()}</i>", text)
+    text = re.sub(r"(^|\s)\[(.*?)\](?=\s|$)", lambda m: f"{m.group(1)}<i>{m.group(2).strip()}</i>", text)
+    # Optionally: Russian action/roleplay (if needed)
     return text.strip()
 
 def _split_humanlike_lines(text: str) -> List[str]:
@@ -312,62 +318,58 @@ def format_response(
     fallback = _get_fallback_message(lang)
     if not message or not message.strip():
         return fallback
-
-    # Handle username placeholders
+    # Username placeholders
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
-
     if nlp_engine is None:
         nlp_engine = NLPEngine()
     persona_manager = PersonaManager()
     persona = persona_manager.get_persona(persona_name=persona_name)
     russian_expressions = persona.get("russian_expressions", ["дурак", "что", "глупый", "бaka"])
-
     # Format roleplay elements
     formatted_text = _format_roleplay_and_actions(message, lang=lang)
-    # Split into paragraphs/lines
-    lines = _split_humanlike_lines(formatted_text)
-
+    # Split into paragraphs (double newline or blank line)
+    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', formatted_text) if p.strip()]
     processed_lines = []
     emoji_count = 0
     max_emoji = min(MAX_EMOJI_PER_RESPONSE, 5)
-    for idx, line in enumerate(lines):
-        if not line.strip():
-            continue
-        line = escape_html(line)
-        line = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', line)
-        context = nlp_engine.get_message_context(line, user_id=user_id)
+    for idx, para in enumerate(paragraphs):
+        para = escape_html(para)
+        para = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', para)
+        context = nlp_engine.get_message_context(para, user_id=user_id)
         mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
-        mood_emojis = nlp_engine.suggest_emojis(line, mood, count=2)
+        mood_emojis = nlp_engine.suggest_emojis(para, mood, count=2)
         if mood in ("defensive_flustered", "comfortable_tsundere", "angry", "embarrassed", "tsundere_cold", "tsundere_defensive") and random.random() < 0.25:
             rus = random.choice(russian_expressions)
-            line = f"{line} <i>{rus}</i>"
-        if emoji_count < max_emoji and (line.endswith(('.', '!', '?', '...')) or '<i>' in line or idx == len(lines)-1):
+            para = f"{para} <i>{rus}</i>"
+        if emoji_count < max_emoji and (para.endswith(('.', '!', '?', '...')) or '<i>' in para or idx == len(paragraphs)-1):
             for emj in mood_emojis:
                 if emoji_count < max_emoji:
-                    if not line.endswith(' '):
-                        line += ' '
-                    line = f"{line}{emj}"
+                    if not para.endswith(' '):
+                        para += ' '
+                    para = f"{para}{emj}"
                     emoji_count += 1
-        processed_lines.append(line)
+        processed_lines.append(para)
+    # Now, join paragraphs with double newline for Telegram readability
     final = '\n\n'.join([l for l in processed_lines if l.strip()])
     final = clean_html_entities(final)
     MAX_LEN = 4096
     if len(final) <= MAX_LEN:
         return final if final.strip() else fallback
+    # If too long, split on paragraph boundaries, never in the middle of a paragraph
     parts = []
     current = ""
-    for line in final.split('\n\n'):
-        if not line.strip():
+    for para in processed_lines:
+        if not para.strip():
             continue
-        if len(current) + len(line) + 2 > MAX_LEN:
+        if len(current) + len(para) + 2 > MAX_LEN:
             if current.strip():
                 parts.append(current.strip())
-            current = line
+            current = para
         else:
-            current = current + '\n\n' + line if current else line
+            current = current + '\n\n' + para if current else para
     if current.strip():
         parts.append(current.strip())
     parts = [p for p in parts if p.strip()]
