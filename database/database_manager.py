@@ -416,6 +416,43 @@ class DatabaseManager:
             logger.error(f"Error getting conversation history for user {user_id}: {e}")
             return []
     
+    def get_conversation_summaries(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Retrieve conversation summaries for a user, ordered by most recent.
+
+        Args:
+            user_id: Telegram user ID
+            limit: Maximum number of summaries to return
+        Returns:
+            List of summary dicts (most recent first)
+        """
+        try:
+            with db_session_context() as session:
+                summaries = (
+                    session.query(ConversationSummary)
+                    .filter(ConversationSummary.user_id == user_id)
+                    .order_by(ConversationSummary.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+                result = []
+                for summary in summaries:
+                    result.append({
+                        "id": summary.id,
+                        "content": summary.content,
+                        "summary_type": summary.summary_type,
+                        "message_count": summary.message_count,
+                        "date_range_start": summary.date_range_start,
+                        "date_range_end": summary.date_range_end,
+                        "model_used": summary.model_used,
+                        "summary_metadata": summary.get_summary_metadata(),
+                        "created_at": summary.created_at
+                    })
+                return result
+        except Exception as e:
+            logger.error(f"Error getting conversation summaries for user {user_id}: {e}", exc_info=True)
+            return []
+
     def update_affection(self, user_id: int, points: int) -> bool:
         """
         Update user's affection points and relationship level.
@@ -848,5 +885,56 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting user {user_id}: {e}", exc_info=True)
             return None
+
+    def save_conversation_summary(self, user_id: int, summary: Dict[str, Any]) -> bool:
+        """
+        Save a conversation summary for a user.
+        Args:
+            user_id: Telegram user ID
+            summary: Dict with keys: content, message_count, date_range_start, date_range_end, etc.
+        Returns:
+            bool: True if saved successfully
+        """
+        try:
+            with db_session_context() as session:
+                new_summary = ConversationSummary(
+                    user_id=user_id,
+                    content=summary.get("content", ""),
+                    summary_type=summary.get("summary_type", "auto"),
+                    message_count=summary.get("message_count", 0),
+                    date_range_start=summary.get("date_range_start"),
+                    date_range_end=summary.get("date_range_end"),
+                    model_used=summary.get("model_used"),
+                    summary_metadata=summary.get("summary_metadata", {})
+                )
+                session.add(new_summary)
+                session.commit()
+                logger.info(f"Saved conversation summary for user {user_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Error saving conversation summary for user {user_id}: {e}", exc_info=True)
+            return False
+
+    def delete_conversation_messages(self, user_id: int, before: Any) -> int:
+        """
+        Delete conversation messages for a user before a certain timestamp.
+        Args:
+            user_id: Telegram user ID
+            before: Timestamp (datetime) to delete messages before
+        Returns:
+            int: Number of messages deleted
+        """
+        try:
+            with db_session_context() as session:
+                deleted = session.query(Conversation).filter(
+                    Conversation.user_id == user_id,
+                    Conversation.created_at < before
+                ).delete(synchronize_session=False)
+                session.commit()
+                logger.info(f"Deleted {deleted} old conversation messages for user {user_id}")
+                return deleted
+        except Exception as e:
+            logger.error(f"Error deleting conversation messages for user {user_id}: {e}", exc_info=True)
+            return 0
 
 db_manager = DatabaseManager()

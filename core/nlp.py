@@ -17,19 +17,20 @@ from config.settings import (
     EMOTION_CONFIDENCE_THRESHOLD,
     FEATURES,
     MAX_CONTEXT_MESSAGES,
-    SLIDING_WINDOW_SIZE
+    SLIDING_WINDOW_SIZE,
+    EMOTION_MODEL_ID,
+    EMOTION_MODEL_EN
 )
 from database.database_manager import db_manager, DatabaseManager
 
 logger = logging.getLogger(__name__)
 
 class NLPEngine:
-    """NLP engine for emotion detection, sentiment analysis, and context-aware features."""
+    """NLP engine for emotion detection and context-aware features."""
     def __init__(self):
-        self.emotion_classifier: Optional[Pipeline] = None
-        self.sentiment_analyzer: Optional[Pipeline] = None
+        self.emotion_classifier_id: Optional[Pipeline] = None
+        self.emotion_classifier_en: Optional[Pipeline] = None
         self._emotion_cache: Dict[str, Tuple[str, float]] = {}
-        self._sentiment_cache: Dict[str, Tuple[str, float, float]] = {}
         self._cache_ttl = 300
         self._max_cache_size = 1000
         self._initialize_models()
@@ -52,82 +53,71 @@ class NLPEngine:
 
     def _initialize_models(self) -> None:
         try:
-            if FEATURES.get("emotion_detection", False):
-                logger.info("Loading local emotion detection model...")
-                emotion_model_path = os.path.join(NLP_MODELS_DIR, EMOTION_DETECTION_MODEL)
-                self.emotion_classifier = pipeline(
-                    task="text-classification",
-                    model=emotion_model_path,
-                    top_k=3
-                )
-                logger.info("Emotion detection model loaded from local device.")
-            if FEATURES.get("sentiment_analysis", False):
-                logger.info("Loading local sentiment model...")
-                sentiment_model_path = os.path.join(NLP_MODELS_DIR, SENTIMENT_MODEL)
-                self.sentiment_analyzer = pipeline(
-                    task="sentiment-analysis",
-                    model=sentiment_model_path
-                )
-                logger.info("Sentiment analyzer loaded from local device.")
+            # Load Indonesian emotion classifier from config
+            logger.info(f"Loading EmoSense-ID (Indonesian emotion classifier): {EMOTION_MODEL_ID}")
+            self.emotion_classifier_id = pipeline(
+                task="text-classification",
+                model=EMOTION_MODEL_ID,
+                top_k=1
+            )
+            logger.info("EmoSense-ID loaded.")
+            # Load English/multilingual emotion classifier from config
+            logger.info(f"Loading multilingual_go_emotions (English emotion classifier): {EMOTION_MODEL_EN}")
+            self.emotion_classifier_en = pipeline(
+                task="text-classification",
+                model=EMOTION_MODEL_EN,
+                top_k=3
+            )
+            logger.info("multilingual_go_emotions loaded.")
         except Exception as e:
-            logger.error(f"Error initializing NLP models: {str(e)}")
-            self.emotion_classifier = None
-            self.sentiment_analyzer = None
+            logger.error(f"Error initializing emotion models: {str(e)}")
+            self.emotion_classifier_id = None
+            self.emotion_classifier_en = None
 
     def detect_emotion(self, text: str, user_id: int = None) -> Optional[str]:
-        if not FEATURES.get("emotion_detection", False) or not self.emotion_classifier:
-            return None
+        """
+        Detect emotion using the appropriate model based on user language.
+        """
+        # Determine user language from database
+        lang = "id"
+        if user_id:
+            user_settings = db_manager.get_user_settings(user_id)
+            lang = user_settings.get("language", "id")
         self._cleanup_cache(self._emotion_cache)
-        text_hash = self._get_text_hash(text)
+        text_hash = self._get_text_hash(f"{lang}:{text}")
         if text_hash in self._emotion_cache:
             emotion, timestamp = self._emotion_cache[text_hash]
             if self._is_cache_valid(timestamp):
                 return emotion
         try:
-            result = self.emotion_classifier(text)
-            if result and len(result[0]) > 0:
-                # Pick the highest confidence emotion above threshold
-                for candidate in result[0]:
-                    if candidate['score'] >= EMOTION_CONFIDENCE_THRESHOLD:
-                        emotion = candidate['label']
-                        self._emotion_cache[text_hash] = (emotion, time.time())
-                        return emotion
-                # Fallback: pick top-1
-                emotion = result[0][0]['label']
-                self._emotion_cache[text_hash] = (emotion, time.time())
-                return emotion
+            if lang == "id" and self.emotion_classifier_id:
+                result = self.emotion_classifier_id(text)
+                if result and len(result) > 0:
+                    emotion = result[0]["label"] if isinstance(result[0], dict) else result[0][0]["label"]
+                    self._emotion_cache[text_hash] = (emotion, time.time())
+                    return emotion
+            elif lang == "en" and self.emotion_classifier_en:
+                result = self.emotion_classifier_en(text)
+                if result and len(result[0]) > 0:
+                    # Pick the highest confidence emotion above threshold
+                    for candidate in result[0]:
+                        if candidate["score"] >= EMOTION_CONFIDENCE_THRESHOLD:
+                            emotion = candidate["label"]
+                            self._emotion_cache[text_hash] = (emotion, time.time())
+                            return emotion
+                    # Fallback: pick top-1
+                    emotion = result[0][0]["label"]
+                    self._emotion_cache[text_hash] = (emotion, time.time())
+                    return emotion
         except Exception as e:
             logger.error(f"Emotion detection failed: {e}")
         return None
 
-    def analyze_sentiment(self, text: str) -> Tuple[str, float]:
-        if not FEATURES.get("sentiment_analysis", False) or not self.sentiment_analyzer:
-            return ("neutral", 0.0)
-        self._cleanup_cache(self._sentiment_cache)
-        text_hash = self._get_text_hash(text)
-        if text_hash in self._sentiment_cache:
-            sentiment, score, timestamp = self._sentiment_cache[text_hash]
-            if self._is_cache_valid(timestamp):
-                return (sentiment, score)
-        try:
-            result = self.sentiment_analyzer(text)
-            if result and len(result) > 0:
-                sentiment = result[0]['label']
-                score = result[0]['score']
-                self._sentiment_cache[text_hash] = (sentiment, score, time.time())
-                return (sentiment, score)
-        except Exception as e:
-            logger.error(f"Sentiment analysis failed: {e}")
-        return ("neutral", 0.0)
-
     def get_message_context(self, text: str, user_id: int = None) -> Dict[str, Any]:
-        """Analyze message for emotion, sentiment, and intent."""
+        """Analyze message for emotion only."""
         emotion = self.detect_emotion(text, user_id)
-        sentiment, score = self.analyze_sentiment(text)
         return {
-            "emotion": emotion,
-            "sentiment": sentiment,
-            "sentiment_score": score
+            "emotion": emotion
         }
 
     def suggest_mood_for_response(self, user_context: Dict[str, Any], relationship_level: int) -> str:
@@ -173,13 +163,15 @@ class NLPEngine:
             "sadness": "sedih",
             "fear": "takut",
             "surprise": "kaget",
-            "neutral": "biasa aja"
+            "neutral": "biasa aja",
+            "trust": "percaya",
+            "anticipation": "antisipasi",
+            "disgust": "jijik"
         }
         return desc_map.get(emotion, emotion)
 
     def analyze_conversation_flow(self, user_id: int, current_message: str) -> Dict[str, Any]:
         """Analyze conversation flow for context-aware response."""
-        # Placeholder: could be expanded with more advanced logic
         return self.get_message_context(current_message, user_id)
 
 class ContextManager:
