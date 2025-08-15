@@ -14,78 +14,64 @@ logger = logging.getLogger(__name__)
 
 class PersonaManager:
     """Manager for bot personas loaded from YAML files."""
-    
-    # Define the class attribute _instance here, outside of any method
     _instance = None
-    
+
     def __init__(self) -> None:
         """Initialize the persona manager."""
         self.personas: Dict[str, Dict[str, Any]] = {}
+        self.persona_data: Dict[str, Any] = {}  # Store full YAML for default persona
         self.load_personas()
-        
+
     def __new__(cls):
-        """Implement singleton pattern to prevent multiple loads of the same files.
-        
-        Returns:
-            Singleton instance
-        """
         if cls._instance is None:
             cls._instance = super(PersonaManager, cls).__new__(cls)
             cls._instance.personas = {}
+            cls._instance.persona_data = {}
         return cls._instance
-        
+
     def load_personas(self) -> None:
-        """Load all persona YAML files from the persona directory."""
-        # Skip if already loaded
         if self.personas:
             return
-            
         try:
-            # Ensure persona directory exists
             if not os.path.exists(PERSONA_DIR):
                 logger.error(f"Persona directory {PERSONA_DIR} does not exist")
                 return
-                
-            # Load each YAML file in the directory
             for filename in os.listdir(PERSONA_DIR):
                 if filename.endswith('.yml') or filename.endswith('.yaml'):
                     persona_name = filename.split('.')[0]
                     filepath = os.path.join(PERSONA_DIR, filename)
-                    
                     try:
                         with open(filepath, 'r', encoding='utf-8') as file:
                             persona_data = yaml.safe_load(file)
                             self.personas[persona_name] = persona_data
+                            if persona_name == DEFAULT_PERSONA:
+                                self.persona_data = persona_data  # Store full YAML for default
                             logger.info(f"Loaded persona: {persona_name}")
                     except Exception as e:
                         logger.error(f"Error loading persona {persona_name}: {str(e)}")
-            
             logger.info(f"Loaded {len(self.personas)} personas")
-            
-            # Ensure default persona exists
             if DEFAULT_PERSONA not in self.personas:
                 logger.warning(f"Default persona '{DEFAULT_PERSONA}' not found")
-                
         except Exception as e:
             logger.error(f"Error loading personas: {str(e)}")
-            
+
     def get_persona(self, persona_name: Optional[str] = None) -> Dict[str, Any]:
-        """Get a persona by name.
-        
-        Args:
-            persona_name: Name of the persona to load, or None for default
-            
-        Returns:
-            Persona data dictionary
-        """
         name = persona_name or DEFAULT_PERSONA
         if name in self.personas:
             return self.personas[name]
         else:
-            # Fall back to default
             logger.warning(f"Persona '{name}' not found, using default")
             return self.personas.get(DEFAULT_PERSONA, {})
-            
+
+    def get_section(self, section: str, persona_name: Optional[str] = None) -> Any:
+        """Get a section from the persona YAML as a dict or value."""
+        persona = self.get_persona(persona_name)
+        return persona.get(section, None)
+
+    def get_full_persona(self, persona_name: Optional[str] = None) -> Dict[str, Any]:
+        """Return the full persona YAML as a dict."""
+        return self.get_persona(persona_name)
+
     def get_greeting(self, persona_name: Optional[str] = None, username: str = "user") -> str:
         """Get a time-appropriate greeting message for the given persona.
         
@@ -134,9 +120,9 @@ class PersonaManager:
         
         # Use Alya-style error message as fallback instead of generic one
         if lang == DEFAULT_LANGUAGE:
-            default_error = "Eh... что?! Ada yang error nih... 😳\n\nB-bukan salahku ya! Sistemnya lagi bermasalah... дурак teknologi! 💫\n\nCoba lagi nanti, {username}-kun!"
+            default_error = "Eh... что?! Ada yang error nih... 😳\n\nB-bukan salahku ya! Sistemnya lagi bermasalah... дурак технологии! 💫\n\nCoba lagi nanti, {username}-kun!"
         else:
-            default_error = "Eh... что?! Something went wrong... 😳\n\nI-It's not my fault! The system is having issues... дурак technology! 💫\n\nTry again later, {username}!"
+            default_error = "Eh... что?! Something went wrong... 😳\n\nI-It's not my fault! The system is having issues... дурак технологии! 💫\n\nTry again later, {username}!"
             
         error_template = lang_errors.get("generic", default_error)
         
@@ -149,10 +135,11 @@ class PersonaManager:
         context: str,
         relationship_level: int,
         is_admin: bool,
-        lang: str = DEFAULT_LANGUAGE
+        lang: str = DEFAULT_LANGUAGE,
+        extra_sections: Optional[List[str]] = None
     ) -> str:
-        """Construct a detailed chat prompt for Gemini.
-        
+        """Construct a detailed chat prompt for Gemini, using multiple persona sections if needed.
+
         Args:
             username: User's name
             message: User's message
@@ -160,27 +147,32 @@ class PersonaManager:
             relationship_level: User's relationship level with Alya
             is_admin: Whether the user is an admin
             lang: The user's preferred language
-            
+            extra_sections: List of section names to include in prompt (besides system_prompt)
         Returns:
             The full prompt for Gemini
         """
-        persona = self.get_persona() # Use default persona for chat
-        
-        # Get language-specific persona details
-        persona_lang = persona.get(lang, persona.get(DEFAULT_LANGUAGE, {}))
-
-        base_instructions = persona_lang.get("base_instructions", "")
-        personality_traits = "\n- ".join(persona_lang.get("personality_traits", []))
-        relationship_instructions = self._get_relationship_instructions(persona_lang, relationship_level)
-        response_format = persona_lang.get("response_format", "")
-        russian_phrases = "\n- ".join([f"`{p}`: {d}" for p, d in persona_lang.get("russian_phrases", {}).items()])
-        
-        admin_note = ""
-        if is_admin:
-            admin_note = persona_lang.get("admin_note", "")
-
-        prompt = f"""
-{base_instructions}
+        persona = self.get_persona()  # Use default persona for chat
+        # Always start with system_prompt if available
+        prompt_parts = []
+        system_prompt = persona.get("system_prompt", "").strip()
+        if system_prompt:
+            prompt_parts.append(system_prompt)
+        # Optionally add extra sections (e.g. emotional_processing, smart_alya_enhancement, etc)
+        if extra_sections:
+            for section in extra_sections:
+                section_data = persona.get(section)
+                if section_data:
+                    prompt_parts.append(f"\n# {section.replace('_', ' ').title()}\n{yaml.dump(section_data, allow_unicode=True)}")
+        # Fallback to old logic if system_prompt not found
+        if not prompt_parts:
+            persona_lang = persona.get(lang, persona.get(DEFAULT_LANGUAGE, {}))
+            base_instructions = persona_lang.get("base_instructions", "")
+            personality_traits = "\n- ".join(persona_lang.get("personality_traits", []))
+            relationship_instructions = self._get_relationship_instructions(persona_lang, relationship_level)
+            response_format = persona_lang.get("response_format", "")
+            russian_phrases = "\n- ".join([f"`{p}`: {d}" for p, d in persona_lang.get("russian_phrases", {}).items()])
+            admin_note = persona_lang.get("admin_note", "") if is_admin else ""
+            prompt_parts.append(f"""{base_instructions}
 
 **Your Core Personality:**
 - {personality_traits}
@@ -189,21 +181,11 @@ class PersonaManager:
 {relationship_instructions}
 {admin_note}
 
-**Conversation Context (Recent History):**
----
-{context or "This is the beginning of your conversation."}
----
-
-**User's Message:**
-> {message}
-
-**Your Task:**
-Respond to {username} in **{persona_lang.get('language_name', 'Bahasa Indonesia')}**.
-{response_format}
-
 **Russian Phrases You Can Use (sparingly, for emotional emphasis):**
 - {russian_phrases}
-"""
+""")
+        prompt = "\n\n".join(prompt_parts)
+        prompt += f"\n\n**Conversation Context (Recent History):**\n---\n{context or 'This is the beginning of your conversation.'}\n---\n\n**User's Message:**\n> {message}\n\n**Your Task:**\nRespond to {username} in **{lang}**."
         return prompt.strip()
 
     def get_media_analysis_prompt(
