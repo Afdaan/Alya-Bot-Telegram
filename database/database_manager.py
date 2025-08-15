@@ -979,7 +979,7 @@ class DatabaseManager:
             user_id: Telegram user ID
             limit: Number of texts to retrieve
         Returns:
-            List of dicts: [{"content": str}]
+            List of dicts: [{"text": str}]
         """
         try:
             with db_session_context() as session:
@@ -990,7 +990,7 @@ class DatabaseManager:
                     .limit(limit)
                     .all()
                 )
-                return [{"content": conv.content} for conv in conversations]
+                return [{"text": conv.content} for conv in conversations]
         except Exception as e:
             logger.error(f"Error in get_rag_texts for user {user_id}: {e}", exc_info=True)
             return []
