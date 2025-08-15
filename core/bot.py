@@ -68,7 +68,7 @@ def initialize_application() -> Optional[Application]:
         ensure_database_schema()
         logger.info("Initializing components...")
         # Use global db_manager instance instead of creating new one
-        memory_manager = MemoryManager()
+        memory_manager = MemoryManager(db_manager)
         gemini_client = GeminiClient()
         persona_manager = PersonaManager()
         nlp_engine = None
