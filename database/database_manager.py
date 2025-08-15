@@ -456,11 +456,9 @@ class DatabaseManager:
     def update_affection(self, user_id: int, points: int) -> bool:
         """
         Update user's affection points and relationship level.
-        
         Args:
             user_id: Telegram user ID
             points: Points to add (can be negative)
-            
         Returns:
             bool: True if updated successfully, False otherwise
         """
@@ -470,11 +468,11 @@ class DatabaseManager:
                 if not user:
                     user = create_default_user(session, user_id)
                 current_affection = int(user.affection_points) if user.affection_points is not None else 0
-                current_interactions = int(user.interaction_count) if user.interaction_count is not None else 0
                 old_level = int(user.relationship_level) if user.relationship_level is not None else 0
                 new_affection = max(0, current_affection + int(points))
                 user.affection_points = new_affection
-                new_level = self._calculate_relationship_level(new_affection, current_interactions)
+                # Use affection_points for level calculation
+                new_level = self._calculate_relationship_level(new_affection, mode="affection_points")
                 if new_level != old_level:
                     user.relationship_level = new_level
                 session.commit()
@@ -484,13 +482,22 @@ class DatabaseManager:
             logger.error(f"Error updating affection for user {user_id}: {e}", exc_info=True)
             return False
 
-    def _calculate_relationship_level(self, affection: int, interactions: int) -> int:
+    def _calculate_relationship_level(self, value: int, mode: str = "affection_points") -> int:
         """
-        Calculate relationship level based on affection and interaction count.
+        Calculate relationship level based on affection points or interaction count.
+
+        Args:
+            value: The value to compare (affection points or interaction count)
+            mode: Which threshold to use ('affection_points' or 'interaction_count')
+        Returns:
+            int: Relationship level (0-4)
         """
-        # Example: Use RELATIONSHIP_THRESHOLDS from config
-        for level, threshold in sorted(RELATIONSHIP_THRESHOLDS.items(), reverse=True):
-            if affection >= threshold:
+        thresholds = RELATIONSHIP_THRESHOLDS.get(mode)
+        if not thresholds or not isinstance(thresholds, dict):
+            logger.error(f"Invalid relationship threshold mode: {mode}")
+            return 0
+        for level, threshold in sorted(thresholds.items(), reverse=True):
+            if value >= threshold:
                 return int(level)
         return 0
 
