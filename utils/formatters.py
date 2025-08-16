@@ -16,7 +16,8 @@ import yaml
 from functools import lru_cache
 
 from config.settings import (
-    FORMAT_ROLEPLAY, 
+    FORMAT_ROLEPLAY,
+    MAX_MESSAGE_LENGTH,
     FORMAT_EMOTION,
     MAX_EMOJI_PER_RESPONSE,
     DEFAULT_LANGUAGE
@@ -241,7 +242,6 @@ def _format_roleplay_and_actions(text: str, lang: str = None) -> str:
     # Convert *action* or [action] or _action_ at start/end of line to <i>action</i>
     def repl_action(m):
         content = m.group(1).strip()
-        # Avoid double-wrapping
         if content.startswith('<i>') and content.endswith('</i>'):
             return content
         return f"<i>{content}</i>"
@@ -249,57 +249,7 @@ def _format_roleplay_and_actions(text: str, lang: str = None) -> str:
     text = re.sub(r"(^|\s)\*(.*?)\*(?=\s|$)", lambda m: f"{m.group(1)}<i>{m.group(2).strip()}</i>", text)
     text = re.sub(r"(^|\s)_(.*?)_(?=\s|$)", lambda m: f"{m.group(1)}<i>{m.group(2).strip()}</i>", text)
     text = re.sub(r"(^|\s)\[(.*?)\](?=\s|$)", lambda m: f"{m.group(1)}<i>{m.group(2).strip()}</i>", text)
-    # Optionally: Russian action/roleplay (if needed)
     return text.strip()
-
-def _split_humanlike_lines(text: str) -> List[str]:
-    """Split text into natural conversation flow."""
-    if not text:
-        return []
-    
-    # Split by double newlines first (natural paragraph breaks)
-    paragraphs = re.split(r'\n\s*\n', text.strip())
-    result = []
-    
-    for paragraph in paragraphs:
-        paragraph = paragraph.strip()
-        if not paragraph:
-            continue
-            
-        # Keep dialogue and narration together more naturally
-        # Only split if there's a clear action -> dialogue transition
-        if '<i>' in paragraph and '"' in paragraph:
-            # Mixed action and dialogue - keep together for flow
-            result.append(paragraph)
-        else:
-            # Pure dialogue or pure action
-            result.append(paragraph)
-    
-    return result
-
-def _get_contextual_emoji(text: str, mood: str, relationship_level: int) -> str:
-    """Get contextually appropriate emoji based on content and mood."""
-    text_lower = text.lower()
-    
-    # Emotional context detection
-    if any(word in text_lower for word in ['khawatir', 'cemas', 'takut', 'was-was']):
-        return random.choice(['😰', '🥺', '😟', '💔', '😔'])
-    elif any(word in text_lower for word in ['maaf', 'sorry', 'minta maaf']):
-        return random.choice(['😔', '🥺', '😢', '💔'])
-    elif any(word in text_lower for word in ['senang', 'gembira', 'bahagia', 'suka']):
-        return random.choice(['😊', '🥰', '😄', '💕', '✨'])
-    elif any(word in text_lower for word in ['marah', 'kesal', 'jengkel']):
-        return random.choice(['😤', '💢', '😠', '🔥'])
-    elif any(word in text_lower for word in ['malu', 'embarrass', 'blush']):
-        return random.choice(['😳', '😅', '🙈', '💦'])
-    elif any(word in text_lower for word in ['kaget', 'surprised', 'shock']):
-        return random.choice(['😳', '😲', '🙀', '😱'])
-    
-    # Relationship-based defaults
-    if relationship_level >= 3:
-        return random.choice(['💕', '🥰', '😊', '✨', '🌸'])
-    else:
-        return random.choice(['😊', '🌸', '✨', '🦋'])
 
 def format_response(
     message: str,
@@ -318,7 +268,6 @@ def format_response(
     fallback = _get_fallback_message(lang)
     if not message or not message.strip():
         return fallback
-    # Username placeholders
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
@@ -327,12 +276,12 @@ def format_response(
         nlp_engine = NLPEngine()
     persona_manager = PersonaManager()
     persona = persona_manager.get_persona(persona_name=persona_name)
-    russian_expressions = persona.get("russian_expressions", ["дурак", "что", "глупый", "бaka"])
+    russian_expressions = persona.get("russian_expressions", ["дурак", "что", "глупый", "baka"])
     # Format roleplay elements
     formatted_text = _format_roleplay_and_actions(message, lang=lang)
     # Split into paragraphs (double newline or blank line)
     paragraphs = [p.strip() for p in re.split(r'\n\s*\n', formatted_text) if p.strip()]
-    processed_lines = []
+    processed_blocks = []
     emoji_count = 0
     max_emoji = min(MAX_EMOJI_PER_RESPONSE, 5)
     for idx, para in enumerate(paragraphs):
@@ -341,35 +290,43 @@ def format_response(
         context = nlp_engine.get_message_context(para, user_id=user_id)
         mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
         mood_emojis = nlp_engine.suggest_emojis(para, mood, count=2)
-        if mood in ("defensive_flustered", "comfortable_tsundere", "angry", "embarrassed", "tsundere_cold", "tsundere_defensive") and random.random() < 0.25:
-            rus = random.choice(russian_expressions)
-            para = f"{para} <i>{rus}</i>"
-        if emoji_count < max_emoji and (para.endswith(('.', '!', '?', '...')) or '<i>' in para or idx == len(paragraphs)-1):
-            for emj in mood_emojis:
-                if emoji_count < max_emoji:
-                    if not para.endswith(' '):
-                        para += ' '
-                    para = f"{para}{emj}"
-                    emoji_count += 1
-        processed_lines.append(para)
-    # Now, join paragraphs with double newline for Telegram readability
-    final = '\n\n'.join([l for l in processed_lines if l.strip()])
+        # Randomly pick a Russian expression and emoji position
+        rus = random.choice(russian_expressions) if random.random() < 0.5 else None
+        emj = random.choice(mood_emojis) if mood_emojis and random.random() < 0.7 else None
+        # Compose block: <i>Roleplay/Mood</i>\nConversation\n<i>Roleplay/Mood</i>
+        roleplay_top = f"<i>{mood.replace('_', ' ').title()}</i>"
+        roleplay_bottom = f"<i>{mood.replace('_', ' ').title()}</i>"
+        # Insert Russian/emoji randomly in block
+        lines = [roleplay_top]
+        if rus and random.random() < 0.5:
+            lines.append(f"<i>{rus}</i>")
+        lines.append(para)
+        if emj and random.random() < 0.5:
+            lines.append(emj)
+        lines.append(roleplay_bottom)
+        if rus and random.random() >= 0.5:
+            lines.append(f"<i>{rus}</i>")
+        if emj and random.random() >= 0.5:
+            lines.append(emj)
+        block = '\n'.join([l for l in lines if l and l.strip()])
+        processed_blocks.append(block)
+    # Join blocks with double newline for Telegram readability
+    final = '\n\n'.join([b for b in processed_blocks if b.strip()])
     final = clean_html_entities(final)
-    MAX_LEN = 4096
-    if len(final) <= MAX_LEN:
+    if len(final) <= MAX_MESSAGE_LENGTH:
         return final if final.strip() else fallback
-    # If too long, split on paragraph boundaries, never in the middle of a paragraph
+    # If too long, split on block boundaries
     parts = []
     current = ""
-    for para in processed_lines:
-        if not para.strip():
+    for block in processed_blocks:
+        if not block.strip():
             continue
-        if len(current) + len(para) + 2 > MAX_LEN:
+        if len(current) + len(block) + 2 > MAX_MESSAGE_LENGTH:
             if current.strip():
                 parts.append(current.strip())
-            current = para
+            current = block
         else:
-            current = current + '\n\n' + para if current else para
+            current = current + '\n\n' + block if current else block
     if current.strip():
         parts.append(current.strip())
     parts = [p for p in parts if p.strip()]
