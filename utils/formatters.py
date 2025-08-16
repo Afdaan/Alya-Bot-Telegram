@@ -149,26 +149,25 @@ def _sanitize_response(response: str, username: str) -> str:
     """Clean up model output, remove speaker prefixes and excessive punctuation."""
     if not response:
         return ""
-    lines = response.splitlines()
-    cleaned_lines = []
+    
+    # Handle speaker prefixes at the beginning of response
     prefixes_to_remove = [
         "User:", f"{username}:", "Alya:", "Bot:", "Assistant:", "Human:", "AI:"
     ]
-    for line in lines:
-        line_stripped = line.strip()
-        for prefix in prefixes_to_remove:
-            if line_stripped.startswith(prefix):
-                line = line_stripped[len(prefix):].strip()
-                break
-        if line.strip():
-            cleaned_lines.append(line)
-    response = "\n".join(cleaned_lines)
-    if len(lines) > 1 and lines[0].strip().lower() in response.lower():
-        response = "\n".join(lines[1:])
+    
+    # Check if response starts with any prefix and remove it
+    response_stripped = response.strip()
+    for prefix in prefixes_to_remove:
+        if response_stripped.startswith(prefix):
+            response = response_stripped[len(prefix):].strip()
+            break
+    
+    # Clean up excessive punctuation
     response = re.sub(r'[.]{4,}', '...', response)
     response = re.sub(r'[!]{3,}', '!!', response)
     response = re.sub(r'[?]{3,}', '??', response)
     response = re.sub(r'\n\s*\n\s*\n+', '\n\n', response)
+    
     return response.strip()
 
 def _get_fallback_message(lang: str = DEFAULT_LANGUAGE) -> str:
@@ -192,34 +191,28 @@ def _format_roleplay_and_actions(text: str, lang: str = None) -> str:
     
     text = re.sub(r'<[^>]+>', protect_html, text)
     
-    # Process roleplay markers in order of priority
-    # 1. Handle *action* (asterisks)
+    # Process roleplay markers with more careful regex patterns
+    # 1. Handle *action* (asterisks) - must have content and not be at word boundaries
     def format_asterisk_action(match):
         content = match.group(1).strip()
+        if not content:  # Skip empty matches
+            return match.group(0)
         return f"<i>{escape_html(content)}</i>"
     
-    text = re.sub(r'\*([^*]+?)\*', format_asterisk_action, text)
+    # More specific pattern to avoid false positives
+    text = re.sub(r'\*([^*\n]+?)\*', format_asterisk_action, text)
     
-    # 2. Handle [action] (square brackets) - but avoid already processed content
+    # 2. Handle [action] (square brackets) - avoid already processed content
     def format_bracket_action(match):
         content = match.group(1).strip()
-        # Don't process if it's already in italic tags
-        if '<i>' in content or '</i>' in content:
+        if not content or '<i>' in content or '</i>' in content:
             return match.group(0)
         return f"<i>{escape_html(content)}</i>"
     
-    text = re.sub(r'\[([^\]]+?)\]', format_bracket_action, text)
+    text = re.sub(r'\[([^\]\n]+?)\]', format_bracket_action, text)
     
-    # 3. Handle _action_ (underscores) - but be careful not to break existing formatting
-    def format_underscore_action(match):
-        content = match.group(1).strip()
-        # Don't process if it's already in italic tags or contains HTML
-        if '<i>' in content or '</i>' in content or '<' in content:
-            return match.group(0)
-        return f"<i>{escape_html(content)}</i>"
-    
-    # Only process underscores that aren't part of URLs or other markup
-    text = re.sub(r'(?<![\w<])_([^_\n]+?)_(?![\w>])', format_underscore_action, text)
+    # Don't process underscores as they might be part of text formatting
+    # Let them stay as is to avoid conflicts
     
     # Restore protected HTML tags
     for i, tag in enumerate(html_tags):
@@ -246,11 +239,17 @@ def format_response(
     if lang is None:
         lang = DEFAULT_LANGUAGE
     
-    # Sanitize the response first
+    # Debug log the original message
+    logger.debug(f"Original message before processing: {repr(message)}")
+    
+    # Sanitize the response first - but be very careful not to lose content
     message = _sanitize_response(message, username)
+    logger.debug(f"Message after sanitization: {repr(message)}")
+    
     fallback = _get_fallback_message(lang)
     
     if not message or not message.strip():
+        logger.warning("Message is empty after sanitization, returning fallback")
         return fallback
     
     # Handle username substitution
@@ -262,12 +261,27 @@ def format_response(
     
     # Format all roleplay/action markers to <i>...</i>
     formatted_text = _format_roleplay_and_actions(message, lang=lang)
+    logger.debug(f"Message after roleplay formatting: {repr(formatted_text)}")
     
     # Bold honorifics (e.g., -kun, -sama, -san, -chan)
     formatted_text = re.sub(r'([A-Za-z]+-(?:kun|sama|san|chan))', r'<b>\1</b>', formatted_text)
     
-    # Split into paragraphs for Telegram readability (double newline or blank line)
-    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', formatted_text) if p.strip()]
+    # Split into paragraphs for Telegram readability
+    # Be more careful with paragraph splitting
+    paragraphs = []
+    # Split on double newlines or more, but keep single newlines within paragraphs
+    parts = re.split(r'\n\s*\n', formatted_text)
+    
+    for part in parts:
+        part = part.strip()
+        if part:  # Only add non-empty parts
+            paragraphs.append(part)
+    
+    logger.debug(f"Paragraphs after splitting: {paragraphs}")
+    
+    # If no paragraphs found, treat entire text as one paragraph
+    if not paragraphs:
+        paragraphs = [formatted_text.strip()]
     
     # Clean up and join paragraphs with double newline
     final = '\n\n'.join(paragraphs)
@@ -278,6 +292,8 @@ def format_response(
     
     # Final strip
     final = final.strip()
+    
+    logger.debug(f"Final formatted message: {repr(final)}")
     
     if len(final) <= MAX_MESSAGE_LENGTH:
         return final if final else fallback
