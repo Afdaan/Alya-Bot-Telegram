@@ -179,63 +179,6 @@ def _get_fallback_message(lang: str = DEFAULT_LANGUAGE) -> str:
     }
     return fallback_map.get(lang, fallback_map[DEFAULT_LANGUAGE])
 
-def _get_mood_emojis() -> Dict[str, List[str]]:
-    """Return mapping of mood to emoji list."""
-    return {
-        "neutral": [
-            "✨", "💭", "🌸", "💫", "🤍", "🫧", "🌱", "🦋", 
-            "🍀", "🕊️", "🌿", "🌾", "🪴", "🌼", "🧘", "🫶"
-        ],
-        "happy": [
-            "😊", "💕", "✨", "🌟", "😄", "🥰", "😆", "🎉", 
-            "😺", "💖", "🥳", "🎈", "🦄", "🍰", "🍀", "🥂", 
-            "🤗", "😍", "😹", "🎶", "🫶"
-        ],
-        "sad": [
-            "😔", "💔", "🥺", "💧", "😭", "😢", "🌧️", "🫥", 
-            "😿", "😞", "🥲", "🫤", "🥀", "🕯️", "🫠", "😓", 
-            "😩", "🫣"
-        ],
-        "surprised": [
-            "😳", "⁉️", "🙀", "❗", "😮", "😲", "🤯", "😱", 
-            "👀", "😯", "😦", "😧", "😵", "🫢", "🫨", "🫣"
-        ],
-        "angry": [
-            "😤", "💢", "😠", "🔥", "😡", "👿", "😾", "🤬", 
-            "🗯️", "🥵", "🥊", "🧨", "💣", "😾", "🥶"
-        ],
-        "embarrassed": [
-            "😳", "😅", "💦", "🙈", "😬", "😶‍🌫️", "🫣", "🫦", 
-            "🫥", "😶", "🫠"
-        ],
-        "excited": [
-            "💫", "✨", "🌟", "😳", "🤩", "🎊", "🥳", "😻", 
-            "🦄", "🎉", "🎈", "🫶", "😆", "😍", "😺", "🥰"
-        ],
-        "genuinely_caring": [
-            "🥰", "💕", "💖", "✨", "🤗", "🌷", "🫂", "💝", 
-            "🧸", "🫶", "🤍", "🌸", "🦋", "🧑‍🤝‍🧑", "🫰", "🫱", "🫲"
-        ],
-        "defensive_flustered": [
-            "😳", "💥", "🔥", "❗", "😤", "😒", "😡", "😾", 
-            "😬", "😑", "😏", "😼", "😹", "🫥", "🫠", "🫤", 
-            "🫣", "🫦"
-        ],
-        "academic_confident": [
-            "📝", "🎓", "📚", "🧐", "📖", "🔬", "💡", "🧠", 
-            "📊", "🧑‍💻", "🧑‍🔬", "🧑‍🏫", "🧬", "🧪", "🧭", 
-            "🧮", "🧰", "🧱", "🧲", "🧑‍🎓"
-        ],
-        "comfortable_tsundere": [
-            "😒", "💢", "❄️", "🙄", "😤", "😑", "😏", "😼", 
-            "😹", "🫥", "🫠", "🫤", "🫣", "🫦", "😾", "😡", "🤬"
-        ],
-        "default": [
-            "✨", "💫", "🌸", "🦋", "🤍", "🫧", "🍀", "🕊️", 
-            "🌿", "🌾", "🪴", "🌼", "🧘", "🫶"
-        ]
-    }
-
 def _format_roleplay_and_actions(text: str, lang: str = None) -> str:
     if not text:
         return ""
@@ -262,6 +205,11 @@ def format_response(
     relationship_level: int = 1,
     **kwargs
 ) -> Union[str, List[str]]:
+    """
+    Format Alya's response for Telegram output.
+    Only formats and escapes LLM output, bolds honorifics, and splits for readability.
+    All roleplay, mood, emoji, and Russian expressions are handled by LLM/NLP, not here.
+    """
     if lang is None:
         lang = DEFAULT_LANGUAGE
     message = _sanitize_response(message, username)
@@ -272,61 +220,28 @@ def format_response(
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
-    if nlp_engine is None:
-        nlp_engine = NLPEngine()
-    persona_manager = PersonaManager()
-    persona = persona_manager.get_persona(persona_name=persona_name)
-    russian_expressions = persona.get("russian_expressions", ["дурак", "что", "глупый", "baka"])
-    # Format roleplay elements
+    # Format roleplay/action markers to <i>...</i> (handled naturally by LLM output)
     formatted_text = _format_roleplay_and_actions(message, lang=lang)
-    # Split into paragraphs (double newline or blank line)
+    # Bold honorifics (e.g., -kun, -sama, -san, -chan)
+    formatted_text = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', formatted_text)
+    # Split into paragraphs for Telegram readability
     paragraphs = [p.strip() for p in re.split(r'\n\s*\n', formatted_text) if p.strip()]
-    processed_blocks = []
-    emoji_count = 0
-    max_emoji = min(MAX_EMOJI_PER_RESPONSE, 5)
-    for idx, para in enumerate(paragraphs):
-        para = escape_html(para)
-        para = re.sub(r'([A-Za-z]+-kun|[A-Za-z]+-sama|[A-ZaZ]+-san|[A-ZaZ]+-chan)', r'<b>\1</b>', para)
-        context = nlp_engine.get_message_context(para, user_id=user_id)
-        mood = nlp_engine.suggest_mood_for_response(context, relationship_level)
-        mood_emojis = nlp_engine.suggest_emojis(para, mood, count=2)
-        # Randomly pick a Russian expression and emoji position
-        rus = random.choice(russian_expressions) if random.random() < 0.5 else None
-        emj = random.choice(mood_emojis) if mood_emojis and random.random() < 0.7 else None
-        # Compose block: <i>Roleplay/Mood</i>\nConversation\n<i>Roleplay/Mood</i>
-        roleplay_top = f"<i>{mood.replace('_', ' ').title()}</i>"
-        roleplay_bottom = f"<i>{mood.replace('_', ' ').title()}</i>"
-        # Insert Russian/emoji randomly in block
-        lines = [roleplay_top]
-        if rus and random.random() < 0.5:
-            lines.append(f"<i>{rus}</i>")
-        lines.append(para)
-        if emj and random.random() < 0.5:
-            lines.append(emj)
-        lines.append(roleplay_bottom)
-        if rus and random.random() >= 0.5:
-            lines.append(f"<i>{rus}</i>")
-        if emj and random.random() >= 0.5:
-            lines.append(emj)
-        block = '\n'.join([l for l in lines if l and l.strip()])
-        processed_blocks.append(block)
-    # Join blocks with double newline for Telegram readability
-    final = '\n\n'.join([b for b in processed_blocks if b.strip()])
+    final = '\n\n'.join(paragraphs)
     final = clean_html_entities(final)
     if len(final) <= MAX_MESSAGE_LENGTH:
         return final if final.strip() else fallback
-    # If too long, split on block boundaries
+    # If too long, split on paragraph boundaries
     parts = []
     current = ""
-    for block in processed_blocks:
-        if not block.strip():
+    for para in paragraphs:
+        if not para.strip():
             continue
-        if len(current) + len(block) + 2 > MAX_MESSAGE_LENGTH:
+        if len(current) + len(para) + 2 > MAX_MESSAGE_LENGTH:
             if current.strip():
                 parts.append(current.strip())
-            current = block
+            current = para
         else:
-            current = current + '\n\n' + block if current else block
+            current = current + '\n\n' + para if current else para
     if current.strip():
         parts.append(current.strip())
     parts = [p for p in parts if p.strip()]
