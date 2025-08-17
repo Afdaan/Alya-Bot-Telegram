@@ -237,50 +237,48 @@ def format_response(
     Formats and escapes LLM output, bolds honorifics, and splits for readability.
     All roleplay, mood, emoji, and Russian expressions are handled by LLM/NLP, not here.
     Optionally limit to max_paragraphs (default 4) for concise chat.
+    Output is formatted like a light novel: each action/dialog is a new paragraph, double newline between, no leading spaces.
     """
     if lang is None:
         lang = DEFAULT_LANGUAGE
-    
-    # Debug log the original message
     logger.debug(f"Original message before processing: {repr(message)}")
-    
-    # Sanitize the response first - but be very careful not to lose content
     message = _sanitize_response(message, username)
     logger.debug(f"Message after sanitization: {repr(message)}")
-    
     fallback = _get_fallback_message(lang)
-    
     if not message or not message.strip():
         logger.warning("Message is empty after sanitization, returning fallback")
         return fallback
-    
-    # Handle username substitution
     if "{username}" in message:
         message = message.replace("{username}", f"<b>{escape_html(username)}</b>")
-    
     if target_name and "{target}" in message:
         message = message.replace("{target}", f"<b>{escape_html(target_name)}</b>")
-    
-    # Format all roleplay/action markers to <i>...</i>
     formatted_text = _format_roleplay_and_actions(message, lang=lang)
     logger.debug(f"Message after roleplay formatting: {repr(formatted_text)}")
-    
-    # Bold honorifics (e.g., -kun, -sama, -san, -chan)
     formatted_text = re.sub(r'([A-Za-z]+-(?:kun|sama|san|chan))', r'<b>\1</b>', formatted_text)
-    
-    # Split into paragraphs for Telegram readability
+    # Light novel style: split on double newline, or on action tags, or on dialog breaks
+    # 1. Split on double newline
+    raw_paragraphs = re.split(r'\n\s*\n', formatted_text)
     paragraphs = []
-    parts = re.split(r'\n\s*\n', formatted_text)
-    for part in parts:
-        part = part.strip()
-        if part:
-            paragraphs.append(part)
-    logger.debug(f"Paragraphs after splitting: {paragraphs}")
-    if not paragraphs:
-        paragraphs = [formatted_text.strip()]
+    for para in raw_paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+        # 2. Further split if ada <i>action</i> di tengah kalimat (biar action jadi paragraf sendiri)
+        # Pisahkan action di tengah kalimat ke paragraf baru
+        para = re.sub(r'(</i>)([^\n])', r'\1\n\2', para)  # Setelah </i> langsung lanjut kalimat, kasih newline
+        para = re.sub(r'([^\n])(<i>)', r'\1\n\2', para)  # Sebelum <i> tanpa newline, kasih newline
+        # Split lagi per newline
+        for sub in para.split('\n'):
+            sub = sub.strip()
+            if sub:
+                paragraphs.append(sub)
+    # Remove leading/trailing spaces, empty
+    paragraphs = [p.strip() for p in paragraphs if p.strip()]
+    # Gabung action yang berdiri sendiri (hanya <i>...</i>) sebagai paragraf sendiri
     # Limit to max_paragraphs if set
     if max_paragraphs and max_paragraphs > 0:
         paragraphs = paragraphs[:max_paragraphs]
+    # Gabungkan dengan double newline antar paragraf
     final = '\n\n'.join(paragraphs)
     final = clean_html_entities(final)
     final = re.sub(r'\n{3,}', '\n\n', final)
