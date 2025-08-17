@@ -229,12 +229,14 @@ def format_response(
     lang: str = None,
     nlp_engine: Optional[NLPEngine] = None,
     relationship_level: int = 1,
+    max_paragraphs: Optional[int] = 4,
     **kwargs
 ) -> Union[str, List[str]]:
     """
     Format Alya's response for Telegram output.
     Formats and escapes LLM output, bolds honorifics, and splits for readability.
     All roleplay, mood, emoji, and Russian expressions are handled by LLM/NLP, not here.
+    Optionally limit to max_paragraphs (default 4) for concise chat.
     """
     if lang is None:
         lang = DEFAULT_LANGUAGE
@@ -267,37 +269,25 @@ def format_response(
     formatted_text = re.sub(r'([A-Za-z]+-(?:kun|sama|san|chan))', r'<b>\1</b>', formatted_text)
     
     # Split into paragraphs for Telegram readability
-    # Be more careful with paragraph splitting
     paragraphs = []
-    # Split on double newlines or more, but keep single newlines within paragraphs
     parts = re.split(r'\n\s*\n', formatted_text)
-    
     for part in parts:
         part = part.strip()
-        if part:  # Only add non-empty parts
+        if part:
             paragraphs.append(part)
-    
     logger.debug(f"Paragraphs after splitting: {paragraphs}")
-    
-    # If no paragraphs found, treat entire text as one paragraph
     if not paragraphs:
         paragraphs = [formatted_text.strip()]
-    
-    # Clean up and join paragraphs with double newline
+    # Limit to max_paragraphs if set
+    if max_paragraphs and max_paragraphs > 0:
+        paragraphs = paragraphs[:max_paragraphs]
     final = '\n\n'.join(paragraphs)
     final = clean_html_entities(final)
-    
-    # Remove excessive blank lines
     final = re.sub(r'\n{3,}', '\n\n', final)
-    
-    # Final strip
     final = final.strip()
-    
     logger.debug(f"Final formatted message: {repr(final)}")
-    
     if len(final) <= MAX_MESSAGE_LENGTH:
         return final if final else fallback
-    
     # If too long, split on paragraph boundaries
     parts = []
     current = ""
@@ -310,14 +300,11 @@ def format_response(
             current = para
         else:
             current = current + '\n\n' + para if current else para
-    
     if current:
         parts.append(current.strip())
-    
     parts = [p for p in parts if p]
     if not parts:
         return fallback
-    
     return parts[0] if len(parts) == 1 else parts
 
 def format_error_response(error_message: str, username: str = "user", lang: str = DEFAULT_LANGUAGE, persona_name: str = "waifu") -> str:
