@@ -235,9 +235,7 @@ def format_response(
     """
     Format Alya's response for Telegram output.
     Formats and escapes LLM output, bolds honorifics, and splits for readability.
-    All roleplay, mood, emoji, and Russian expressions are handled by LLM/NLP, not here.
-    Optionally limit to max_paragraphs (default 4) for concise chat.
-    Output is formatted like a light novel: each action/dialog is a new paragraph, double newline between, no leading spaces.
+    Adds emoji indicator for mood/roleplay actions, and blocks dialog with quotes for light novel style.
     """
     if lang is None:
         lang = DEFAULT_LANGUAGE
@@ -257,17 +255,69 @@ def format_response(
     formatted_text = re.sub(r'([A-Za-z]+-(?:kun|sama|san|chan))', r'<b>\1</b>', formatted_text)
     # Light novel style: split only on double newline (\n\s*\n)
     raw_paragraphs = re.split(r'\n\s*\n', formatted_text)
+    # Mapping action/mood to emoji
+    mood_emoji = {
+        'blushes': '😳',
+        'muttering': '💭',
+        'sighs': '😮\u200d💨',
+        'frowns': '😕',
+        'smiles': '😊',
+        'smiles faintly': '🙂',
+        'giggles': '😆',
+        'laughs': '😂',
+        'nods': '🙆',
+        'shrugs': '🤷',
+        'pouts': '😒',
+        'stares': '👀',
+        'winks': '😉',
+        'mumbles': '🤔',
+        'mutters': '💭',
+        'sobs': '😭',
+        'cries': '😭',
+        'screams': '😱',
+        'gasps': '😯',
+        'whispers': '🤫',
+        'shouts': '🗣️',
+        'grins': '😁',
+        'smirks': '😏',
+        'rolls eyes': '🙄',
+        'sigh': '😮\u200d💨',
+        'hugs': '🤗',
+        'waves': '👋',
+        'bows': '🙇',
+        'claps': '👏',
+        'cheers': '🥳',
+        'applauds': '👏',
+        'thinks': '💭',
+        'shrug': '🤷',
+        'pats': '🫶',
+        'smile': '😊',
+        'faintly smiles': '🙂',
+    }
     paragraphs = []
     for para in raw_paragraphs:
         para = para.strip()
         if not para:
             continue
-        # If the paragraph is only an action (e.g. <i>...</i>), treat as its own paragraph
-        if re.fullmatch(r'<i>.*?</i>', para):
+        # If the paragraph is only an action (e.g. <i>...</i>), add emoji indicator if known
+        m = re.fullmatch(r'<i>(.*?)</i>', para)
+        if m:
+            action = m.group(1).strip().lower()
+            emoji_icon = ''
+            for key, val in mood_emoji.items():
+                if key in action:
+                    emoji_icon = val
+                    break
+            if emoji_icon:
+                para = f"{emoji_icon} {para}"
             paragraphs.append(para)
         else:
-            # Otherwise, keep as is (action inline allowed)
-            paragraphs.append(para)
+            # Otherwise, treat as dialog/narrative: block with quotes if not already quoted
+            text = para
+            # Only add quotes if not already quoted and not an action
+            if not (text.startswith('"') and text.endswith('"')):
+                text = f'"{text}"'
+            paragraphs.append(text)
     # Remove leading/trailing spaces, empty
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
     # Limit to max_paragraphs if set
