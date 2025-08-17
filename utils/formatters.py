@@ -255,26 +255,21 @@ def format_response(
     formatted_text = _format_roleplay_and_actions(message, lang=lang)
     logger.debug(f"Message after roleplay formatting: {repr(formatted_text)}")
     formatted_text = re.sub(r'([A-Za-z]+-(?:kun|sama|san|chan))', r'<b>\1</b>', formatted_text)
-    # Light novel style: split on double newline, or on action tags, or on dialog breaks
-    # 1. Split on double newline
+    # Light novel style: split only on double newline (\n\s*\n)
     raw_paragraphs = re.split(r'\n\s*\n', formatted_text)
     paragraphs = []
     for para in raw_paragraphs:
         para = para.strip()
         if not para:
             continue
-        # 2. Further split if ada <i>action</i> di tengah kalimat (biar action jadi paragraf sendiri)
-        # Pisahkan action di tengah kalimat ke paragraf baru
-        para = re.sub(r'(</i>)([^\n])', r'\1\n\2', para)  # Setelah </i> langsung lanjut kalimat, kasih newline
-        para = re.sub(r'([^\n])(<i>)', r'\1\n\2', para)  # Sebelum <i> tanpa newline, kasih newline
-        # Split lagi per newline
-        for sub in para.split('\n'):
-            sub = sub.strip()
-            if sub:
-                paragraphs.append(sub)
+        # If the paragraph is only an action (e.g. <i>...</i>), treat as its own paragraph
+        if re.fullmatch(r'<i>.*?</i>', para):
+            paragraphs.append(para)
+        else:
+            # Otherwise, keep as is (action inline allowed)
+            paragraphs.append(para)
     # Remove leading/trailing spaces, empty
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
-    # Gabung action yang berdiri sendiri (hanya <i>...</i>) sebagai paragraf sendiri
     # Limit to max_paragraphs if set
     if max_paragraphs and max_paragraphs > 0:
         paragraphs = paragraphs[:max_paragraphs]
