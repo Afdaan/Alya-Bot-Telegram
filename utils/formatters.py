@@ -263,7 +263,6 @@ def format_persona_response(
     """
     if not message:
         return ""
-    # Split into paragraphs (max 4)
     paragraphs = re.split(r'\n\s*\n', message.strip())
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
     if max_paragraphs > 0:
@@ -272,10 +271,11 @@ def format_persona_response(
     for para in paragraphs:
         # Block dialog: starts with ", treat as blockquote
         if para.startswith('"') or para.startswith("'"):
-            # Remove leading/trailing quotes
             text = para.strip('"').strip("'")
             if markdown:
-                text = f'> {escape_markdown_v2_safe(text)}'
+                # Only escape for blockquote: do NOT escape - and .
+                text = re.sub(r'([*_`~\[\](){}#+=|!])', r'\\\1', text)
+                text = f'> {text}'
             else:
                 text = f'<blockquote>{escape_html(text)}</blockquote>'
             formatted_paragraphs.append(text)
@@ -284,16 +284,20 @@ def format_persona_response(
         if re.match(r'^\*.*\*$', para):
             text = para.strip('*')
             if markdown:
-                text = f'*{escape_markdown_v2_safe(text)}*'
+                # Only escape inside bold, except *
+                text = re.sub(r'([_`~\[\](){}#+=|!])', r'\\\1', text)
+                text = f'*{text}*'
             else:
                 text = f'<b>{escape_html(text)}</b>'
             formatted_paragraphs.append(text)
             continue
-        # Roleplay: starts/ends with _ or between _..._
-        if re.match(r'^_.*_$', para):
+        # Roleplay: starts/ends with __ or between __...__
+        if re.match(r'^__.*__$', para):
             text = para.strip('_')
             if markdown:
-                text = f'__{escape_markdown_v2_safe(text)}__'
+                # Only escape inside italic, except _
+                text = re.sub(r'([*`~\[\](){}#+=|!])', r'\\\1', text)
+                text = f'__{text}__'
             else:
                 text = f'<i>{escape_html(text)}</i>'
             formatted_paragraphs.append(text)
@@ -324,11 +328,11 @@ def format_persona_response(
                         if emoji_count < allowed:
                             new_para += char
                             emoji_count += 1
-                        # else: skip emoji
                     else:
                         new_para += char
                 para = new_para
                 total_emoji += emoji_count
         limited_paragraphs.append(para)
     # Join with double newlines for Telegram
-    return '\n\n'.join(limited_paragraphs)
+    result = '\n\n'.join(limited_paragraphs)
+    return result

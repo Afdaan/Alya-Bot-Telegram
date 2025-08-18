@@ -362,21 +362,21 @@ Based on this context:
 
         #--- Format response ---
         #--- OLD: Neutral formatting (commented out) ---
-        formatted_response = format_response(
-            response,
-            emotion=emotion,
-            mood=mood,
-            intensity=intensity,
-            username=user.first_name or "user",
-            roleplay_action=roleplay_action,
-            russian_expression=russian_expression
-        )
-        formatted_response = format_paragraphs(formatted_response, markdown=True, HTML=True)
-        formatted_response = f"{formatted_response}\u200C"
+        # formatted_response = format_response(
+        #     response,
+        #     emotion=emotion,
+        #     mood=mood,
+        #     intensity=intensity,
+        #     username=user.first_name or "user",
+        #     roleplay_action=roleplay_action,
+        #     russian_expression=russian_expression
+        # )
+        # formatted_response = format_paragraphs(formatted_response, markdown=True, HTML=True)
+        # formatted_response = f"{formatted_response}\u200C"
 
         # # --- NEW: Persona formatting ---
-        # formatted_response = format_persona_response(response)
-        # formatted_response = f"{formatted_response}\u200C"
+        formatted_response = format_persona_response(response)
+        formatted_response = f"{formatted_response}\u200C"
 
         # --- Ensure ALL output in user language (after formatting) ---
         formatted_response = await self._ensure_language(formatted_response, lang, user)
