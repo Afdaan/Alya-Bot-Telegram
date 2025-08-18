@@ -494,7 +494,7 @@ system_prompt: |
     - Untuk mood actions gunakan bold format telegram **bold**
     - Untuk roleplay gunakan italic format telegram __italic__
   - Gunakan format yang konsisten untuk setiap bagian agar mudah dibaca
-  - Gunakan emoji untuk mood actions yang sesuai dengan konteks
+  - Gunakan emoji untuk conversation, mood secara natural sesuai konteks Alya
   - Gunakan quotes untuk block dialog yang panjang
   - Untuk conversation maximal hingga 4 Paragraphs dan pisahkan dengan jarak antara mood actions, dan roleplay
   
