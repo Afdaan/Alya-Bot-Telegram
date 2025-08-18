@@ -247,55 +247,51 @@ def format_persona_response(
     max_paragraphs: int = 4,
     markdown: bool = True
 ) -> str:
-    """
-    Format persona response for Telegram according to persona YAML rules:
-    - Conversation: block quote (" ")
-    - Mood actions: bold (**bold**)
-    - Roleplay: italic (__italic__)
-    - Emoji: preserved, but limited
-    - Max 4 paragraphs, separated clearly
+    """Format Alya persona response for Telegram with persona-aware MarkdownV2/HTML.
+
     Args:
-        message: Raw model/YAML output
+        message: The raw message string (may contain persona markup)
         max_paragraphs: Maximum number of paragraphs to include
-        markdown: Use MarkdownV2 formatting (default)
+        markdown: If True, use MarkdownV2, else HTML
     Returns:
-        Formatted string for Telegram
+        Formatted string ready for Telegram
     """
-    if not message:
-        return ""
+    import re
+    # Split paragraphs by double newlines
     paragraphs = re.split(r'\n\s*\n', message.strip())
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
     if max_paragraphs > 0:
         paragraphs = paragraphs[:max_paragraphs]
     formatted_paragraphs = []
     for para in paragraphs:
-        # Block dialog: starts with ", treat as blockquote
+        # Block dialog: starts with ' or ", treat as blockquote
         if para.startswith('"') or para.startswith("'"):
             text = para.strip('"').strip("'")
             if markdown:
                 # Only escape for blockquote: do NOT escape - and .
                 text = re.sub(r'([*_`~\[\](){}#+=|!])', r'\\\1', text)
+                # Blockquote in MarkdownV2: must start with > and a space
                 text = f'> {text}'
             else:
                 text = f'<blockquote>{escape_html(text)}</blockquote>'
             formatted_paragraphs.append(text)
             continue
-        # Mood actions: starts/ends with * or between *...*
-        if re.match(r'^\*.*\*$', para):
-            text = para.strip('*')
+        # Mood actions: starts/ends with * (bold)
+        if re.match(r'^\*[^*].*[^*]\*$', para):
+            text = para[1:-1].strip()
             if markdown:
-                # Only escape inside bold, except *
+                # Escape all except * inside bold
                 text = re.sub(r'([_`~\[\](){}#+=|!])', r'\\\1', text)
                 text = f'*{text}*'
             else:
                 text = f'<b>{escape_html(text)}</b>'
             formatted_paragraphs.append(text)
             continue
-        # Roleplay: starts/ends with __ or between __...__
-        if re.match(r'^__.*__$', para):
-            text = para.strip('_')
+        # Roleplay: starts/ends with __ (italic)
+        if re.match(r'^__[^_].*[^_]__$', para):
+            text = para[2:-2].strip()
             if markdown:
-                # Only escape inside italic, except _
+                # Escape all except _ inside italic
                 text = re.sub(r'([*`~\[\](){}#+=|!])', r'\\\1', text)
                 text = f'__{text}__'
             else:
@@ -315,24 +311,25 @@ def format_persona_response(
     for para in formatted_paragraphs:
         emojis = emoji_pattern.findall(para)
         if emojis:
-            if total_emoji >= 15:
-                # Remove all emojis if over limit
+            # Limit to 4 emoji per paragraph
+            if len(emojis) > 4:
+                keep = emojis[:4]
+                # Remove extra emojis
+                def limit_emoji(m):
+                    nonlocal keep
+                    if keep:
+                        keep.pop(0)
+                        return m.group(0)
+                    return ''
+                para = emoji_pattern.sub(limit_emoji, para)
+            # Count for total
+            total_emoji += min(len(emojis), 4)
+            if total_emoji > 15:
+                # Remove all emojis if over total limit
                 para = emoji_pattern.sub('', para)
-            else:
-                allowed = min(4, 15 - total_emoji)
-                # Only keep first N emojis
-                emoji_count = 0
-                new_para = ''
-                for char in para:
-                    if emoji_pattern.match(char):
-                        if emoji_count < allowed:
-                            new_para += char
-                            emoji_count += 1
-                    else:
-                        new_para += char
-                para = new_para
-                total_emoji += emoji_count
         limited_paragraphs.append(para)
-    # Join with double newlines for Telegram
-    result = '\n\n'.join(limited_paragraphs)
-    return result
+    # Join with double newline for MarkdownV2, <br><br> for HTML
+    if markdown:
+        return '\n\n'.join(limited_paragraphs)
+    else:
+        return '<br><br>'.join(limited_paragraphs)
