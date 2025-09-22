@@ -1,0 +1,36 @@
+# Core dependencies
+python-telegram-bot==21.5
+google-generativeai==0.8.3
+mysql-connector-python==9.0.0
+SQLAlchemy==2.0.23
+alembic==1.13.1
+
+# HuggingFace for sentiment analysis
+transformers==4.36.2
+torch==2.1.2
+tokenizers==0.15.0
+
+# Data processing and utilities
+pydantic==2.5.2
+pydantic-settings==2.1.0
+PyYAML==6.0.1
+python-dotenv==1.0.0
+numpy==1.24.3
+
+# HTTP client
+httpx==0.25.2
+aiofiles==23.2.1
+
+# Logging and monitoring
+structlog==23.2.0
+
+# Vector database for RAG
+chromadb==0.4.18
+sentence-transformers==2.2.2
+
+# Development dependencies
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+isort==5.12.0
+mypy==1.7.1

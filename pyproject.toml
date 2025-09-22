@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alya-bot-v2"
+version = "2.0.0"
+description = "A fresh, clean, and maintainable Python Telegram waifu bot"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Afdaan", email = "your.email@example.com"}
+]
+keywords = ["telegram", "bot", "ai", "waifu", "gemini", "huggingface"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "python-telegram-bot==21.5",
+    "google-generativeai==0.8.3",
+    "mysql-connector-python==9.0.0",
+    "SQLAlchemy==2.0.23",
+    "alembic==1.13.1",
+    "transformers==4.36.2",
+    "torch==2.1.2",
+    "tokenizers==0.15.0",
+    "pydantic==2.5.2",
+    "pydantic-settings==2.1.0",
+    "PyYAML==6.0.1",
+    "python-dotenv==1.0.0",
+    "numpy==1.24.3",
+    "httpx==0.25.2",
+    "aiofiles==23.2.1",
+    "structlog==23.2.0",
+    "chromadb==0.4.18",
+    "sentence-transformers==2.2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==7.4.3",
+    "pytest-asyncio==0.21.1",
+    "black==23.11.0",
+    "isort==5.12.0",
+    "mypy==1.7.1",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Afdaan/alya-bot-v2"
+"Bug Reports" = "https://github.com/Afdaan/alya-bot-v2/issues"
+"Source" = "https://github.com/Afdaan/alya-bot-v2"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_output = 3
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+asyncio_mode = "auto"

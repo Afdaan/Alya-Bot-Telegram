@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: alya_bot_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${DB_NAME:-alya_bot_v2}
+      MYSQL_USER: ${DB_USER:-alya_bot}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-alya_password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - alya_network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # Alya Bot Application
+  alya_bot:
+    build: .
+    container_name: alya_bot_v2
+    restart: unless-stopped
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${DB_USER:-alya_bot}
+      - DB_PASSWORD=${DB_PASSWORD:-alya_password}
+      - DB_NAME=${DB_NAME:-alya_bot_v2}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SENTIMENT_MODEL=${SENTIMENT_MODEL:-cardiffnlp/twitter-roberta-base-sentiment-latest}
+      - EMOTION_MODEL=${EMOTION_MODEL:-j-hartmann/emotion-english-distilroberta-base}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENVIRONMENT=production
+    volumes:
+      - ./logs:/app/logs
+      - ./personas:/app/personas
+    networks:
+      - alya_network
+    depends_on:
+      - mysql
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  mysql_data:
+
+networks:
+  alya_network:
+    driver: bridge
