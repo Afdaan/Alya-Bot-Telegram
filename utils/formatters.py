@@ -20,73 +20,82 @@ from config.settings import (
 logger = logging.getLogger(__name__)
 
 def escape_html(text: str) -> str:
-    """Escape HTML for Telegram, allowing only safe tags."""
+    """Escape HTML for Telegram, preserving safe formatting tags."""
     if not text:
         return ""
+    
+    # Preserve existing HTML tags that are safe for Telegram
+    protected_patterns = []
+    safe_tags = ["b", "i", "u", "s", "code", "pre", "blockquote", "a"]
+    
+    for tag in safe_tags:
+        # Store existing safe tags temporarily
+        pattern = rf"<{tag}(?:\s[^>]*)?>.*?</{tag}>"
+        matches = re.findall(pattern, text, re.IGNORECASE | re.DOTALL)
+        for i, match in enumerate(matches):
+            placeholder = f"__SAFE_TAG_{tag}_{i}__"
+            protected_patterns.append((placeholder, match))
+            text = text.replace(match, placeholder, 1)
+    
+    # Now escape the remaining text
     escaped = html.escape(text)
-    allowed_tags = ["b", "i", "u", "s", "code", "pre"]
-    for tag in allowed_tags:
-        escaped = re.sub(f"&lt;{tag}&gt;", f"<{tag}>", escaped, flags=re.IGNORECASE)
-        escaped = re.sub(f"&lt;/{tag}&gt;", f"</{tag}>", escaped, flags=re.IGNORECASE)
-    escaped = re.sub(r"&lt;a href=['\"]([^'\"]*)['\"]&gt;", r"<a href='\1'>", escaped)
-    escaped = re.sub(r"&lt;/a&gt;", r"</a>", escaped)
+    
+    # Restore protected patterns
+    for placeholder, original in protected_patterns:
+        escaped = escaped.replace(placeholder, original)
+    
     return escaped
 
 def escape_markdown_v2(text: str) -> str:
-    """Escape special characters for MarkdownV2 formatting."""
-    if not text:
-        return ""
-    special_chars = [
-        '_', '*', '[', ']', '(', ')', '~', '`', '>', 
-        '#', '+', '-', '=', '|', '{', '}', '.', '!', '%'
-    ]
-    text = text.replace('\\', '\\\\')
-    for char in special_chars:
-        text = text.replace(char, f'\\{char}')
-    return text
+    """Escape special characters for MarkdownV2 formatting - DISABLED for HTML mode."""
+    # Since we're using HTML mode, don't escape markdown characters
+    return text if text else ""
 
 def escape_markdown_v2_safe(text: str) -> str:
-    """Escape special characters for MarkdownV2, safer version."""
-    if not text:
-        return ""
-    text = str(text)
-    special_chars = [
-        '_', '*', '[', ']', '(', ')', '~', '`', '>', 
-        '#', '+', '-', '=', '|', '{', '}', '.', '!', ','
-    ]
-    text = text.replace('\\', '\\\\')
-    for char in special_chars:
-        text = text.replace(char, f'\\{char}')
-    return text
+    """Ultra-safe MarkdownV2 escaping - DISABLED for HTML mode."""
+    # Since we're using HTML mode, don't escape anything
+    return text if text else ""
 
-def format_paragraphs(text: str, markdown: bool = True) -> str:
+def format_paragraphs(text: str, use_html: bool = True) -> str:
     """Format text into readable paragraphs for Telegram."""
     if not isinstance(text, str):
         logger.error("format_paragraphs: input must be str, got %s", type(text))
         return ""
     if not text:
         return ""
-    paragraphs = re.split(r'(?:\n\s*\n|(?<=[^\n])\n(?=[^\n]))', text.strip())
+    
+    # Split into paragraphs
+    paragraphs = re.split(r'\n\s*\n', text.strip())
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
     formatted = '\n\n'.join(paragraphs)
-    if markdown:
-        formatted = escape_markdown_v2(formatted)
+    
+    # Apply appropriate escaping based on parse mode
+    if use_html:
+        formatted = escape_html(formatted)
     else:
-        formatted = clean_html_entities(formatted)
+        formatted = escape_markdown_v2(formatted)
+    
     return formatted
 
 def clean_html_entities(text: str) -> str:
-    """Clean up HTML entities and tags for Telegram HTML mode."""
+    """Clean up HTML entities and malformed tags for Telegram HTML mode."""
     if not text:
         return ""
+    
+    # Remove escaped quotes from HTML tags
     text = re.sub(r'<([bius])\\">', r'<\1>', text)
     text = re.sub(r'</([bius])\\">', r'</\1>', text)
     text = re.sub(r'<([bius])\\>', r'<\1>', text)
     text = re.sub(r'</([bius])\\>', r'</\1>', text)
+    
+    # Clean up malformed italic tags
     text = re.sub(r'<i\\', '<i', text)
     text = re.sub(r'</i\\', '</i', text)
+    
+    # Remove attributes from HTML tags (keep only the tag name)
     text = re.sub(r'<([a-z]+)[^>]*>', lambda m: f"<{m.group(1)}>", text)
     text = re.sub(r'</([a-z]+)[^>]*>', lambda m: f"</{m.group(1)}>", text)
+    
     return text
 
 def format_markdown_response(
@@ -107,9 +116,9 @@ def format_markdown_response(
     }
     for placeholder, value in substitutions.items():
         if value:
-            escaped_value = escape_markdown_v2(str(value))
-            text = text.replace(placeholder, escaped_value)
-    return format_response(text)
+            # Don't escape since we're using HTML mode primarily
+            text = text.replace(placeholder, str(value))
+    return format_response(text, use_html=True)
 
 def _sanitize_response(response: str, username: str) -> str:
     """Clean up model output, remove speaker prefixes and excessive punctuation."""
@@ -147,54 +156,107 @@ def format_response(
     nlp_engine: Optional[Any] = None,
     relationship_level: int = 1,
     max_paragraphs: Optional[int] = 4,
+    use_html: bool = True,  # Default to HTML mode as per settings
     **kwargs
 ) -> Union[str, List[str]]:
     """
-    Neutral formatting for Telegram output. Only splits paragraphs and escapes HTML, no persona/emoji logic.
+    Enhanced formatting for Telegram output with persona-aware roleplay formatting.
+    Supports both HTML and MarkdownV2 modes with intelligent content detection.
     """
     if lang is None:
         lang = DEFAULT_LANGUAGE
+    
     logger.debug(f"Original message before processing: {repr(message)}")
+    
+    # Sanitize and clean the message
     message = _sanitize_response(message, username)
     logger.debug(f"Message after sanitization: {repr(message)}")
+    
     fallback = _get_fallback_message(lang)
     if not message or not message.strip():
         logger.warning("Message is empty after sanitization, returning fallback")
         return fallback
+    
+    # Replace placeholders
     if "{username}" in message:
-        message = message.replace("{username}", escape_html(username))
+        safe_username = escape_html(username) if use_html else escape_markdown_v2(username)
+        message = message.replace("{username}", safe_username)
+    
     if target_name and "{target}" in message:
-        message = message.replace("{target}", escape_html(target_name))
-    # Only split paragraphs, no emoji or persona formatting
-    raw_paragraphs = re.split(r'\n\s*\n', message)
-    paragraphs = [p.strip() for p in raw_paragraphs if p.strip()]
-    if max_paragraphs and max_paragraphs > 0:
-        paragraphs = paragraphs[:max_paragraphs]
-    final = '\n\n'.join(paragraphs)
-    final = clean_html_entities(final)
-    final = re.sub(r'\n{3,}', '\n\n', final)
-    final = final.strip()
-    logger.debug(f"Final formatted message: {repr(final)}")
-    if len(final) <= MAX_MESSAGE_LENGTH:
-        return final if final else fallback
-    # If too long, split on paragraph boundaries
+        safe_target = escape_html(target_name) if use_html else escape_markdown_v2(target_name)
+        message = message.replace("{target}", safe_target)
+    
+    # Check if this looks like a persona response (contains roleplay elements)
+    if _contains_roleplay_elements(message):
+        formatted = format_persona_response(message, max_paragraphs, use_html)
+    else:
+        # Simple paragraph formatting for regular responses
+        formatted = format_paragraphs(message, use_html)
+    
+    # Clean up excessive newlines
+    formatted = re.sub(r'\n{3,}', '\n\n', formatted)
+    formatted = formatted.strip()
+    
+    logger.debug(f"Final formatted message: {repr(formatted)}")
+    
+    # Check length and split if necessary
+    if len(formatted) <= MAX_MESSAGE_LENGTH:
+        return formatted if formatted else fallback
+    
+    # Split into smaller parts
+    parts = _split_long_message(formatted, use_html)
+    return parts[0] if len(parts) == 1 else parts
+
+
+def _contains_roleplay_elements(message: str) -> bool:
+    """Check if message contains roleplay formatting elements."""
+    roleplay_patterns = [
+        r'\*[^*]+\*',      # *action*
+        r'__[^_]+__',      # __roleplay__
+        r'^>',             # > blockquote
+        r'```[^`]+```',    # ```code```
+        r'`[^`]+`'         # `inline code`
+    ]
+    
+    for pattern in roleplay_patterns:
+        if re.search(pattern, message, re.MULTILINE):
+            return True
+    
+    return False
+
+
+def _split_long_message(message: str, use_html: bool) -> List[str]:
+    """Split long message into parts respecting paragraph boundaries."""
+    paragraphs = re.split(r'\n\s*\n', message)
     parts = []
     current = ""
+    
     for para in paragraphs:
-        if not para:
+        if not para.strip():
             continue
-        if len(current) + len(para) + 2 > MAX_MESSAGE_LENGTH:
-            if current:
-                parts.append(current.strip())
+            
+        # Check if adding this paragraph would exceed limit
+        test_length = len(current) + len(para) + 2  # +2 for \n\n
+        
+        if test_length > MAX_MESSAGE_LENGTH and current:
+            parts.append(current.strip())
             current = para
         else:
-            current = current + '\n\n' + para if current else para
+            if current:
+                current = current + '\n\n' + para
+            else:
+                current = para
+    
     if current:
         parts.append(current.strip())
-    parts = [p for p in parts if p]
+    
+    # Filter out empty parts
+    parts = [p for p in parts if p.strip()]
+    
     if not parts:
-        return fallback
-    return parts[0] if len(parts) == 1 else parts
+        return [_get_fallback_message(DEFAULT_LANGUAGE)]
+    
+    return parts
 
 def format_error_response(error_message: str, username: str = "user", lang: str = DEFAULT_LANGUAGE, persona_name: str = "waifu") -> str:
     """Format error response, neutral version."""
@@ -245,91 +307,160 @@ def get_translate_prompt(text: str, lang: str = "id") -> str:
 def format_persona_response(
     message: str,
     max_paragraphs: int = 4,
-    markdown: bool = True
+    use_html: bool = True
 ) -> str:
-    """Format Alya persona response for Telegram with persona-aware MarkdownV2/HTML.
+    """Format Alya persona response for Telegram with natural roleplay formatting.
 
     Args:
         message: The raw message string (may contain persona markup)
         max_paragraphs: Maximum number of paragraphs to include
-        markdown: If True, use MarkdownV2, else HTML
+        use_html: If True, use HTML mode, else MarkdownV2
     Returns:
         Formatted string ready for Telegram
     """
-    import re
+    if not message:
+        return ""
+    
     # Split paragraphs by double newlines
     paragraphs = re.split(r'\n\s*\n', message.strip())
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
+    
     if max_paragraphs > 0:
         paragraphs = paragraphs[:max_paragraphs]
+    
     formatted_paragraphs = []
+    
     for para in paragraphs:
-        # Block dialog: starts with ' or ", treat as blockquote
-        if para.startswith('"') or para.startswith("'"):
-            text = para.strip('"').strip("'")
-            if markdown:
-                # Only escape for blockquote: do NOT escape - and .
-                text = re.sub(r'([*_`~\[\](){}#+=|!])', r'\\\1', text)
-                # Blockquote in MarkdownV2: must start with > and a space
-                text = f'> {text}'
-            else:
-                text = f'<blockquote>{escape_html(text)}</blockquote>'
-            formatted_paragraphs.append(text)
-            continue
-        # Mood actions: starts/ends with * (bold)
-        if re.match(r'^\*[^*].*[^*]\*$', para):
-            text = para[1:-1].strip()
-            if markdown:
-                # Escape all except * inside bold
-                text = re.sub(r'([_`~\[\](){}#+=|!])', r'\\\1', text)
-                text = f'*{text}*'
-            else:
-                text = f'<b>{escape_html(text)}</b>'
-            formatted_paragraphs.append(text)
-            continue
-        # Roleplay: starts/ends with __ (italic)
-        if re.match(r'^__[^_].*[^_]__$', para):
-            text = para[2:-2].strip()
-            if markdown:
-                # Escape all except _ inside italic
-                text = re.sub(r'([*`~\[\](){}#+=|!])', r'\\\1', text)
-                text = f'__{text}__'
-            else:
-                text = f'<i>{escape_html(text)}</i>'
-            formatted_paragraphs.append(text)
-            continue
-        # Otherwise: treat as normal conversation
-        if markdown:
-            text = escape_markdown_v2_safe(para)
-        else:
-            text = escape_html(para)
-        formatted_paragraphs.append(text)
-    # Limit emoji per response (max 4 per paragraph, max 15 total)
-    emoji_pattern = re.compile(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF]+', flags=re.UNICODE)
-    total_emoji = 0
-    limited_paragraphs = []
-    for para in formatted_paragraphs:
-        emojis = emoji_pattern.findall(para)
-        if emojis:
-            # Limit to 4 emoji per paragraph
-            if len(emojis) > 4:
-                keep = emojis[:4]
-                # Remove extra emojis
-                def limit_emoji(m):
-                    nonlocal keep
-                    if keep:
-                        keep.pop(0)
-                        return m.group(0)
-                    return ''
-                para = emoji_pattern.sub(limit_emoji, para)
-            # Count for total
-            total_emoji += min(len(emojis), 4)
-            if total_emoji > 15:
-                # Remove all emojis if over total limit
-                para = emoji_pattern.sub('', para)
-        limited_paragraphs.append(para)
-    # Join with double newline for MarkdownV2, <br><br> for HTML
-    if markdown:
-        return '\n\n'.join(limited_paragraphs)
+        formatted_para = _format_single_paragraph(para, use_html)
+        if formatted_para:
+            formatted_paragraphs.append(formatted_para)
+    
+    # Limit emoji per response (max 15 total)
+    final_text = '\n\n'.join(formatted_paragraphs)
+    final_text = _limit_emoji_in_text(final_text, max_total=15)
+    
+    return final_text
+
+
+def _format_single_paragraph(para: str, use_html: bool) -> str:
+    """Format a single paragraph based on its content pattern."""
+    para = para.strip()
+    if not para:
+        return ""
+    
+    # Detect and format different paragraph types
+    if _is_blockquote(para):
+        return _format_blockquote(para, use_html)
+    elif _is_action_text(para):
+        return _format_action(para, use_html)
+    elif _is_roleplay_text(para):
+        return _format_roleplay(para, use_html)
+    elif _is_code_block(para):
+        return _format_code_block(para, use_html)
     else:
-        return '<br><br>'.join(limited_paragraphs)
+        return _format_normal_text(para, use_html)
+
+
+def _is_blockquote(text: str) -> bool:
+    """Check if text should be formatted as blockquote (dialog)."""
+    return text.startswith('>') or (text.startswith('"') and text.endswith('"'))
+
+
+def _is_action_text(text: str) -> bool:
+    """Check if text is an action (should be bold)."""
+    return text.startswith('*') and text.endswith('*') and len(text) > 2
+
+
+def _is_roleplay_text(text: str) -> bool:
+    """Check if text is roleplay description (should be italic)."""
+    return text.startswith('__') and text.endswith('__') and len(text) > 4
+
+
+def _is_code_block(text: str) -> bool:
+    """Check if text is code or Russian expression."""
+    return (text.startswith('```') and text.endswith('```')) or \
+           (text.startswith('`') and text.endswith('`'))
+
+
+def _format_blockquote(text: str, use_html: bool) -> str:
+    """Format blockquote/dialog text."""
+    # Remove quote markers
+    if text.startswith('>'):
+        content = text[1:].strip()
+    else:
+        content = text.strip('"').strip("'")
+    
+    if use_html:
+        return f"<blockquote>{escape_html(content)}</blockquote>"
+    else:
+        # MarkdownV2 blockquote
+        return f"> {content}"
+
+
+def _format_action(text: str, use_html: bool) -> str:
+    """Format action text (bold)."""
+    content = text[1:-1].strip()  # Remove surrounding *
+    
+    if use_html:
+        return f"<b>{escape_html(content)}</b>"
+    else:
+        # Don't double-escape for MarkdownV2
+        return f"*{content}*"
+
+
+def _format_roleplay(text: str, use_html: bool) -> str:
+    """Format roleplay description (italic)."""
+    content = text[2:-2].strip()  # Remove surrounding __
+    
+    if use_html:
+        return f"<i>{escape_html(content)}</i>"
+    else:
+        # Don't double-escape for MarkdownV2
+        return f"__{content}__"
+
+
+def _format_code_block(text: str, use_html: bool) -> str:
+    """Format code or Russian expressions."""
+    if text.startswith('```') and text.endswith('```'):
+        content = text[3:-3].strip()
+        if use_html:
+            return f"<pre>{escape_html(content)}</pre>"
+        else:
+            return f"```\n{content}\n```"
+    else:
+        content = text[1:-1].strip()  # Remove surrounding `
+        if use_html:
+            return f"<code>{escape_html(content)}</code>"
+        else:
+            return f"`{content}`"
+
+
+def _format_normal_text(text: str, use_html: bool) -> str:
+    """Format normal conversation text."""
+    if use_html:
+        return escape_html(text)
+    else:
+        return text  # Don't escape for MarkdownV2 mode anymore
+
+
+def _limit_emoji_in_text(text: str, max_total: int = 15) -> str:
+    """Limit total emoji count in text."""
+    emoji_pattern = re.compile(
+        r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\U0001F900-\U0001F9FF]+',
+        flags=re.UNICODE
+    )
+    
+    emojis = emoji_pattern.findall(text)
+    if len(emojis) <= max_total:
+        return text
+    
+    # Remove excess emoji
+    emoji_count = 0
+    def replace_emoji(match):
+        nonlocal emoji_count
+        if emoji_count < max_total:
+            emoji_count += 1
+            return match.group(0)
+        return ''
+    
+    return emoji_pattern.sub(replace_emoji, text)
