@@ -375,11 +375,11 @@ Based on this context:
         # formatted_response = f"{formatted_response}\u200C"
 
         # # --- NEW: Persona formatting ---
-        formatted_response = format_persona_response(response)
+        formatted_response = format_persona_response(response, use_html=True)
         formatted_response = f"{formatted_response}\u200C"
 
         # --- Ensure ALL output in user language (after formatting) ---
-        formatted_response = await self._ensure_language(formatted_response, lang, user)
+        # formatted_response = await self._ensure_language(formatted_response, lang, user)
 
         await update.message.reply_html(formatted_response)
     
