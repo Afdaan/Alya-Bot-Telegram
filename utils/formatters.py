@@ -4,13 +4,13 @@ Neutral response formatters for Alya Bot.
 Handles HTML/Markdown escaping and message structure with deterministic output and proper error handling.
 """
 
-from typing import Dict, List, Optional, Any, Union
-from pathlib import Path
-from functools import lru_cache
 import logging
-import re
+from typing import Dict, List, Optional, Any, Union
 import html
+import re
+from pathlib import Path
 import yaml
+from functools import lru_cache
 
 from config.settings import (
     MAX_MESSAGE_LENGTH,
@@ -372,55 +372,44 @@ def _strip_stray_asterisks(text: str) -> str:
     Examples:
     - "** *text*" -> "*text*"
     - "*text* **" -> "*text*"
-    - "** **Text" -> "Text"
-    - "** *Heading" -> "Heading"
     This prevents artifacts from model outputs like leading "** ".
     """
     if not text:
         return text
-    # Special case: patterns like '** *Heading' -> drop all stars prefix
-    text = re.sub(r'^\*{1,3}\s+\*(?=\S)', '', text)
-    # Remove one or more groups of asterisks followed by spaces at the beginning
-    text = re.sub(r'^(?:\*+\s+)+', '', text)
-    # Remove specific double pattern like "** **" at the start
-    text = re.sub(r'^(?:\*{1,3}\s+\*{1,3}\s+)', '', text)
-    # Remove leading sequences like '** ' or '*** ' (fallback)
+    # Remove leading sequences like '** ' or '*** '
     text = re.sub(r'^\*{2,}\s+', '', text)
-    # Remove trailing sequences like ' **' or ' ***' or even '**' with no preceding space
+    # Remove trailing sequences like ' **' or ' ***'
     text = re.sub(r'\s+\*{2,}$', '', text)
-    text = re.sub(r'\*{2,}$', '', text)
     return text
 
-def _strip_stray_underscores(text: str) -> str:
-    """Remove stray leading/trailing underscores that are not forming valid wrappers.
-
-    Examples:
-    - "__ _text_" -> "_text_"
-    - "__  Text" -> "Text"
-    - "Text __" -> "Text"
-    """
-    if not text:
-        return text
-    # Remove one or more groups of underscores followed by spaces at the start
-    text = re.sub(r'^(?:_+\s+)+', '', text)
-    # Remove single trailing groups like ' __' at the end or bare trailing underscores
-    text = re.sub(r'\s+_+$', '', text)
-    text = re.sub(r'_+$', '', text)
-    return text
-
-def _strip_leading_orphan_punct(text: str) -> str:
-    """Remove orphan leading punctuation like ')' or '('."""
-    if not text:
-        return ""
-    return re.sub(r'^[)\]>.,;:]\s*', '', text.strip()).strip()
 
 def _is_full_star_wrapped(text: str) -> bool:
-    """Check if the entire string is wrapped in single asterisks."""
-    return text.startswith('*') and text.endswith('*') and text.count('*') == 2
+    """Return True if the entire paragraph is wrapped with single asterisks: *...*.
+
+    This is treated as italic roleplay paragraph.
+    """
+    if not text:
+        return False
+    m = re.fullmatch(r'\*\s*([^*].*?)\s*\*', text)
+    return bool(m)
+
 
 def _is_full_single_underscore_wrapped(text: str) -> bool:
-    """Check if the entire string is wrapped in single underscores."""
-    return text.startswith('_') and text.endswith('_') and text.count('_') == 2
+    """Return True if entire paragraph is wrapped with single underscores: _..._.
+
+    Avoid matching double-underscore roleplay (__...__).
+    """
+    if not text:
+        return False
+    t = text.strip()
+    # Starts with single '_' but not '__', ends with single '_' but not '__'
+    if not (t.startswith('_') and t.endswith('_')):
+        return False
+    if len(t) >= 2 and (t.startswith('__') or t.endswith('__')):
+        return False
+    # Ensure there is some non-underscore content inside
+    return bool(re.fullmatch(r'_\s*(?!_)(.+?)(?<!_)\s*_', t))
+
 
 def _render_inline_wrapped(text: str, use_html: bool) -> str:
     """Render inline wrapped segments to italic.
@@ -460,24 +449,12 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     if not para:
         return ""
 
-    # Clean stray multi-asterisk and underscore artifacts before further parsing
+    # Clean stray multi-asterisk artifacts before further parsing
     para = _strip_stray_asterisks(para)
-    para = _strip_stray_underscores(para)
-    # Fix orphan leading punctuation like ")" or "("
-    para = _strip_leading_orphan_punct(para)
 
     # Treat heading-like first lines as-is (no YAML translation/suppression)
     if _looks_like_heading(para):
-        # Ensure heading does not contain leftover stray markers and render as a
-        # lightweight header for better visual separation in chat. Use bold in
-        # HTML mode and Markdown bold fallback otherwise.
-        heading = para.strip()
-        heading = _strip_stray_asterisks(heading)
-        heading = _strip_stray_underscores(heading)
-        heading = _strip_leading_orphan_punct(heading)
-        if not heading:
-            return ""
-        return f"<b>{escape_html(heading)}</b>" if use_html else f"*{heading}*"
+        return escape_html(para) if use_html else para
 
     # If entire paragraph is single-star wrapped, treat as italic roleplay
     if _is_full_star_wrapped(para):
@@ -512,30 +489,79 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
         if label == 'mood':
             return escape_html(content) if use_html else content
 
-    # Default case for regular paragraphs (the "green bubbles")
-    # This ensures paragraphs that are not headings or roleplay are still rendered.
-    para = _render_inline_wrapped(para, use_html)
-    return escape_html(para) if use_html else para
+    # Normalize literal style directives like: italic "..." or italic ... or italic: ...
+    m_italic_quoted = re.match(r'^italic\s+["\'](.+)["\']$', para, flags=re.IGNORECASE)
+    if m_italic_quoted:
+        content = m_italic_quoted.group(1).strip()
+        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
+
+    m_italic_plain = re.match(r'^italic\s+(.+)$', para, flags=re.IGNORECASE)
+    if m_italic_plain:
+        content = m_italic_plain.group(1).strip()
+        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
+
+    m_italic_colon = re.match(r'^italic\s*[:\-—]\s*(.+)$', para, flags=re.IGNORECASE)
+    if m_italic_colon:
+        content = m_italic_colon.group(1).strip()
+        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
+
+    # Normalize noisy emotion label lines like: *Emosi:** *Text or *Emotion:** *Text
+    m_emotion = re.match(r'^\*?\s*(emosi|emotion)\s*:?\**\s*\*?\s*(.+)$', para, flags=re.IGNORECASE)
+    if m_emotion:
+        raw_label = m_emotion.group(1)
+        content = m_emotion.group(2).strip()
+        label_l = raw_label.lower()
+        label_norm = 'Emosi' if label_l == 'emosi' else ('Emotion' if label_l == 'emotion' else raw_label.capitalize())
+        if use_html:
+            return f"<b>{escape_html(label_norm)}:</b> {escape_html(content)}"
+        else:
+            return f"*{label_norm}:* {content}"
+
+    # Handle multiple independent *...* segments like: *Confused** **Slightly concerned*
+    if para.startswith('*') and para.count('*') >= 3:
+        if use_html:
+            # Remove all asterisks then render underscore-wrapped segments as italic
+            cleaned = para.replace('*', '').strip()
+            cleaned = _render_inline_wrapped(cleaned, use_html)
+            return cleaned
+        else:
+            return para
+
+    # Clean up literal markers fallback
+    para = re.sub(r'^italic\s+["\'](.+)["\']$', r'__\1__', para, flags=re.IGNORECASE)
+    para = re.sub(r'^bold\s+["\'](.+)["\']$', r'*\1*', para, flags=re.IGNORECASE)
+
+    # Detect and format different paragraph types (order matters!)
+    if _is_code_block(para):
+        return _format_code_block(para, use_html)
+    elif _is_roleplay_text(para):
+        return _format_roleplay(para, use_html)
+    elif _is_action_text(para):
+        return _format_action(para, use_html)
+    elif _is_blockquote(para):
+        return _format_blockquote(para, use_html)
+    else:
+        return _format_normal_text(para, use_html)
 
 
 def _is_action_text(text: str) -> bool:
-    """Check if text is an action (bold-style) using symmetric asterisk wrapping.
+    """Check if paragraph should be treated as action/header (bold).
 
-    Only treat as action when the entire paragraph is wrapped by one or two asterisks,
-    e.g., *Action* or **Action**. This avoids false positives like stray '**' endings.
+    Accept lines that start with one or more asterisks even if the closing
+    asterisk is missing, so headers like "* Title" or "*Title" render as bold.
     """
     if not text:
         return False
-    t = text.strip()
-    return bool(re.fullmatch(r"\*{1,2}\s*.+?\s*\*{1,2}", t))
+    t = text.lstrip()
+    # Ignore obvious non-action starters
+    if t.startswith('```') or t.startswith('>'):
+        return False
+    return t.startswith('*')
 
 
 def _is_roleplay_text(text: str) -> bool:
-    """Check if text is roleplay description using symmetric double underscores."""
-    if not text:
-        return False
-    t = text.strip()
-    return bool(re.fullmatch(r"__\s*.+?\s*__", t))
+    """Check if text is roleplay description (should be italic)."""
+    return text.startswith('__') and '__' in text[2:]
 
 
 def _is_blockquote(text: str) -> bool:
@@ -554,92 +580,108 @@ def _is_code_block(text: str) -> bool:
         return False
     t = text.strip()
     # Fenced block
-    if re.match(r'^```[\s\S]+```\s*$', t):
+    if t.startswith('```') and t.endswith('```'):
         return True
-    # Single-line full inline code
-    if re.fullmatch(r'`[^`]+`', t):
+    # Full inline code paragraph (avoid treating fenced code as inline)
+    if t.startswith('`') and t.endswith('`') and '```' not in t:
         return True
     return False
 
 
-def _format_code_block(text: str, use_html: bool) -> str:
-    """Format code blocks or inline code for Telegram HTML/MarkdownV2."""
-    if not text:
-        return ""
-    t = text.strip()
-    m = re.match(r'^```([a-zA-Z0-9_+-]*)\n([\s\S]*?)\n```\s*$', t)
-    if m:
-        code_body = m.group(2)
-        escaped = escape_html(code_body) if use_html else code_body
-        return f"<pre><code>{escaped}</code></pre>" if use_html else f"```\n{code_body}\n```"
-    # Fallback to inline code
-    if re.fullmatch(r'`[^`]+`', t):
-        inner = t[1:-1]
-        escaped = escape_html(inner) if use_html else inner
-        return f"<code>{escaped}</code>" if use_html else f"`{inner}`"
-    # Default escape
-    return escape_html(text) if use_html else text
-
-
 def _format_blockquote(text: str, use_html: bool) -> str:
-    """Format blockquote lines starting with '>' or quoted content."""
-    if not text:
-        return ""
-    t = text.strip()
-    if t.startswith('>'):
-        # Remove leading '>' from each line cleanly
-        lines = [re.sub(r'^>\s?', '', ln).rstrip() for ln in t.splitlines()]
-        content = '\n'.join(lines).strip()
+    """Format blockquote/dialog text."""
+    # Remove quote markers
+    if text.startswith('>'):
+        content = text[1:].strip()
     else:
-        # Strip surrounding double quotes if present
-        content = t[1:-1] if t.startswith('"') and t.endswith('"') else t
-    return f"<blockquote>{escape_html(content)}</blockquote>" if use_html else f"> {content}"
+        content = text.strip('"').strip("'")
+    
+    if use_html:
+        return f"<blockquote>{escape_html(content)}</blockquote>"
+    else:
+        # MarkdownV2 blockquote
+        return f"> {content}"
 
 
 def _format_action(text: str, use_html: bool) -> str:
-    """Format action-style lines like *does this* into bold for visibility."""
-    if not text:
-        return ""
-    # Unwrap surrounding asterisks when used as action markers
-    cleaned = text.strip()
-    # If looks like *Action* or **Action** treat content as bold
-    m = re.match(r'^\*{1,2}\s*(.+?)\s*\*{1,2}$', cleaned)
-    if m:
-        content = m.group(1)
+    """Format action text (bold)."""
+    # If there are multiple *...* segments, format each to bold in HTML and strip stray '*'
+    multi_segments = re.findall(r'\*([^*]+)\*', text)
+    if len(multi_segments) >= 2:
+        if use_html:
+            rendered = re.sub(
+                r'\*([^*]+)\*',
+                lambda m: f"<b>{escape_html(m.group(1).strip())}</b>",
+                text,
+            )
+            return rendered.replace('*', '').strip()
+        else:
+            return text
+
+    # Support trailing content after closing '*', e.g., *Action* 😊
+    end_idx = text.rfind('*')
+    if end_idx <= 0:
+        content = text.strip('*')
+        remainder = ''
     else:
-        # Remove stray asterisks without pairs
-        content = cleaned.strip('*').strip()
-    return f"<b>{escape_html(content)}</b>" if use_html else f"*{content}*"
+        content = text[1:end_idx].strip()
+        remainder = text[end_idx+1:].strip()
+
+    if use_html:
+        formatted = f"<b>{escape_html(content)}</b>"
+        if remainder:
+            formatted += f" {escape_html(remainder)}"
+        return formatted
+    else:
+        return f"*{content}*{(' ' + remainder) if remainder else ''}"
 
 
 def _format_roleplay(text: str, use_html: bool) -> str:
-    """Format roleplay description lines that use underscores markers to italic."""
-    if not text:
-        return ""
-    cleaned = _render_inline_wrapped(text, use_html)
-    # If entire thing is wrapped with __...__ or _..._ convert to italic
-    m_du = re.fullmatch(r'__\s*(.+?)\s*__', cleaned)
-    m_si = re.fullmatch(r'_\s*(.+?)\s*_', cleaned)
-    if m_du or m_si:
-        inner = (m_du or m_si).group(1).strip()
-        return f"<i>{escape_html(inner)}</i>" if use_html else f"__{inner}__"
-    return cleaned if use_html else text
+    """Format roleplay description (italic)."""
+    # Support trailing content after closing '__', e.g., __desc__ 😊
+    end_idx = text.find('__', 2)
+    if end_idx == -1:
+        content = text.strip('_')
+        remainder = ''
+    else:
+        content = text[2:end_idx].strip()
+        remainder = text[end_idx+2:].strip()
+
+    # Normalize accidental 'italic ' prefix inside roleplay content
+    if content.lower().startswith('italic '):
+        content = content[7:].strip()
+
+    if use_html:
+        formatted = f"<i>{escape_html(content)}</i>"
+        if remainder:
+            formatted += f" {escape_html(remainder)}"
+        return formatted
+    else:
+        return f"__{content}__{(' ' + remainder) if remainder else ''}"
+
+
+def _format_code_block(text: str, use_html: bool) -> str:
+    """Format code or Russian expressions."""
+    if text.startswith('```') and text.endswith('```'):
+        content = text[3:-3].strip()
+        if use_html:
+            return f"<pre>{escape_html(content)}</pre>"
+        else:
+            return f"```\n{content}\n```"
+    else:
+        content = text[1:-1].strip()  # Remove surrounding `
+        if use_html:
+            return f"<code>{escape_html(content)}</code>"
+        else:
+            return f"`{content}`"
 
 
 def _format_normal_text(text: str, use_html: bool) -> str:
-    """Format normal paragraph text with safe escaping and inline italics support."""
-    if not text:
-        return ""
-    t = text
+    """Format normal conversation text as blockquote to use green bubble style."""
     if use_html:
-        # Render inline underscore-wrapped segments to italic, then escape remainder
-        t = _render_inline_wrapped(t, use_html=True)
-        # _render_inline_wrapped already escapes inside tags; escape remainder safely
-        # To avoid double-escaping tags, rely on escape_html on the whole which preserves tags
-        t = escape_html(t)
-        return t
+        return f"<blockquote>{escape_html(text)}</blockquote>"
     else:
-        return text
+        return f"> {text}"  # MarkdownV2/Markdown blockquote
 
 
 def _limit_emoji_in_text(text: str, max_total: int = 15) -> str:
@@ -663,45 +705,3 @@ def _limit_emoji_in_text(text: str, max_total: int = 15) -> str:
         return ''
     
     return emoji_pattern.sub(replace_emoji, text)
-
-def _is_full_star_wrapped(text: str) -> bool:
-    """Return True if the entire paragraph is wrapped with single asterisks: *...*.
-
-    This is treated as italic roleplay paragraph.
-    """
-    if not text:
-        return False
-    m = re.fullmatch(r'\*\s*([^*].*?)\s*\*', text)
-    return bool(m)
-
-
-def _is_full_single_underscore_wrapped(text: str) -> bool:
-    """Return True if entire paragraph is wrapped with single underscores: _..._.
-
-    Avoid matching double-underscore roleplay (__...__).
-    """
-    if not text:
-        return False
-    t = text.strip()
-    # Starts with single '_' but not '__', ends with single '_' but not '__'
-    if not (t.startswith('_') and t.endswith('_')):
-        return False
-    if len(t) >= 2 and (t.startswith('__') or t.endswith('__')):
-        return False
-    # Ensure there is some non-underscore content inside
-    return bool(re.fullmatch(r'_\s*(?!_)(.+?)(?<!_)\s*_', t))
-
-# Strengthen beginning cleanup for patterns like "** **Text"
-def _leading_asterisk_cleanup(text: str) -> str:
-    if not text:
-        return text
-    # Remove two groups of asterisks optionally separated by spaces at the very start
-    text = re.sub(r'^(?:\*{1,3}\s*){1,2}', '', text)
-    return text
-
-# integrate into existing cleaner by wrapping it (keep existing name stable)
-_old_strip_stray_asterisks = _strip_stray_asterisks
-
-def _strip_stray_asterisks(text: str) -> str:  # type: ignore[no-redef]
-    text = _leading_asterisk_cleanup(text)
-    return _old_strip_stray_asterisks(text)
