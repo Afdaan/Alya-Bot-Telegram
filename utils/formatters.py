@@ -191,6 +191,9 @@ def format_response(
     # Clean up excessive newlines
     formatted = re.sub(r'\n{3,}', '\n\n', formatted)
     formatted = formatted.strip()
+
+    # Ensure translation is applied regardless of branch to avoid mixed-language outputs
+    formatted = translate_response(formatted, lang)
     
     logger.debug(f"Final formatted message: {repr(formatted)}")
     
@@ -201,6 +204,48 @@ def format_response(
     # Split into smaller parts
     parts = _split_long_message(formatted, use_html)
     return parts[0] if len(parts) == 1 else parts
+
+
+def format_persona_response(
+    message: str,
+    max_paragraphs: int = 4,
+    use_html: bool = True,
+    lang: str = DEFAULT_LANGUAGE,
+) -> str:
+    """Format Alya persona response for Telegram with natural roleplay formatting.
+
+    Args:
+        message: The raw message string (may contain persona markup)
+        max_paragraphs: Maximum number of paragraphs to include
+        use_html: If True, use HTML mode, else MarkdownV2
+        lang: Target language preference for final rendering
+    Returns:
+        Formatted string ready for Telegram
+    """
+    if not message:
+        return ""
+    
+    # Split paragraphs by double newlines
+    paragraphs = re.split(r'\n\s*\n', message.strip())
+    paragraphs = [p.strip() for p in paragraphs if p.strip()]
+    
+    if max_paragraphs > 0:
+        paragraphs = paragraphs[:max_paragraphs]
+    
+    formatted_paragraphs: List[str] = []
+    for para in paragraphs:
+        formatted_para = _format_single_paragraph(para, use_html, lang)
+        if formatted_para:
+            formatted_paragraphs.append(formatted_para)
+    
+    # Limit emoji per response (max 15 total)
+    final_text = '\n\n'.join(formatted_paragraphs)
+    final_text = _limit_emoji_in_text(final_text, max_total=15)
+
+    # Apply simple translation map for target language (including 'id')
+    final_text = translate_response(final_text, lang)
+    
+    return final_text
 
 
 def _contains_roleplay_elements(message: str) -> bool:
@@ -305,58 +350,110 @@ def get_translate_prompt(text: str, lang: str = "id") -> str:
         return text
     return prompt.replace("{text}", text)
 
-def format_persona_response(
-    message: str,
-    max_paragraphs: int = 4,
-    use_html: bool = True,
-    lang: str = DEFAULT_LANGUAGE,
-) -> str:
-    """Format Alya persona response for Telegram with natural roleplay formatting.
+def _load_emotion_heading_map() -> dict:
+    """Load emotion/heading translations from YAML.
 
-    Args:
-        message: The raw message string (may contain persona markup)
-        max_paragraphs: Maximum number of paragraphs to include
-        use_html: If True, use HTML mode, else MarkdownV2
-        lang: Target language preference for final rendering
-    Returns:
-        Formatted string ready for Telegram
+    Expected file: config/persona/emotion_display.yml
+    Structure is flexible; we try common keys and fall back to top-level maps.
     """
-    if not message:
-        return ""
-    
-    # Split paragraphs by double newlines
-    paragraphs = re.split(r'\n\s*\n', message.strip())
-    paragraphs = [p.strip() for p in paragraphs if p.strip()]
-    
-    if max_paragraphs > 0:
-        paragraphs = paragraphs[:max_paragraphs]
-    
-    formatted_paragraphs = []
-    
-    for para in paragraphs:
-        formatted_para = _format_single_paragraph(para, use_html)
-        if formatted_para:
-            formatted_paragraphs.append(formatted_para)
-    
-    # Limit emoji per response (max 15 total)
-    final_text = '\n\n'.join(formatted_paragraphs)
-    final_text = _limit_emoji_in_text(final_text, max_total=15)
-
-    # Apply simple translation map for target language (including 'id')
-    final_text = translate_response(final_text, lang)
-    
-    return final_text
+    path = Path(__file__).parent.parent / "config" / "persona" / "emotion_display.yml"
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        # Prefer nested structures like { headings: { id: {...}, en: {...} } }
+        # Otherwise accept top-level { id: {...} } or flat maps.
+        if isinstance(data, dict):
+            return data
+        return {}
+    except Exception as e:
+        logger.error(f"Failed to load emotion_display YAML: {e}")
+        return {}
 
 
-def _format_single_paragraph(para: str, use_html: bool) -> str:
+def _looks_like_heading(text: str) -> bool:
+    """Heuristically determine if a paragraph is a short heading/summary line.
+
+    Rules: single line, <= 120 chars, no strong punctuation markers or markup, not empty.
+    """
+    if not text:
+        return False
+    t = text.strip()
+    if "\n" in t or len(t) > 120:
+        return False
+    # Avoid treating code/markup/labeled lines as headings
+    if any(x in t for x in ("`", "*", "__", ">", ":", "—")):
+        return False
+    # Heading often uses words separated by spaces, with letters
+    return bool(re.search(r"[A-Za-zÀ-ÿ]", t))
+
+
+def _translate_heading(text: str, lang: str) -> Optional[str]:
+    """Translate heading using emotion_display.yml mapping if available.
+
+    Returns translated text or None if no mapping found.
+    """
+    data = _load_emotion_heading_map()
+    if not data:
+        return None
+
+    # Try common structures
+    # 1) data["headings"][lang][source]
+    src = text.strip()
+    headings = data.get("headings") if isinstance(data, dict) else None
+    if isinstance(headings, dict):
+        lang_map = headings.get(lang)
+        if isinstance(lang_map, dict):
+            # Exact match
+            if src in lang_map:
+                return lang_map[src]
+            # Case-insensitive match
+            lower_map = {k.lower(): v for k, v in lang_map.items()}
+            if src.lower() in lower_map:
+                return lower_map[src.lower()]
+    # 2) data[lang][source]
+    if isinstance(data.get(lang), dict):
+        lang_map2 = data.get(lang)
+        if src in lang_map2:
+            return lang_map2[src]
+        lower_map2 = {k.lower(): v for k, v in lang_map2.items()}
+        if src.lower() in lower_map2:
+            return lower_map2[src.lower()]
+    # 3) Flat map
+    if src in data:
+        val = data.get(src)
+        if isinstance(val, str):
+            return val
+    return None
+
+def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANGUAGE) -> str:
     """Format a single paragraph based on its content pattern.
 
     Handles common LLM artifacts like leading 'italic ' or noisy
     asterisk markers around labels such as Emosi/Emotion.
+
+    Args:
+        para: Raw paragraph text
+        use_html: Whether to format using Telegram HTML
+        lang: Preferred user language for heading translation/dropping
     """
     para = para.strip()
     if not para:
         return ""
+
+    # If this looks like a heading/summary, render as plain text and translate via YAML
+    if _looks_like_heading(para):
+        translated = _translate_heading(para, lang) or _translate_heading(para, "id")
+        # If user language is Indonesian and we fail to translate, hide purely-English heading
+        if lang == "id":
+            if translated:
+                return escape_html(translated) if use_html else translated
+            likely_english = re.search(r"\b(and|but|why|slightly|trying|concerned|surprised|almost)\b", para, re.IGNORECASE)
+            if likely_english:
+                return ""  # drop to avoid mixed language
+        # Otherwise keep original as plain line
+        return escape_html(translated or para) if use_html else (translated or para)
 
     # Convert labeled lines like "Action: ..." or "Roleplay: ..." into styled text
     # Support optional wrapping with * or __ and optional colon/dash separators
