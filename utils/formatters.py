@@ -192,8 +192,7 @@ def format_response(
     formatted = re.sub(r'\n{3,}', '\n\n', formatted)
     formatted = formatted.strip()
 
-    # Ensure translation is applied regardless of branch to avoid mixed-language outputs
-    formatted = translate_response(formatted, lang)
+    # Removed YAML-based phrase translation to rely on model output language
     
     logger.debug(f"Final formatted message: {repr(formatted)}")
     
@@ -350,28 +349,6 @@ def get_translate_prompt(text: str, lang: str = "id") -> str:
         return text
     return prompt.replace("{text}", text)
 
-def _load_emotion_heading_map() -> dict:
-    """Load emotion/heading translations from YAML.
-
-    Expected file: config/persona/emotion_display.yml
-    Structure is flexible; we try common keys and fall back to top-level maps.
-    """
-    path = Path(__file__).parent.parent / "config" / "persona" / "emotion_display.yml"
-    if not path.exists():
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        # Prefer nested structures like { headings: { id: {...}, en: {...} } }
-        # Otherwise accept top-level { id: {...} } or flat maps.
-        if isinstance(data, dict):
-            return data
-        return {}
-    except Exception as e:
-        logger.error(f"Failed to load emotion_display YAML: {e}")
-        return {}
-
-
 def _looks_like_heading(text: str) -> bool:
     """Heuristically determine if a paragraph is a short heading/summary line.
 
@@ -389,44 +366,6 @@ def _looks_like_heading(text: str) -> bool:
     return bool(re.search(r"[A-Za-zÀ-ÿ]", t))
 
 
-def _translate_heading(text: str, lang: str) -> Optional[str]:
-    """Translate heading using emotion_display.yml mapping if available.
-
-    Returns translated text or None if no mapping found.
-    """
-    data = _load_emotion_heading_map()
-    if not data:
-        return None
-
-    # Try common structures
-    # 1) data["headings"][lang][source]
-    src = text.strip()
-    headings = data.get("headings") if isinstance(data, dict) else None
-    if isinstance(headings, dict):
-        lang_map = headings.get(lang)
-        if isinstance(lang_map, dict):
-            # Exact match
-            if src in lang_map:
-                return lang_map[src]
-            # Case-insensitive match
-            lower_map = {k.lower(): v for k, v in lang_map.items()}
-            if src.lower() in lower_map:
-                return lower_map[src.lower()]
-    # 2) data[lang][source]
-    if isinstance(data.get(lang), dict):
-        lang_map2 = data.get(lang)
-        if src in lang_map2:
-            return lang_map2[src]
-        lower_map2 = {k.lower(): v for k, v in lang_map2.items()}
-        if src.lower() in lower_map2:
-            return lower_map2[src.lower()]
-    # 3) Flat map
-    if src in data:
-        val = data.get(src)
-        if isinstance(val, str):
-            return val
-    return None
-
 def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANGUAGE) -> str:
     """Format a single paragraph based on its content pattern.
 
@@ -436,22 +375,15 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     Args:
         para: Raw paragraph text
         use_html: Whether to format using Telegram HTML
-        lang: Preferred user language for heading translation/dropping
+        lang: Preferred user language (unused for translation; kept for signature stability)
     """
     para = para.strip()
     if not para:
         return ""
 
-    # If this looks like a heading/summary, render as plain text and translate via YAML
+    # Treat heading-like first lines as-is (no YAML translation/suppression)
     if _looks_like_heading(para):
-        translated = _translate_heading(para, lang) or _translate_heading(para, "id")
-        if lang == "id":
-            if translated:
-                return escape_html(translated) if use_html else translated
-            likely_english = re.search(r"\b(and|but|why|slightly|trying|concerned|surprised|almost)\b", para, re.IGNORECASE)
-            if likely_english:
-                return ""
-        return escape_html(translated or para) if use_html else (translated or para)
+        return escape_html(para) if use_html else para
 
     # Handle labeled lines like "Action:", "Roleplay:", "Mood:", "Italic:"
     m_label_any = re.match(
@@ -474,9 +406,8 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
         if label == 'roleplay' or label == 'italic':
             return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
         if label == 'mood':
-            # Render as plain heading (no blockquote), translate if mapping exists
-            translated = _translate_heading(content, lang) or content
-            return escape_html(translated) if use_html else translated
+            # Render as plain heading (no blockquote), but do not translate
+            return escape_html(content) if use_html else content
 
     # Normalize literal style directives like: italic "..." or italic ... or italic: ...
     m_italic_quoted = re.match(r'^italic\s+["\'](.+)["\']$', para, flags=re.IGNORECASE)
