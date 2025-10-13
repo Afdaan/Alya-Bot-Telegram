@@ -188,7 +188,18 @@ class PersonaManager:
         
         # Convert language code to clear language name
         lang_name = "Bahasa Indonesia" if lang == "id" else "English"
-        prompt += f"\n\n**Conversation Context (Recent History):**\n---\n{context or 'This is the beginning of your conversation.'}\n---\n\n**User's Message:**\n> {message}\n\n**Your Task:**\nRespond to {username} in **{lang_name}** ONLY. Do not use any other language."
+        
+        # Ultra-strict language instruction
+        language_instruction = f"""
+**CRITICAL LANGUAGE REQUIREMENT:**
+- You MUST respond ENTIRELY in {lang_name}
+- DO NOT use English in your response
+- DO NOT mix languages
+- ALL text, actions, and roleplay descriptions must be in {lang_name}
+- If you accidentally write in English, immediately rewrite it in {lang_name}
+"""
+        
+        prompt += f"\n\n**Conversation Context (Recent History):**\n---\n{context or 'This is the beginning of your conversation.'}\n---\n\n**User's Message:**\n> {message}\n\n{language_instruction}\n\n**Your Task:**\nRespond to {username} naturally as Alya, following ALL instructions above."
         return prompt.strip()
 
     def get_media_analysis_prompt(

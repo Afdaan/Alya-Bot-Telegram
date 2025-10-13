@@ -283,35 +283,35 @@ Based on this context:
         else:
             return method(*args, **kwargs)
         
-    # async def _ensure_language(self, text: str, lang: str, user) -> str:
-    #     """Ensure text is in the user's preferred language using LLM translation if needed."""
-    #     from utils.formatters import get_translate_prompt
-    #     import langdetect
-    #     preferred_lang = lang or DEFAULT_LANGUAGE
-    #     try:
-    #         detected_lang = langdetect.detect(text)
-    #     except Exception:
-    #         detected_lang = preferred_lang
-    #     if detected_lang != preferred_lang:
-    #         translate_prompt = get_translate_prompt(text, preferred_lang)
-    #         try:
-    #             translated = await self.gemini.generate_response(
-    #                 user_id=user.id,
-    #                 username=user.first_name or "user",
-    #                 message=translate_prompt,
-    #                 context="",
-    #                 relationship_level=1,
-    #                 is_admin=False,
-    #                 lang=preferred_lang,
-    #                 retry_count=2,
-    #                 is_media_analysis=False,
-    #                 media_context=None
-    #             )
-    #             if translated and isinstance(translated, str):
-    #                 return translated.strip()
-    #         except Exception as e:
-    #             logger.error(f"Translation step failed: {e}")
-    #     return text
+    async def _ensure_language(self, text: str, lang: str, user) -> str:
+        """Ensure text is in the user's preferred language using LLM translation if needed."""
+        from utils.formatters import get_translate_prompt
+        import langdetect
+        preferred_lang = lang or DEFAULT_LANGUAGE
+        try:
+            detected_lang = langdetect.detect(text)
+        except Exception:
+            detected_lang = preferred_lang
+        if detected_lang != preferred_lang:
+            translate_prompt = get_translate_prompt(text, preferred_lang)
+            try:
+                translated = await self.gemini.generate_response(
+                    user_id=user.id,
+                    username=user.first_name or "user",
+                    message=translate_prompt,
+                    context="",
+                    relationship_level=1,
+                    is_admin=False,
+                    lang=preferred_lang,
+                    retry_count=2,
+                    is_media_analysis=False,
+                    media_context=None
+                )
+                if translated and isinstance(translated, str):
+                    return translated.strip()
+            except Exception as e:
+                logger.error(f"Translation step failed: {e}")
+        return text
 
     async def _process_and_send_response(
         self,
@@ -332,8 +332,9 @@ Based on this context:
         intent = message_context.get("intent", "") if message_context else ""
         topic = message_context.get("topic", "any") if message_context else "any"
 
-        # --- Ensure response in user language (before formatting) ---
-        response = await self._ensure_language(response, lang, user)
+        # --- DISABLED: Translation causing bilingual output ---
+        # response = await self._ensure_language(response, lang, user)
+        # NOTE: Gemini should already respond in Indonesian based on persona prompt
 
         # --- Map emotion to mood/intensity ---
         emotion_mood_mapping = {

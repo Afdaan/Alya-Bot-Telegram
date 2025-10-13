@@ -348,15 +348,19 @@ def _format_single_paragraph(para: str, use_html: bool) -> str:
     if not para:
         return ""
     
-    # Detect and format different paragraph types
-    if _is_blockquote(para):
-        return _format_blockquote(para, use_html)
-    elif _is_action_text(para):
-        return _format_action(para, use_html)
+    # Clean up literal "italic" or "bold" markers that Gemini sometimes outputs
+    para = re.sub(r'^italic\s+["\'](.+)["\']$', r'__\1__', para, flags=re.IGNORECASE)
+    para = re.sub(r'^bold\s+["\'](.+)["\']$', r'*\1*', para, flags=re.IGNORECASE)
+    
+    # Detect and format different paragraph types (order matters!)
+    if _is_code_block(para):
+        return _format_code_block(para, use_html)
     elif _is_roleplay_text(para):
         return _format_roleplay(para, use_html)
-    elif _is_code_block(para):
-        return _format_code_block(para, use_html)
+    elif _is_action_text(para):
+        return _format_action(para, use_html)
+    elif _is_blockquote(para):
+        return _format_blockquote(para, use_html)
     else:
         return _format_normal_text(para, use_html)
 
