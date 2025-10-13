@@ -454,7 +454,16 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
 
     # Treat heading-like first lines as-is (no YAML translation/suppression)
     if _looks_like_heading(para):
-        return escape_html(para) if use_html else para
+        # Ensure heading does not contain leftover stray markers and render as a
+        # lightweight header for better visual separation in chat. Use bold in
+        # HTML mode and Markdown bold fallback otherwise.
+        heading = para.strip()
+        heading = _strip_stray_asterisks(heading)
+        heading = _strip_stray_underscores(heading)
+        heading = _strip_leading_orphan_punct(heading)
+        if not heading:
+            return ""
+        return f"<b>{escape_html(heading)}</b>" if use_html else f"*{heading}*"
 
     # If entire paragraph is single-star wrapped, treat as italic roleplay
     if _is_full_star_wrapped(para):
