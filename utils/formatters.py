@@ -383,8 +383,9 @@ def _strip_stray_asterisks(text: str) -> str:
     text = re.sub(r'^(?:\*{1,3}\s+\*{1,3}\s+)', '', text)
     # Remove leading sequences like '** ' or '*** ' (fallback)
     text = re.sub(r'^\*{2,}\s+', '', text)
-    # Remove trailing sequences like ' **' or ' ***'
+    # Remove trailing sequences like ' **' or ' ***' or even '**' with no preceding space
     text = re.sub(r'\s+\*{2,}$', '', text)
+    text = re.sub(r'\*{2,}$', '', text)
     return text
 
 def _strip_stray_underscores(text: str) -> str:
@@ -399,8 +400,9 @@ def _strip_stray_underscores(text: str) -> str:
         return text
     # Remove one or more groups of underscores followed by spaces at the start
     text = re.sub(r'^(?:_+\s+)+', '', text)
-    # Remove single trailing groups like ' __' at the end
+    # Remove single trailing groups like ' __' at the end or bare trailing underscores
     text = re.sub(r'\s+_+$', '', text)
+    text = re.sub(r'_+$', '', text)
     return text
 
 def _render_inline_wrapped(text: str, use_html: bool) -> str:
@@ -538,13 +540,23 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
 
 
 def _is_action_text(text: str) -> bool:
-    """Check if text is an action (should be bold)."""
-    return text.startswith('*') and '*' in text[1:]
+    """Check if text is an action (bold-style) using symmetric asterisk wrapping.
+
+    Only treat as action when the entire paragraph is wrapped by one or two asterisks,
+    e.g., *Action* or **Action**. This avoids false positives like stray '**' endings.
+    """
+    if not text:
+        return False
+    t = text.strip()
+    return bool(re.fullmatch(r"\*{1,2}\s*.+?\s*\*{1,2}", t))
 
 
 def _is_roleplay_text(text: str) -> bool:
-    """Check if text is roleplay description (should be italic)."""
-    return text.startswith('__') and '__' in text[2:]
+    """Check if text is roleplay description using symmetric double underscores."""
+    if not text:
+        return False
+    t = text.strip()
+    return bool(re.fullmatch(r"__\s*.+?\s*__", t))
 
 
 def _is_blockquote(text: str) -> bool:
@@ -627,8 +639,8 @@ def _format_roleplay(text: str, use_html: bool) -> str:
         return ""
     cleaned = _render_inline_wrapped(text, use_html)
     # If entire thing is wrapped with __...__ or _..._ convert to italic
-    m_du = re.fullmatch(r'__\s*(.+?)\s__', cleaned)
-    m_si = re.fullmatch(r'_\s*(.+?)\s_', cleaned)
+    m_du = re.fullmatch(r'__\s*(.+?)\s*__', cleaned)
+    m_si = re.fullmatch(r'_\s*(.+?)\s*_', cleaned)
     if m_du or m_si:
         inner = (m_du or m_si).group(1).strip()
         return f"<i>{escape_html(inner)}</i>" if use_html else f"__{inner}__"
