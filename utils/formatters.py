@@ -343,15 +343,45 @@ def format_persona_response(
 
 
 def _format_single_paragraph(para: str, use_html: bool) -> str:
-    """Format a single paragraph based on its content pattern."""
+    """Format a single paragraph based on its content pattern.
+
+    Handles common LLM artifacts like leading 'italic ' or noisy
+    asterisk markers around labels such as Emosi/Emotion.
+    """
     para = para.strip()
     if not para:
         return ""
-    
+
+    # Normalize literal style directives like: italic "..." or italic ...
+    m_italic_quoted = re.match(r'^(?i)italic\s+["\'](.+)["\']$', para)
+    if m_italic_quoted:
+        content = m_italic_quoted.group(1).strip()
+        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
+
+    m_italic_plain = re.match(r'^(?i)italic\s+(.+)$', para)
+    if m_italic_plain:
+        content = m_italic_plain.group(1).strip()
+        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
+
+    # Normalize noisy emotion label lines like: *Emosi:** *Text or *Emotion:** *Text
+    m_emotion = re.match(
+        r'^\*?\s*(?i)(emosi|emotion)\s*:?\**\s*\*?\s*(.+)$', para
+    )
+    if m_emotion:
+        label = m_emotion.group(1)
+        content = m_emotion.group(2).strip()
+        label_norm = 'Emosi' if label.lower().startswith('e') and label[1:2] == 'm' else (
+            'Emotion' if label.lower().startswith('emotion') else label.capitalize()
+        )
+        if use_html:
+            return f"<b>{escape_html(label_norm)}:</b> {escape_html(content)}"
+        else:
+            return f"*{label_norm}:* {content}"
+
     # Clean up literal "italic" or "bold" markers that Gemini sometimes outputs
     para = re.sub(r'^italic\s+["\'](.+)["\']$', r'__\1__', para, flags=re.IGNORECASE)
     para = re.sub(r'^bold\s+["\'](.+)["\']$', r'*\1*', para, flags=re.IGNORECASE)
-    
+
     # Detect and format different paragraph types (order matters!)
     if _is_code_block(para):
         return _format_code_block(para, use_html)
