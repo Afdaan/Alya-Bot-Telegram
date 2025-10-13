@@ -256,8 +256,8 @@ def _contains_roleplay_elements(message: str) -> bool:
         r'^>',                  # > blockquote
         r'```[^`]+```',         # ```code```
         r'`[^`]+`',             # `inline code`
-        # labeled roleplay/action lines (optionally wrapped with * or __, optional colon/dash)
-        r'(?i)^[\s*_]*\b(action|roleplay)\b\s*[:\-—]?'
+        # labeled roleplay/action/italic/mood lines (optionally wrapped, optional colon/dash)
+        r'(?i)^[\s*_]*\b(action|roleplay|italic|mood)\b\s*[:\-—]?'
     ]
     
     for pattern in roleplay_patterns:
@@ -445,40 +445,40 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     # If this looks like a heading/summary, render as plain text and translate via YAML
     if _looks_like_heading(para):
         translated = _translate_heading(para, lang) or _translate_heading(para, "id")
-        # If user language is Indonesian and we fail to translate, hide purely-English heading
         if lang == "id":
             if translated:
                 return escape_html(translated) if use_html else translated
             likely_english = re.search(r"\b(and|but|why|slightly|trying|concerned|surprised|almost)\b", para, re.IGNORECASE)
             if likely_english:
-                return ""  # drop to avoid mixed language
-        # Otherwise keep original as plain line
+                return ""
         return escape_html(translated or para) if use_html else (translated or para)
 
-    # Convert labeled lines like "Action: ..." or "Roleplay: ..." into styled text
-    # Support optional wrapping with * or __ and optional colon/dash separators
-    m_labeled = re.match(
-        r'^\s*(?:\*{1,2}|__)?\s*(action|roleplay)\s*[:\-—]?\s*(.+?)\s*(?:\*{1,2}|__)?\s*$',
+    # Handle labeled lines like "Action:", "Roleplay:", "Mood:", "Italic:"
+    m_label_any = re.match(
+        r'^\s*(?:\*{1,2}|__)?\s*(action|roleplay|mood|italic)\s*[:\-—]?\s*(.+?)\s*(?:\*{1,2}|__)?\s*$',
         para,
         flags=re.IGNORECASE,
     )
-    if m_labeled:
-        label = m_labeled.group(1).lower()
-        content = m_labeled.group(2).strip()
-        # If content is wrapped with *...* or __...__, unwrap to avoid nested styling
+    if m_label_any:
+        label = m_label_any.group(1).lower()
+        content = m_label_any.group(2).strip()
+        # Unwrap if wrapped with *...* or __...__
         m_wrap_star = re.fullmatch(r'\*([^*]+)\*', content)
         m_wrap_ul = re.fullmatch(r'__([^_]+)__', content)
         if m_wrap_star:
             content = m_wrap_star.group(1).strip()
         elif m_wrap_ul:
             content = m_wrap_ul.group(1).strip()
-        
         if label == 'action':
             return f"<b>{escape_html(content)}</b>" if use_html else f"*{content}*"
-        else:  # roleplay
+        if label == 'roleplay' or label == 'italic':
             return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
+        if label == 'mood':
+            # Render as plain heading (no blockquote), translate if mapping exists
+            translated = _translate_heading(content, lang) or content
+            return escape_html(translated) if use_html else translated
 
-    # Normalize literal style directives like: italic "..." or italic ...
+    # Normalize literal style directives like: italic "..." or italic ... or italic: ...
     m_italic_quoted = re.match(r'^italic\s+["\'](.+)["\']$', para, flags=re.IGNORECASE)
     if m_italic_quoted:
         content = m_italic_quoted.group(1).strip()
@@ -487,6 +487,11 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     m_italic_plain = re.match(r'^italic\s+(.+)$', para, flags=re.IGNORECASE)
     if m_italic_plain:
         content = m_italic_plain.group(1).strip()
+        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
+
+    m_italic_colon = re.match(r'^italic\s*[:\-—]\s*(.+)$', para, flags=re.IGNORECASE)
+    if m_italic_colon:
+        content = m_italic_colon.group(1).strip()
         return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
 
     # Normalize noisy emotion label lines like: *Emosi:** *Text or *Emotion:** *Text
@@ -502,7 +507,6 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
             return f"*{label_norm}:* {content}"
 
     # Handle multiple independent *...* segments like: *Confused** **Slightly concerned*
-    # Convert each *...* to bold in HTML mode and strip stray asterisks left by the model.
     if para.startswith('*') and para.count('*') >= 3:
         if use_html:
             rendered = re.sub(
@@ -510,14 +514,12 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
                 lambda m: f"<b>{escape_html(m.group(1).strip())}</b>",
                 para,
             )
-            # Remove any leftover stray asterisks
             rendered = rendered.replace('*', '')
             return rendered.strip()
         else:
-            # Leave as-is in Markdown mode
             return para
 
-    # Clean up literal "italic" or "bold" markers that Gemini sometimes outputs (fallback)
+    # Clean up literal markers fallback
     para = re.sub(r'^italic\s+["\'](.+)["\']$', r'__\1__', para, flags=re.IGNORECASE)
     para = re.sub(r'^bold\s+["\'](.+)["\']$', r'*\1*', para, flags=re.IGNORECASE)
 
