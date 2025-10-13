@@ -207,10 +207,11 @@ def _contains_roleplay_elements(message: str) -> bool:
     """Check if message contains roleplay formatting elements."""
     roleplay_patterns = [
         r'\*[^*]+\*',      # *action*
-        r'__[^_]+__',      # __roleplay__
-        r'^>',             # > blockquote
-        r'```[^`]+```',    # ```code```
-        r'`[^`]+`'         # `inline code`
+        r'__[^_]+__',        # __roleplay__
+        r'^>',               # > blockquote
+        r'```[^`]+```',      # ```code```
+        r'`[^`]+`',          # `inline code`
+        r'(?i)^\s*(action|roleplay)\s*:'  # labeled roleplay/action lines
     ]
     
     for pattern in roleplay_patterns:
@@ -346,6 +347,25 @@ def _format_single_paragraph(para: str, use_html: bool) -> str:
     para = para.strip()
     if not para:
         return ""
+
+    # Convert labeled lines like "Action: ..." or "Roleplay: ..." into styled text
+    m_labeled = re.match(r'^\s*(action|roleplay)\s*:\s*(.+)$', para, flags=re.IGNORECASE)
+    if m_labeled:
+        label = m_labeled.group(1).lower()
+    
+        content = m_labeled.group(2).strip()
+        # If content is wrapped with *...* or __...__, unwrap to avoid nested styling
+        m_wrap_star = re.fullmatch(r'\*([^*]+)\*', content)
+        m_wrap_ul = re.fullmatch(r'__([^_]+)__', content)
+        if m_wrap_star:
+            content = m_wrap_star.group(1).strip()
+        elif m_wrap_ul:
+            content = m_wrap_ul.group(1).strip()
+        
+        if label == 'action':
+            return f"<b>{escape_html(content)}</b>" if use_html else f"*{content}*"
+        else:  # roleplay
+            return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
 
     # Normalize literal style directives like: italic "..." or italic ...
     m_italic_quoted = re.match(r'^italic\s+["\'](.+)["\']$', para, flags=re.IGNORECASE)
