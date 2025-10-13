@@ -408,6 +408,20 @@ def _strip_stray_underscores(text: str) -> str:
     text = re.sub(r'_+$', '', text)
     return text
 
+def _strip_leading_orphan_punct(text: str) -> str:
+    """Remove orphan leading punctuation like ')' or '('."""
+    if not text:
+        return ""
+    return re.sub(r'^[)\]>.,;:]\s*', '', text.strip()).strip()
+
+def _is_full_star_wrapped(text: str) -> bool:
+    """Check if the entire string is wrapped in single asterisks."""
+    return text.startswith('*') and text.endswith('*') and text.count('*') == 2
+
+def _is_full_single_underscore_wrapped(text: str) -> bool:
+    """Check if the entire string is wrapped in single underscores."""
+    return text.startswith('_') and text.endswith('_') and text.count('_') == 2
+
 def _render_inline_wrapped(text: str, use_html: bool) -> str:
     """Render inline wrapped segments to italic.
 
@@ -498,59 +512,10 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
         if label == 'mood':
             return escape_html(content) if use_html else content
 
-    # Normalize literal style directives like: italic "..." or italic ... or italic: ...
-    m_italic_quoted = re.match(r'^italic\s+["\'](.+)["\']$', para, flags=re.IGNORECASE)
-    if m_italic_quoted:
-        content = m_italic_quoted.group(1).strip()
-        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
-
-    m_italic_plain = re.match(r'^italic\s+(.+)$', para, flags=re.IGNORECASE)
-    if m_italic_plain:
-        content = m_italic_plain.group(1).strip()
-        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
-
-    m_italic_colon = re.match(r'^italic\s*[:\-—]\s*(.+)$', para, flags=re.IGNORECASE)
-    if m_italic_colon:
-        content = m_italic_colon.group(1).strip()
-        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
-
-    # Normalize noisy emotion label lines like: *Emosi:** *Text or *Emotion:** *Text
-    m_emotion = re.match(r'^\*?\s*(emosi|emotion)\s*:?\**\s*\*?\s*(.+)$', para, flags=re.IGNORECASE)
-    if m_emotion:
-        raw_label = m_emotion.group(1)
-        content = m_emotion.group(2).strip()
-        label_l = raw_label.lower()
-        label_norm = 'Emosi' if label_l == 'emosi' else ('Emotion' if label_l == 'emotion' else raw_label.capitalize())
-        if use_html:
-            return f"<b>{escape_html(label_norm)}:</b> {escape_html(content)}"
-        else:
-            return f"*{label_norm}:* {content}"
-
-    # Handle multiple independent *...* segments like: *Confused** **Slightly concerned*
-    if para.startswith('*') and para.count('*') >= 3:
-        if use_html:
-            # Remove all asterisks then render underscore-wrapped segments as italic
-            cleaned = para.replace('*', '').strip()
-            cleaned = _render_inline_wrapped(cleaned, use_html)
-            return cleaned
-        else:
-            return para
-
-    # Clean up literal markers fallback
-    para = re.sub(r'^italic\s+["\'](.+)["\']$', r'__\1__', para, flags=re.IGNORECASE)
-    para = re.sub(r'^bold\s+["\'](.+)["\']$', r'*\1*', para, flags=re.IGNORECASE)
-
-    # Detect and format different paragraph types (order matters!)
-    if _is_code_block(para):
-        return _format_code_block(para, use_html)
-    elif _is_roleplay_text(para):
-        return _format_roleplay(para, use_html)
-    elif _is_action_text(para):
-        return _format_action(para, use_html)
-    elif _is_blockquote(para):
-        return _format_blockquote(para, use_html)
-    else:
-        return _format_normal_text(para, use_html)
+    # Default case for regular paragraphs (the "green bubbles")
+    # This ensures paragraphs that are not headings or roleplay are still rendered.
+    para = _render_inline_wrapped(para, use_html)
+    return escape_html(para) if use_html else para
 
 
 def _is_action_text(text: str) -> bool:
@@ -740,22 +705,3 @@ _old_strip_stray_asterisks = _strip_stray_asterisks
 def _strip_stray_asterisks(text: str) -> str:  # type: ignore[no-redef]
     text = _leading_asterisk_cleanup(text)
     return _old_strip_stray_asterisks(text)
-
-def _strip_leading_orphan_punct(text: str) -> str:
-    """Strip a single leading orphan closing/opening punctuation.
-
-    Fixes artifacts like ")Etto..." or "(Etto..." that appear after
-    removing formatting markers. Removes only one leading char and trims
-    following spaces to avoid being over-aggressive.
-    """
-    if not text:
-        return text
-    first = text[0]
-    # Orphan closers at start are always invalid
-    orphan_closers = {')', ']', '}', '»', '”', '’'}
-    if first in orphan_closers:
-        return text[1:].lstrip()
-    # Optional: stray opening bracket without any corresponding closer
-    if first in {'(', '«', '“', '‘'} and (')' not in text and '»' not in text and '”' not in text and '’' not in text):
-        return text[1:].lstrip()
-    return text
