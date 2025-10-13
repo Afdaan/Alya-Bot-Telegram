@@ -183,7 +183,7 @@ def format_response(
     
     # Check if this looks like a persona response (contains roleplay elements)
     if _contains_roleplay_elements(message):
-        formatted = format_persona_response(message, max_paragraphs, use_html)
+        formatted = format_persona_response(message, max_paragraphs, use_html, lang)
     else:
         # Simple paragraph formatting for regular responses
         formatted = format_paragraphs(message, use_html)
@@ -206,12 +206,13 @@ def format_response(
 def _contains_roleplay_elements(message: str) -> bool:
     """Check if message contains roleplay formatting elements."""
     roleplay_patterns = [
-        r'\*[^*]+\*',      # *action*
-        r'__[^_]+__',        # __roleplay__
-        r'^>',               # > blockquote
-        r'```[^`]+```',      # ```code```
-        r'`[^`]+`',          # `inline code`
-        r'(?i)^\s*(action|roleplay)\s*:'  # labeled roleplay/action lines
+        r'\*[^*]+\*',         # *action*
+        r'__[^_]+__',           # __roleplay__
+        r'^>',                  # > blockquote
+        r'```[^`]+```',         # ```code```
+        r'`[^`]+`',             # `inline code`
+        # labeled roleplay/action lines (optionally wrapped with * or __, optional colon/dash)
+        r'(?i)^[\s*_]*\b(action|roleplay)\b\s*[:\-—]?'
     ]
     
     for pattern in roleplay_patterns:
@@ -282,8 +283,12 @@ def _load_translation_map() -> dict:
         return {}
 
 def translate_response(text: str, lang: str = "id") -> str:
-    """Translate Alya's response to the target language using YAML mapping."""
-    if not text or lang == "id":
+    """Translate Alya's response to the target language using YAML mapping.
+
+    Applies simple phrase mapping from config/persona/translate.yml. If a mapping
+    exists for the requested language (including 'id'), it will be applied.
+    """
+    if not text:
         return text
     translations = _load_translation_map()
     lang_map = translations.get(lang, {})
@@ -303,7 +308,8 @@ def get_translate_prompt(text: str, lang: str = "id") -> str:
 def format_persona_response(
     message: str,
     max_paragraphs: int = 4,
-    use_html: bool = True
+    use_html: bool = True,
+    lang: str = DEFAULT_LANGUAGE,
 ) -> str:
     """Format Alya persona response for Telegram with natural roleplay formatting.
 
@@ -311,6 +317,7 @@ def format_persona_response(
         message: The raw message string (may contain persona markup)
         max_paragraphs: Maximum number of paragraphs to include
         use_html: If True, use HTML mode, else MarkdownV2
+        lang: Target language preference for final rendering
     Returns:
         Formatted string ready for Telegram
     """
@@ -334,6 +341,9 @@ def format_persona_response(
     # Limit emoji per response (max 15 total)
     final_text = '\n\n'.join(formatted_paragraphs)
     final_text = _limit_emoji_in_text(final_text, max_total=15)
+
+    # Apply simple translation map for target language (including 'id')
+    final_text = translate_response(final_text, lang)
     
     return final_text
 
@@ -349,10 +359,14 @@ def _format_single_paragraph(para: str, use_html: bool) -> str:
         return ""
 
     # Convert labeled lines like "Action: ..." or "Roleplay: ..." into styled text
-    m_labeled = re.match(r'^\s*(action|roleplay)\s*:\s*(.+)$', para, flags=re.IGNORECASE)
+    # Support optional wrapping with * or __ and optional colon/dash separators
+    m_labeled = re.match(
+        r'^\s*(?:\*{1,2}|__)?\s*(action|roleplay)\s*[:\-—]?\s*(.+?)\s*(?:\*{1,2}|__)?\s*$',
+        para,
+        flags=re.IGNORECASE,
+    )
     if m_labeled:
         label = m_labeled.group(1).lower()
-    
         content = m_labeled.group(2).strip()
         # If content is wrapped with *...* or __...__, unwrap to avoid nested styling
         m_wrap_star = re.fullmatch(r'\*([^*]+)\*', content)
@@ -546,11 +560,11 @@ def _format_code_block(text: str, use_html: bool) -> str:
 
 
 def _format_normal_text(text: str, use_html: bool) -> str:
-    """Format normal conversation text."""
+    """Format normal conversation text as blockquote to use green bubble style."""
     if use_html:
-        return escape_html(text)
+        return f"<blockquote>{escape_html(text)}</blockquote>"
     else:
-        return text  # Don't escape for MarkdownV2 mode anymore
+        return f"> {text}"  # MarkdownV2/Markdown blockquote
 
 
 def _limit_emoji_in_text(text: str, max_total: int = 15) -> str:
