@@ -185,7 +185,10 @@ class PersonaManager:
 - {russian_phrases}
 """)
         prompt = "\n\n".join(prompt_parts)
-        prompt += f"\n\n**Conversation Context (Recent History):**\n---\n{context or 'This is the beginning of your conversation.'}\n---\n\n**User's Message:**\n> {message}\n\n**Your Task:**\nRespond to {username} in **{lang}**."
+        
+        # Convert language code to clear language name
+        lang_name = "Bahasa Indonesia" if lang == "id" else "English"
+        prompt += f"\n\n**Conversation Context (Recent History):**\n---\n{context or 'This is the beginning of your conversation.'}\n---\n\n**User's Message:**\n> {message}\n\n**Your Task:**\nRespond to {username} in **{lang_name}** ONLY. Do not use any other language."
         return prompt.strip()
 
     def get_media_analysis_prompt(
