@@ -452,6 +452,20 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     # Clean stray multi-asterisk artifacts before further parsing
     para = _strip_stray_asterisks(para)
 
+    # NEW: Treat lines that start with multiple asterisks (e.g., "** *Header" or "** Header")
+    # as bold headers. We strip all leading asterisks/spaces and bold the remainder.
+    m_multi_leading = re.match(r"^\*{2,}\s*\*?\s*(.+)$", para)
+    if m_multi_leading:
+        content = m_multi_leading.group(1).strip().strip('*').strip()
+        return f"<b>{escape_html(content)}</b>" if use_html else f"*{content}*"
+
+    # Special case: header lines that start with a single leading asterisk without a closing pair
+    # Example: "* Merasa sedikit bingung ..." or "*Merasa sedikit bingung ..."
+    m_single_leading_star = re.match(r"^\*\s*([^*].*)$", para)
+    if m_single_leading_star:
+        content = m_single_leading_star.group(1).strip()
+        return f"<b>{escape_html(content)}</b>" if use_html else f"*{content}*"
+
     # Treat heading-like first lines as-is (no YAML translation/suppression)
     if _looks_like_heading(para):
         return escape_html(para) if use_html else para
@@ -468,7 +482,7 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
 
     # Handle labeled lines like "Action:", "Roleplay:", "Mood:", "Italic:"
     m_label_any = re.match(
-        r'^\s*(?:\*{1,2}|__)?\s*(action|roleplay|mood|italic)\s*[:\-—]?\s*(.+?)\s*(?:\*{1,2}|__)?\s*$',
+        r'^\s*(?:\*{1,2}|__)\s*(action|roleplay|mood|italic)\s*[:\-—]?\s*(.+?)\s*(?:\*{1,2}|__)\s*$',
         para,
         flags=re.IGNORECASE,
     )
@@ -604,28 +618,23 @@ def _format_blockquote(text: str, use_html: bool) -> str:
 
 
 def _format_action(text: str, use_html: bool) -> str:
-    """Format action text (bold)."""
-    # If there are multiple *...* segments, format each to bold in HTML and strip stray '*'
-    multi_segments = re.findall(r'\*([^*]+)\*', text)
-    if len(multi_segments) >= 2:
-        if use_html:
-            rendered = re.sub(
-                r'\*([^*]+)\*',
-                lambda m: f"<b>{escape_html(m.group(1).strip())}</b>",
-                text,
-            )
-            return rendered.replace('*', '').strip()
-        else:
-            return text
+    """Format action/header text (bold).
 
-    # Support trailing content after closing '*', e.g., *Action* 😊
-    end_idx = text.rfind('*')
-    if end_idx <= 0:
-        content = text.strip('*')
-        remainder = ''
+    Robustly handles lines that start with one or more leading asterisks, with or
+    without a matching closing asterisk, e.g. "*Header", "** *Header", "*Action* 😊".
+    """
+    # Normalize: remove any leading asterisks and spaces
+    t = text.lstrip()
+    t = re.sub(r'^\*+\s*', '', t)
+
+    # If we have a closing asterisk later, split content and remainder
+    close_idx = t.find('*')
+    if close_idx != -1:
+        content = t[:close_idx].strip()
+        remainder = t[close_idx + 1 :].strip()
     else:
-        content = text[1:end_idx].strip()
-        remainder = text[end_idx+1:].strip()
+        content = t.strip('*').strip()
+        remainder = ''
 
     if use_html:
         formatted = f"<b>{escape_html(content)}</b>"
