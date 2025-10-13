@@ -411,6 +411,29 @@ def _is_full_single_underscore_wrapped(text: str) -> bool:
     return bool(re.fullmatch(r'_\s*(?!_)(.+?)(?<!_)\s*_', t))
 
 
+def _render_inline_wrapped(text: str, use_html: bool) -> str:
+    """Render inline wrapped segments to italic.
+
+    - Double underscores: __text__ -> <i>text</i>
+    - Single underscores (not part of double): _text_ -> <i>text</i>
+    """
+    if not text:
+        return text
+
+    def repl_double(m: re.Match) -> str:
+        content = m.group(1).strip()
+        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
+
+    def repl_single(m: re.Match) -> str:
+        content = m.group(1).strip()
+        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
+
+    # Replace double underscores first
+    text = re.sub(r'__([^_]+?)__', repl_double, text)
+    # Replace single underscores that are not part of a double underscore sequence
+    text = re.sub(r'(?<!_)_([^_]+?)_(?!_)', repl_single, text)
+    return text
+
 def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANGUAGE) -> str:
     """Format a single paragraph based on its content pattern.
 
@@ -497,13 +520,10 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     # Handle multiple independent *...* segments like: *Confused** **Slightly concerned*
     if para.startswith('*') and para.count('*') >= 3:
         if use_html:
-            rendered = re.sub(
-                r'\*([^*]+)\*',
-                lambda m: f"<b>{escape_html(m.group(1).strip())}</b>",
-                para,
-            )
-            rendered = rendered.replace('*', '')
-            return rendered.strip()
+            # Remove all asterisks then render underscore-wrapped segments as italic
+            cleaned = para.replace('*', '').strip()
+            cleaned = _render_inline_wrapped(cleaned, use_html)
+            return cleaned
         else:
             return para
 
