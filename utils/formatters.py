@@ -5,7 +5,7 @@ Handles HTML/Markdown escaping and message structure with deterministic output a
 """
 
 import logging
-from typing import Dict, List, Optional, Any, Tuple, Union
+from typing import Dict, List, Optional, Any, Union
 import html
 import re
 from pathlib import Path
@@ -49,11 +49,6 @@ def escape_html(text: str) -> str:
 def escape_markdown_v2(text: str) -> str:
     """Escape special characters for MarkdownV2 formatting - DISABLED for HTML mode."""
     # Since we're using HTML mode, don't escape markdown characters
-    return text if text else ""
-
-def escape_markdown_v2_safe(text: str) -> str:
-    """Ultra-safe MarkdownV2 escaping - DISABLED for HTML mode."""
-    # Since we're using HTML mode, don't escape anything
     return text if text else ""
 
 def format_paragraphs(text: str, use_html: bool = True) -> str:
@@ -353,32 +348,29 @@ def _format_single_paragraph(para: str, use_html: bool) -> str:
         return ""
 
     # Normalize literal style directives like: italic "..." or italic ...
-    m_italic_quoted = re.match(r'^(?i)italic\s+["\'](.+)["\']$', para)
+    m_italic_quoted = re.match(r'^italic\s+["\'](.+)["\']$', para, flags=re.IGNORECASE)
     if m_italic_quoted:
         content = m_italic_quoted.group(1).strip()
         return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
 
-    m_italic_plain = re.match(r'^(?i)italic\s+(.+)$', para)
+    m_italic_plain = re.match(r'^italic\s+(.+)$', para, flags=re.IGNORECASE)
     if m_italic_plain:
         content = m_italic_plain.group(1).strip()
         return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
 
     # Normalize noisy emotion label lines like: *Emosi:** *Text or *Emotion:** *Text
-    m_emotion = re.match(
-        r'^\*?\s*(?i)(emosi|emotion)\s*:?\**\s*\*?\s*(.+)$', para
-    )
+    m_emotion = re.match(r'^\*?\s*(emosi|emotion)\s*:?\**\s*\*?\s*(.+)$', para, flags=re.IGNORECASE)
     if m_emotion:
-        label = m_emotion.group(1)
+        raw_label = m_emotion.group(1)
         content = m_emotion.group(2).strip()
-        label_norm = 'Emosi' if label.lower().startswith('e') and label[1:2] == 'm' else (
-            'Emotion' if label.lower().startswith('emotion') else label.capitalize()
-        )
+        label_l = raw_label.lower()
+        label_norm = 'Emosi' if label_l == 'emosi' else ('Emotion' if label_l == 'emotion' else raw_label.capitalize())
         if use_html:
             return f"<b>{escape_html(label_norm)}:</b> {escape_html(content)}"
         else:
             return f"*{label_norm}:* {content}"
 
-    # Clean up literal "italic" or "bold" markers that Gemini sometimes outputs
+    # Clean up literal "italic" or "bold" markers that Gemini sometimes outputs (fallback)
     para = re.sub(r'^italic\s+["\'](.+)["\']$', r'__\1__', para, flags=re.IGNORECASE)
     para = re.sub(r'^bold\s+["\'](.+)["\']$', r'*\1*', para, flags=re.IGNORECASE)
 
@@ -395,25 +387,19 @@ def _format_single_paragraph(para: str, use_html: bool) -> str:
         return _format_normal_text(para, use_html)
 
 
-def _is_blockquote(text: str) -> bool:
-    """Check if text should be formatted as blockquote (dialog)."""
-    return text.startswith('>') or (text.startswith('"') and text.endswith('"'))
-
-
 def _is_action_text(text: str) -> bool:
     """Check if text is an action (should be bold)."""
-    return text.startswith('*') and text.endswith('*') and len(text) > 2
+    return text.startswith('*') and '*' in text[1:]
 
 
 def _is_roleplay_text(text: str) -> bool:
     """Check if text is roleplay description (should be italic)."""
-    return text.startswith('__') and text.endswith('__') and len(text) > 4
+    return text.startswith('__') and '__' in text[2:]
 
 
-def _is_code_block(text: str) -> bool:
-    """Check if text is code or Russian expression."""
-    return (text.startswith('```') and text.endswith('```')) or \
-           (text.startswith('`') and text.endswith('`'))
+def _is_blockquote(text: str) -> bool:
+    """Check if text should be formatted as blockquote (dialog)."""
+    return text.startswith('>') or (text.startswith('"') and text.endswith('"'))
 
 
 def _format_blockquote(text: str, use_html: bool) -> str:
@@ -433,24 +419,46 @@ def _format_blockquote(text: str, use_html: bool) -> str:
 
 def _format_action(text: str, use_html: bool) -> str:
     """Format action text (bold)."""
-    content = text[1:-1].strip()  # Remove surrounding *
-    
-    if use_html:
-        return f"<b>{escape_html(content)}</b>"
+    # Support trailing content after closing '*', e.g., *Action* 😊
+    end_idx = text.rfind('*')
+    if end_idx <= 0:
+        content = text.strip('*')
+        remainder = ''
     else:
-        # Don't double-escape for MarkdownV2
-        return f"*{content}*"
+        content = text[1:end_idx].strip()
+        remainder = text[end_idx+1:].strip()
+
+    if use_html:
+        formatted = f"<b>{escape_html(content)}</b>"
+        if remainder:
+            formatted += f" {escape_html(remainder)}"
+        return formatted
+    else:
+        return f"*{content}*{(' ' + remainder) if remainder else ''}"
 
 
 def _format_roleplay(text: str, use_html: bool) -> str:
     """Format roleplay description (italic)."""
-    content = text[2:-2].strip()  # Remove surrounding __
-    
-    if use_html:
-        return f"<i>{escape_html(content)}</i>"
+    # Support trailing content after closing '__', e.g., __desc__ 😊
+    end_idx = text.find('__', 2)
+    if end_idx == -1:
+        content = text.strip('_')
+        remainder = ''
     else:
-        # Don't double-escape for MarkdownV2
-        return f"__{content}__"
+        content = text[2:end_idx].strip()
+        remainder = text[end_idx+2:].strip()
+
+    # Normalize accidental 'italic ' prefix inside roleplay content
+    if content.lower().startswith('italic '):
+        content = content[7:].strip()
+
+    if use_html:
+        formatted = f"<i>{escape_html(content)}</i>"
+        if remainder:
+            formatted += f" {escape_html(remainder)}"
+        return formatted
+    else:
+        return f"__{content}__{(' ' + remainder) if remainder else ''}"
 
 
 def _format_code_block(text: str, use_html: bool) -> str:
