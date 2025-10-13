@@ -366,6 +366,34 @@ def _looks_like_heading(text: str) -> bool:
     return bool(re.search(r"[A-Za-zÀ-ÿ]", t))
 
 
+def _strip_stray_asterisks(text: str) -> str:
+    """Remove stray leading/trailing multi-asterisks that are not part of a pair.
+
+    Examples:
+    - "** *text*" -> "*text*"
+    - "*text* **" -> "*text*"
+    This prevents artifacts from model outputs like leading "** ".
+    """
+    if not text:
+        return text
+    # Remove leading sequences like '** ' or '*** '
+    text = re.sub(r'^\*{2,}\s+', '', text)
+    # Remove trailing sequences like ' **' or ' ***'
+    text = re.sub(r'\s+\*{2,}$', '', text)
+    return text
+
+
+def _is_full_star_wrapped(text: str) -> bool:
+    """Return True if the entire paragraph is wrapped with single asterisks: *...*.
+
+    This is treated as italic roleplay paragraph.
+    """
+    if not text:
+        return False
+    m = re.fullmatch(r'\*\s*([^*].*?)\s*\*', text)
+    return bool(m)
+
+
 def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANGUAGE) -> str:
     """Format a single paragraph based on its content pattern.
 
@@ -381,9 +409,17 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     if not para:
         return ""
 
+    # Clean stray multi-asterisk artifacts before further parsing
+    para = _strip_stray_asterisks(para)
+
     # Treat heading-like first lines as-is (no YAML translation/suppression)
     if _looks_like_heading(para):
         return escape_html(para) if use_html else para
+
+    # If entire paragraph is single-star wrapped, treat as italic roleplay
+    if _is_full_star_wrapped(para):
+        content = para.strip()[1:-1].strip()
+        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
 
     # Handle labeled lines like "Action:", "Roleplay:", "Mood:", "Italic:"
     m_label_any = re.match(
@@ -403,10 +439,9 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
             content = m_wrap_ul.group(1).strip()
         if label == 'action':
             return f"<b>{escape_html(content)}</b>" if use_html else f"*{content}*"
-        if label == 'roleplay' or label == 'italic':
+        if label in ('roleplay', 'italic'):
             return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
         if label == 'mood':
-            # Render as plain heading (no blockquote), but do not translate
             return escape_html(content) if use_html else content
 
     # Normalize literal style directives like: italic "..." or italic ... or italic: ...
