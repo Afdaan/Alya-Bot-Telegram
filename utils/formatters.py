@@ -394,6 +394,23 @@ def _is_full_star_wrapped(text: str) -> bool:
     return bool(m)
 
 
+def _is_full_single_underscore_wrapped(text: str) -> bool:
+    """Return True if entire paragraph is wrapped with single underscores: _..._.
+
+    Avoid matching double-underscore roleplay (__...__).
+    """
+    if not text:
+        return False
+    t = text.strip()
+    # Starts with single '_' but not '__', ends with single '_' but not '__'
+    if not (t.startswith('_') and t.endswith('_')):
+        return False
+    if len(t) >= 2 and (t.startswith('__') or t.endswith('__')):
+        return False
+    # Ensure there is some non-underscore content inside
+    return bool(re.fullmatch(r'_\s*(?!_)(.+?)(?<!_)\s*_', t))
+
+
 def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANGUAGE) -> str:
     """Format a single paragraph based on its content pattern.
 
@@ -418,6 +435,11 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
 
     # If entire paragraph is single-star wrapped, treat as italic roleplay
     if _is_full_star_wrapped(para):
+        content = para.strip()[1:-1].strip()
+        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
+
+    # If entire paragraph is single-underscore wrapped, render as italic
+    if _is_full_single_underscore_wrapped(para):
         content = para.strip()[1:-1].strip()
         return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
 
