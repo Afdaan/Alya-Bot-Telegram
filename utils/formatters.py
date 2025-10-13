@@ -446,6 +446,8 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     # Clean stray multi-asterisk and underscore artifacts before further parsing
     para = _strip_stray_asterisks(para)
     para = _strip_stray_underscores(para)
+    # Fix orphan leading punctuation like ")" or "("
+    para = _strip_leading_orphan_punct(para)
 
     # Treat heading-like first lines as-is (no YAML translation/suppression)
     if _looks_like_heading(para):
@@ -726,3 +728,22 @@ _old_strip_stray_asterisks = _strip_stray_asterisks
 def _strip_stray_asterisks(text: str) -> str:  # type: ignore[no-redef]
     text = _leading_asterisk_cleanup(text)
     return _old_strip_stray_asterisks(text)
+
+def _strip_leading_orphan_punct(text: str) -> str:
+    """Strip a single leading orphan closing/opening punctuation.
+
+    Fixes artifacts like ")Etto..." or "(Etto..." that appear after
+    removing formatting markers. Removes only one leading char and trims
+    following spaces to avoid being over-aggressive.
+    """
+    if not text:
+        return text
+    first = text[0]
+    # Orphan closers at start are always invalid
+    orphan_closers = {')', ']', '}', '»', '”', '’'}
+    if first in orphan_closers:
+        return text[1:].lstrip()
+    # Optional: stray opening bracket without any corresponding closer
+    if first in {'(', '«', '“', '‘'} and (')' not in text and '»' not in text and '”' not in text and '’' not in text):
+        return text[1:].lstrip()
+    return text
