@@ -370,6 +370,22 @@ def _format_single_paragraph(para: str, use_html: bool) -> str:
         else:
             return f"*{label_norm}:* {content}"
 
+    # Handle multiple independent *...* segments like: *Confused** **Slightly concerned*
+    # Convert each *...* to bold in HTML mode and strip stray asterisks left by the model.
+    if para.startswith('*') and para.count('*') >= 3:
+        if use_html:
+            rendered = re.sub(
+                r'\*([^*]+)\*',
+                lambda m: f"<b>{escape_html(m.group(1).strip())}</b>",
+                para,
+            )
+            # Remove any leftover stray asterisks
+            rendered = rendered.replace('*', '')
+            return rendered.strip()
+        else:
+            # Leave as-is in Markdown mode
+            return para
+
     # Clean up literal "italic" or "bold" markers that Gemini sometimes outputs (fallback)
     para = re.sub(r'^italic\s+["\'](.+)["\']$', r'__\1__', para, flags=re.IGNORECASE)
     para = re.sub(r'^bold\s+["\'](.+)["\']$', r'*\1*', para, flags=re.IGNORECASE)
@@ -438,6 +454,19 @@ def _format_blockquote(text: str, use_html: bool) -> str:
 
 def _format_action(text: str, use_html: bool) -> str:
     """Format action text (bold)."""
+    # If there are multiple *...* segments, format each to bold in HTML and strip stray '*'
+    multi_segments = re.findall(r'\*([^*]+)\*', text)
+    if len(multi_segments) >= 2:
+        if use_html:
+            rendered = re.sub(
+                r'\*([^*]+)\*',
+                lambda m: f"<b>{escape_html(m.group(1).strip())}</b>",
+                text,
+            )
+            return rendered.replace('*', '').strip()
+        else:
+            return text
+
     # Support trailing content after closing '*', e.g., *Action* 😊
     end_idx = text.rfind('*')
     if end_idx <= 0:
