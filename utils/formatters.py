@@ -402,6 +402,25 @@ def _is_blockquote(text: str) -> bool:
     return text.startswith('>') or (text.startswith('"') and text.endswith('"'))
 
 
+def _is_code_block(text: str) -> bool:
+    """Detect if a paragraph is a code snippet.
+
+    A paragraph is considered code when it is:
+    - A fenced code block wrapped with triple backticks ```...```
+    - Entirely wrapped with single backticks `...` (inline snippet as its own paragraph)
+    """
+    if not text:
+        return False
+    t = text.strip()
+    # Fenced block
+    if t.startswith('```') and t.endswith('```'):
+        return True
+    # Full inline code paragraph (avoid treating fenced code as inline)
+    if t.startswith('`') and t.endswith('`') and '```' not in t:
+        return True
+    return False
+
+
 def _format_blockquote(text: str, use_html: bool) -> str:
     """Format blockquote/dialog text."""
     # Remove quote markers
