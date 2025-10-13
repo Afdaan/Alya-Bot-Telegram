@@ -373,10 +373,13 @@ def _strip_stray_asterisks(text: str) -> str:
     - "** *text*" -> "*text*"
     - "*text* **" -> "*text*"
     - "** **Text" -> "Text"
+    - "** *Heading" -> "Heading"
     This prevents artifacts from model outputs like leading "** ".
     """
     if not text:
         return text
+    # Special case: patterns like '** *Heading' -> drop all stars prefix
+    text = re.sub(r'^\*{1,3}\s+\*(?=\S)', '', text)
     # Remove one or more groups of asterisks followed by spaces at the beginning
     text = re.sub(r'^(?:\*+\s+)+', '', text)
     # Remove specific double pattern like "** **" at the start
