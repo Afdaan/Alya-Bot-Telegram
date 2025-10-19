@@ -477,9 +477,10 @@ def _format_code_block(text: str, use_html: bool) -> str:
 
 
 def _format_normal_text(text: str, use_html: bool) -> str:
-    """Format normal conversation text as blockquote."""
+    """Format normal conversation text as blockquote (green bubble)."""
     # Clean stray asterisks before rendering
     text = _strip_stray_asterisks(text)
+    # Keep the quotes in the text - don't strip them
     return f"<blockquote>{escape_html(text)}</blockquote>" if use_html else f"> {text}"
 
 
@@ -509,16 +510,15 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     if _is_code_block(para):
         return _format_code_block(para, use_html)
     
-    # Blockquotes (quoted dialog or starts with >) -> green bubble
-    if _is_blockquote(para):
+    # Blockquotes (starts with >) -> green bubble
+    if para.startswith(">"):
         return _format_blockquote(para, use_html)
     
-    # Check if it's a quoted conversation (has opening/closing quotes)
+    # Quoted conversation (dialog with quotes) -> green bubble
     if (para.startswith('"') and para.endswith('"')) or (para.startswith("'") and para.endswith("'")):
-        # This is dialog -> green bubble
         return _format_normal_text(para, use_html)
     
-    # Default: descriptive text (narration/action) -> italic
+    # Default: descriptive text (narration/action without quotes) -> italic
     content = escape_html(para) if use_html else para
     return f"<i>{content}</i>" if use_html else f"_{para}_"
 
