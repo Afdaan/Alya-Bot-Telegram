@@ -362,6 +362,9 @@ def _looks_like_heading(text: str) -> bool:
     # Avoid treating code/markup/labeled lines as headings
     if any(x in t for x in ("`", "*", "__", ">", ":", "—")):
         return False
+    # New: If sentence-like punctuation is present, it is not a heading
+    if re.search(r"[.!?…,:;]", t):
+        return False
     # Heading often uses words separated by spaces, with letters
     return bool(re.search(r"[A-Za-zÀ-ÿ]", t))
 
@@ -452,6 +455,9 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     # Clean stray multi-asterisk artifacts before further parsing
     para = _strip_stray_asterisks(para)
 
+    # Normalize broken roleplay prefix like "__ __Text" -> "__Text"
+    para = re.sub(r'^\s*__\s*__', '__', para)
+
     # NEW: Treat lines that start with multiple asterisks (e.g., "** *Header" or "** Header")
     # as bold headers. We strip all leading asterisks/spaces and bold the remainder.
     m_multi_leading = re.match(r"^\*{2,}\s*\*?\s*(.+)$", para)
@@ -464,6 +470,12 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     m_single_leading_star = re.match(r"^\*\s*([^*].*)$", para)
     if m_single_leading_star:
         content = m_single_leading_star.group(1).strip()
+        return f"<b>{escape_html(content)}</b>" if use_html else f"*{content}*"
+
+    # Handle noisy label like "Action:** **Text" -> bold(Text)
+    m_action_noisy = re.match(r"^\s*action\s*[:\-—]?\s*(?:\*{1,2}\s*)*(.+)$", para, flags=re.IGNORECASE)
+    if m_action_noisy:
+        content = m_action_noisy.group(1).strip()
         return f"<b>{escape_html(content)}</b>" if use_html else f"*{content}*"
 
     # Treat heading-like first lines as-is (no YAML translation/suppression)
@@ -647,14 +659,21 @@ def _format_action(text: str, use_html: bool) -> str:
 
 def _format_roleplay(text: str, use_html: bool) -> str:
     """Format roleplay description (italic)."""
+    # Fix broken prefix like "__ __Text" -> behave as "__Text__"
+    t = re.sub(r'^\s*__\s*__', '__', text)
+    # If there's no closing '__', treat entire remainder as roleplay
+    if '__' not in t[2:]:
+        content = t.strip('_').strip()
+        return f"<i>{escape_html(content)}</i>" if use_html else f"__{content}__"
+
     # Support trailing content after closing '__', e.g., __desc__ 😊
-    end_idx = text.find('__', 2)
+    end_idx = t.find('__', 2)
     if end_idx == -1:
-        content = text.strip('_')
+        content = t.strip('_')
         remainder = ''
     else:
-        content = text[2:end_idx].strip()
-        remainder = text[end_idx+2:].strip()
+        content = t[2:end_idx].strip()
+        remainder = t[end_idx+2:].strip()
 
     # Normalize accidental 'italic ' prefix inside roleplay content
     if content.lower().startswith('italic '):
