@@ -884,8 +884,7 @@ class DatabaseManager:
                         'interaction_count': user.interaction_count,
                         'affection_points': user.affection_points,
                         'last_interaction': user.last_interaction,
-                        'created_at': user.created_at,
-                        'updated_at': user.updated_at
+                        'created_at': user.created_at
                     }
                 return None
         except Exception as e:
