@@ -24,7 +24,7 @@ from core.persona import PersonaManager
 from core.memory import MemoryManager
 from database.database_manager import db_manager, get_user_lang
 from core.nlp import NLPEngine, ContextManager
-from utils.formatters import format_response, format_error_response, format_paragraphs
+from utils.formatters import format_response, format_error_response, format_paragraphs, format_persona_response
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ class ConversationHandler:
                 prefix=COMMAND_PREFIX,
                 lang=lang  # Pass language parameter
             )
-            formatted_help = format_response(help_message, "neutral")
+            formatted_help = format_persona_response(help_message)
             await update.message.reply_html(formatted_help)
             return
         chat = update.effective_chat
@@ -332,8 +332,9 @@ Based on this context:
         intent = message_context.get("intent", "") if message_context else ""
         topic = message_context.get("topic", "any") if message_context else "any"
 
-        # --- Ensure response in user language (before formatting) ---
-        response = await self._ensure_language(response, lang, user)
+        # --- DISABLED: Translation causing bilingual output ---
+        # response = await self._ensure_language(response, lang, user)
+        # NOTE: Gemini should already respond in Indonesian based on persona prompt
 
         # --- Map emotion to mood/intensity ---
         emotion_mood_mapping = {
@@ -360,21 +361,26 @@ Based on this context:
         roleplay_action = roleplay_mapping.get("roleplay_action", "")
         russian_expression = roleplay_mapping.get("russian_expression", "")
 
-        # --- Format response ---
-        formatted_response = format_response(
-            response,
-            emotion=emotion,
-            mood=mood,
-            intensity=intensity,
-            username=user.first_name or "user",
-            roleplay_action=roleplay_action,
-            russian_expression=russian_expression
-        )
-        formatted_response = format_paragraphs(formatted_response, markdown=False)
+        #--- Format response ---
+        #--- OLD: Neutral formatting (commented out) ---
+        # formatted_response = format_response(
+        #     response,
+        #     emotion=emotion,
+        #     mood=mood,
+        #     intensity=intensity,
+        #     username=user.first_name or "user",
+        #     roleplay_action=roleplay_action,
+        #     russian_expression=russian_expression
+        # )
+        # formatted_response = format_paragraphs(formatted_response, markdown=True, HTML=True)
+        # formatted_response = f"{formatted_response}\u200C"
+
+        # # --- NEW: Persona formatting ---
+        formatted_response = format_persona_response(response, use_html=True)
         formatted_response = f"{formatted_response}\u200C"
 
         # --- Ensure ALL output in user language (after formatting) ---
-        formatted_response = await self._ensure_language(formatted_response, lang, user)
+        # formatted_response = await self._ensure_language(formatted_response, lang, user)
 
         await update.message.reply_html(formatted_response)
     

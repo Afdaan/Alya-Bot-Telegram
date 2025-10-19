@@ -61,6 +61,35 @@ def get_user_lang(user_id: int) -> str:
     return DEFAULT_LANGUAGE
 
 
+# --- Utility: Centralized user creation (DRY) ---
+def create_default_user(session: Session, user_id: int, username: str = None, first_name: str = None, last_name: str = None) -> 'User':
+    """Create a new user with default values and commit to session."""
+    from config.settings import DEFAULT_LANGUAGE
+    user = User(
+        id=user_id,
+        username=username or None,
+        first_name=first_name or f"User{user_id}",
+        last_name=last_name or None,
+        language_code=DEFAULT_LANGUAGE,
+        created_at=datetime.now(),
+        last_interaction=datetime.now(),
+        is_active=True,
+        relationship_level=0,
+        affection_points=0,
+        interaction_count=0,
+        preferences={
+            "notification_enabled": True,
+            "preferred_language": DEFAULT_LANGUAGE,
+            "persona": "waifu",
+            "timezone": "Asia/Jakarta"
+        },
+        topics_discussed=[]
+    )
+    session.add(user)
+    session.flush()
+    return user
+
+
 class DatabaseManager:
     """
     Enterprise-grade MySQL database manager using SQLAlchemy.
@@ -150,10 +179,8 @@ class DatabaseManager:
                 # Delete from ConversationSummary table
                 session.query(ConversationSummary).filter(ConversationSummary.user_id == user_id).delete(synchronize_session=False)
                 
-                # Optionally, reset interaction count and topics in User table
                 user = session.query(User).filter(User.id == user_id).first()
                 if user:
-                    user.interaction_count = 0
                     user.topics_discussed = []
                     user.last_interaction = datetime.now()
 
@@ -387,14 +414,49 @@ class DatabaseManager:
             logger.error(f"Error getting conversation history for user {user_id}: {e}")
             return []
     
+    def get_conversation_summaries(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Retrieve conversation summaries for a user, ordered by most recent.
+
+        Args:
+            user_id: Telegram user ID
+            limit: Maximum number of summaries to return
+        Returns:
+            List of summary dicts (most recent first)
+        """
+        try:
+            with db_session_context() as session:
+                summaries = (
+                    session.query(ConversationSummary)
+                    .filter(ConversationSummary.user_id == user_id)
+                    .order_by(ConversationSummary.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+                result = []
+                for summary in summaries:
+                    result.append({
+                        "id": summary.id,
+                        "content": summary.content,
+                        "summary_type": summary.summary_type,
+                        "message_count": summary.message_count,
+                        "date_range_start": summary.date_range_start,
+                        "date_range_end": summary.date_range_end,
+                        "model_used": summary.model_used,
+                        "summary_metadata": summary.get_summary_metadata(),
+                        "created_at": summary.created_at
+                    })
+                return result
+        except Exception as e:
+            logger.error(f"Error getting conversation summaries for user {user_id}: {e}", exc_info=True)
+            return []
+
     def update_affection(self, user_id: int, points: int) -> bool:
         """
         Update user's affection points and relationship level.
-        
         Args:
             user_id: Telegram user ID
             points: Points to add (can be negative)
-            
         Returns:
             bool: True if updated successfully, False otherwise
         """
@@ -402,118 +464,76 @@ class DatabaseManager:
             with db_session_context() as session:
                 user = session.query(User).filter(User.id == user_id).first()
                 if not user:
-                    logger.warning(f"User {user_id} not found for affection update")
-                    return False
-                
-                # Ensure we have integer types for calculations
+                    user = create_default_user(session, user_id)
                 current_affection = int(user.affection_points) if user.affection_points is not None else 0
-                current_interactions = int(user.interaction_count) if user.interaction_count is not None else 0
                 old_level = int(user.relationship_level) if user.relationship_level is not None else 0
-                
-                # Update affection points (don't go below 0)
                 new_affection = max(0, current_affection + int(points))
                 user.affection_points = new_affection
-                
-                # Calculate new relationship level
-                new_level = self._calculate_relationship_level(new_affection, current_interactions)
-                
+                # Use affection_points for level calculation
+                new_level = self._calculate_relationship_level(new_affection, mode="affection_points")
                 if new_level != old_level:
                     user.relationship_level = new_level
-                    logger.info(f"User {user_id} relationship level: {old_level} -> {new_level}")
-                
                 session.commit()
+                logger.info(f"Updated affection for user {user_id}: {current_affection} -> {new_affection}, level {old_level} -> {new_level}")
                 return True
-                
         except Exception as e:
-            logger.error(f"Error updating affection for user {user_id}: {e}")
+            logger.error(f"Error updating affection for user {user_id}: {e}", exc_info=True)
             return False
-    
+
+    def _calculate_relationship_level(self, value: int, mode: str = "affection_points") -> int:
+        """
+        Calculate relationship level based on affection points or interaction count.
+
+        Args:
+            value: The value to compare (affection points or interaction count)
+            mode: Which threshold to use ('affection_points' or 'interaction_count')
+        Returns:
+            int: Relationship level (0-4)
+        """
+        thresholds = RELATIONSHIP_THRESHOLDS.get(mode)
+        if not thresholds or not isinstance(thresholds, dict):
+            logger.error(f"Invalid relationship threshold mode: {mode}")
+            return 0
+        for level, threshold in sorted(thresholds.items(), reverse=True):
+            if value >= threshold:
+                return int(level)
+        return 0
+
     def get_user_relationship_info(self, user_id: int) -> Dict[str, Any]:
         """
-        Get user's relationship information and statistics formatted for /stats command.
-        
-        Args:
-            user_id: Telegram user ID
-            
-        Returns:
-            Dict containing relationship info in expected format
+        Get user's relationship information and statistics formatted for /stat command.
+        Returns only minimal, always-populated fields.
         """
         try:
             with db_session_context() as session:
                 user = session.query(User).filter(User.id == user_id).first()
                 if not user:
-                    logger.debug(f"User {user_id} not found in database")
-                    return {}
-                
-                logger.debug(f"Found user {user_id}: level={user.relationship_level}, affection={user.affection_points}, interactions={user.interaction_count}")
-                
-                # Calculate relationship progress
-                level = user.relationship_level
-                current_interactions = user.interaction_count
-                current_affection = user.affection_points
-                
-                # Use settings from config
-                level_names = list(RELATIONSHIP_LEVELS.values())
-                interaction_thresholds = RELATIONSHIP_THRESHOLDS["interaction_count"]
-                affection_thresholds = RELATIONSHIP_THRESHOLDS["affection_points"]
-                
-                # Ensure level is within bounds
-                level = min(level, len(level_names) - 1)
-                
-                # Calculate progress to next level
-                if level < len(level_names) - 1:
-                    next_level = level + 1
-                    interaction_needed = interaction_thresholds.get(next_level, float('inf'))
-                    affection_needed = affection_thresholds.get(next_level, float('inf'))
-                    
-                    # Calculate progress based on both interaction and affection requirements
-                    interaction_progress = min(100.0, (current_interactions / interaction_needed) * 100) if interaction_needed != float('inf') else 100.0
-                    affection_progress = min(100.0, (current_affection / affection_needed) * 100) if affection_needed != float('inf') else 100.0
-                    
-                    # Overall progress is the minimum of both (both requirements must be met)
-                    progress_percent = min(interaction_progress, affection_progress)
-                    next_level_at_interaction = interaction_needed
-                    next_level_at_affection = affection_needed
-                else:
-                    # Max level reached
-                    progress_percent = 100.0
-                    next_level_at_interaction = current_interactions
-                    next_level_at_affection = current_affection
-                
-                # Calculate affection progress for display (based on max achievable points)
-                max_affection_for_display = 500  # Reasonable max for progress bar
-                affection_display_percent = min(100.0, max(0.0, (current_affection / max_affection_for_display) * 100))
-                
-                # Get user role
-                role = get_role_by_relationship_level(level, user_id in ADMIN_IDS)
-                
-                return {
-                    "name": user.username or user.first_name or f"User{user_id}",
-                    "relationship": {
-                        "level": level,
-                        "name": level_names[level],
-                        "interactions": current_interactions,
-                        "next_level_at_interaction": next_level_at_interaction,
-                        "next_level_at_affection": next_level_at_affection,
-                        "progress_percent": progress_percent
-                    },
-                    "affection": {
-                        "points": current_affection,
-                        "progress_percent": affection_display_percent
-                    },
-                    "stats": {
-                        "total_messages": current_interactions,
-                        "positive_interactions": max(0, current_affection),  # Positive affection
-                        "negative_interactions": max(0, -current_affection),  # Negative affection
-                        "role": role,
-                        "topics_discussed": len(user.topics_discussed or []),
-                        "last_interaction": user.last_interaction.isoformat() if user.last_interaction else None
+                    return {
+                        "relationship_level": 0,
+                        "affection_points": 0,
+                        "interaction_count": 0,
+                        "role_name": get_role_by_relationship_level(0),
+                        "topics_discussed": [],
+                        "persona": "waifu"
                     }
+                return {
+                    "relationship_level": user.relationship_level,
+                    "affection_points": user.affection_points,
+                    "interaction_count": user.interaction_count,
+                    "role_name": get_role_by_relationship_level(user.relationship_level, user_id in ADMIN_IDS),
+                    "topics_discussed": user.topics_discussed or [],
+                    "persona": user.preferences.get("persona", "waifu") if user.preferences else "waifu"
                 }
-                
         except Exception as e:
-            logger.error(f"Error getting relationship info for user {user_id}: {e}")
-            return {}
+            logger.error(f"Error getting user relationship info for {user_id}: {e}", exc_info=True)
+            return {
+                "relationship_level": 0,
+                "affection_points": 0,
+                "interaction_count": 0,
+                "role_name": get_role_by_relationship_level(0),
+                "topics_discussed": [],
+                "persona": "waifu"
+            }
     
     def reset_conversation(self, user_id: int) -> bool:
         """
@@ -702,44 +722,6 @@ class DatabaseManager:
             logger.error(f"Error tracking API usage: {e}")
             return False
     
-    def _calculate_relationship_level(self, affection_points: int, interaction_count: int) -> int:
-        """
-        Calculate relationship level based on affection points and interactions.
-        
-        Args:
-            affection_points: Current affection points
-            interaction_count: Total interactions
-            
-        Returns:
-            int: Relationship level (0-10)
-        """
-        # Convert values to int to avoid comparison errors
-        affection_points = int(affection_points) if affection_points is not None else 0
-        interaction_count = int(interaction_count) if interaction_count is not None else 0
-        
-        # Get affection thresholds from nested config
-        affection_thresholds = RELATIONSHIP_THRESHOLDS.get("affection_points", {})
-        interaction_thresholds = RELATIONSHIP_THRESHOLDS.get("interaction_count", {})
-        
-        # Calculate level based on affection points
-        affection_level = 0
-        for level, threshold in affection_thresholds.items():
-            if affection_points >= int(threshold):
-                affection_level = int(level)
-        
-        # Calculate level based on interaction count
-        interaction_level = 0
-        for level, threshold in interaction_thresholds.items():
-            if interaction_count >= int(threshold):
-                interaction_level = int(level)
-        
-        # Take the higher of both levels
-        final_level = max(affection_level, interaction_level)
-        
-        # Cap at maximum level
-        max_level = max(RELATIONSHIP_LEVELS) if RELATIONSHIP_LEVELS else 10
-        return min(final_level, max_level)
-    
     def get_database_stats(self) -> Dict[str, Any]:
         """
         Get database statistics for monitoring.
@@ -897,7 +879,7 @@ class DatabaseManager:
                         'first_name': user.first_name,
                         'last_name': user.last_name,
                         'language_code': user.language_code,
-                        'is_admin': user.is_admin,
+                        'is_admin': user_id in ADMIN_IDS,
                         'relationship_level': user.relationship_level,
                         'interaction_count': user.interaction_count,
                         'affection_points': user.affection_points,
@@ -909,5 +891,79 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting user {user_id}: {e}", exc_info=True)
             return None
+
+    def save_conversation_summary(self, user_id: int, summary: Dict[str, Any]) -> bool:
+        """
+        Save a conversation summary for a user.
+        Args:
+            user_id: Telegram user ID
+            summary: Dict with keys: content, message_count, date_range_start, date_range_end, etc.
+        Returns:
+            bool: True if saved successfully
+        """
+        try:
+            with db_session_context() as session:
+                new_summary = ConversationSummary(
+                    user_id=user_id,
+                    content=summary.get("content", ""),
+                    summary_type=summary.get("summary_type", "auto"),
+                    message_count=summary.get("message_count", 0),
+                    date_range_start=summary.get("date_range_start"),
+                    date_range_end=summary.get("date_range_end"),
+                    model_used=summary.get("model_used"),
+                    summary_metadata=summary.get("summary_metadata", {})
+                )
+                session.add(new_summary)
+                session.commit()
+                logger.info(f"Saved conversation summary for user {user_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Error saving conversation summary for user {user_id}: {e}", exc_info=True)
+            return False
+
+    def delete_conversation_messages(self, user_id: int, before: Any) -> int:
+        """
+        Delete conversation messages for a user before a certain timestamp.
+        Args:
+            user_id: Telegram user ID
+            before: Timestamp (datetime) to delete messages before
+        Returns:
+            int: Number of messages deleted
+        """
+        try:
+            with db_session_context() as session:
+                deleted = session.query(Conversation).filter(
+                    Conversation.user_id == user_id,
+                    Conversation.created_at < before
+                ).delete(synchronize_session=False)
+                session.commit()
+                logger.info(f"Deleted {deleted} old conversation messages for user {user_id}")
+                return deleted
+        except Exception as e:
+            logger.error(f"Error deleting conversation messages for user {user_id}: {e}", exc_info=True)
+            return 0
+
+    def get_rag_texts(self, user_id: int, limit: int = 10) -> list:
+        """
+        Retrieve relevant conversation texts for RAG (Retrieval-Augmented Generation).
+        Args:
+            user_id: Telegram user ID
+            limit: Number of texts to retrieve
+        Returns:
+            List of dicts: [{"text": str}]
+        """
+        try:
+            with db_session_context() as session:
+                conversations = (
+                    session.query(Conversation.content)
+                    .filter(Conversation.user_id == user_id)
+                    .order_by(Conversation.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+                return [{"text": conv.content} for conv in conversations]
+        except Exception as e:
+            logger.error(f"Error in get_rag_texts for user {user_id}: {e}", exc_info=True)
+            return []
 
 db_manager = DatabaseManager()

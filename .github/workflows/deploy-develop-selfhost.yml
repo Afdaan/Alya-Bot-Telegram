@@ -8,7 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: self-hosted
-    
+
     steps:
       - name: Checkout latest code
         uses: actions/checkout@v4
@@ -19,7 +19,7 @@ jobs:
             echo "Python3 not found, installing..."
             sudo apt update && sudo apt install -y python3 python3-pip python3-venv
           fi
-          
+
           if [ ! -d "/opt/dev-Alya-Bot-Telegram/venv" ]; then
             python3 -m venv /opt/dev-Alya-Bot-Telegram/venv
           fi
@@ -48,57 +48,36 @@ jobs:
 
       - name: Restart AlyaBot via systemd
         run: |
-          sudo systemctl restart alya_dev.service
-          echo "AlyaBot restarted via systemd (alya_dev.service)"
+          sudo systemctl restart dev-alya-bot.service
+          echo "AlyaBot restarted via systemd (dev-alya-bot.service)"
 
       - name: Verify AlyaBot systemd service
         run: |
           sleep 5
-          sudo systemctl status alya_dev.service --no-pager
-          if sudo systemctl is-active --quiet alya_dev.service; then
-            echo "✅ AlyaBot is running successfully via systemd (alya_dev.service)"
+          sudo systemctl status dev-alya-bot.service --no-pager
+          if sudo systemctl is-active --quiet dev-alya-bot.service; then
+            echo "✅ AlyaBot is running successfully via systemd (dev-alya-bot.service)"
           else
-            echo "❌ AlyaBot failed to start via systemd (alya_dev.service)"
+            echo "❌ AlyaBot failed to start via systemd (dev-alya-bot.service)"
             exit 1
           fi
 
       - name: Notify deployment success via Telegram
         if: success()
-        env:
-          # GitHub Secrets dengan nama yang konsisten
-          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_CHAT_ID }}
-          TELEGRAM_TOPIC_ID: ${{ secrets.DEPLOY_TOPIC_ID }}
         run: |
           cd /opt/dev-Alya-Bot-Telegram
-          
-          # Load environment dari .env file sebagai fallback
+
+          # Load credentials dari .env (no echo untuk security)
           if [ -f .env ]; then
-            echo "📁 Loading .env file as fallback..."
             set -a
             source .env
             set +a
           fi
-          
-          # Fallback ke environment variables dari .env jika GitHub Secrets kosong
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ -n "$BOT_TOKEN" ]; then
-            TELEGRAM_BOT_TOKEN="$BOT_TOKEN"
-            echo "🔄 Using BOT_TOKEN from .env file"
-          fi
-          
-          if [ -z "$TELEGRAM_CHAT_ID" ] && [ -n "$DEPLOY_CHAT_ID" ]; then
-            TELEGRAM_CHAT_ID="$DEPLOY_CHAT_ID"
-            echo "🔄 Using DEPLOY_CHAT_ID from .env file"
-          fi
-          
-          # Check if we have required variables (dengan secure validation)
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-            echo "❌ Missing required Telegram credentials"
-            echo "⚠️ Skipping Telegram notification (credentials not configured)"
+
+          # Validate credentials tersedia
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$ADMIN_IDS" ]; then
             exit 0
           fi
-          
-          echo "✅ Telegram credentials found, proceeding with notification..."
 
           # Get git information
           GIT_INFO=$(git log -1 --pretty=format:"%s|%h|%an|%ar")
@@ -108,7 +87,7 @@ jobs:
           LAST_COMMIT_TIME=$(echo "$GIT_INFO" | cut -d'|' -f4)
           BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD | sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g')
 
-          # Prepare Telegram message
+          # Prepare message
           TELEGRAM_API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
           MSG="🚀 <b>AlyaBot Deploy Sukses (Development)!</b> 🚀%0A%0A"
           MSG="${MSG}📦 <b>Branch:</b> <code>$BRANCH_NAME</code>%0A"
@@ -116,74 +95,40 @@ jobs:
           MSG="${MSG}👤 <b>Author:</b> $LAST_COMMIT_AUTHOR%0A"
           MSG="${MSG}⏰ <b>Time:</b> $LAST_COMMIT_TIME%0A%0A"
           MSG="${MSG}📝 <b>Changelog:</b>%0A$LAST_COMMIT_MSG%0A%0A"
-          MSG="${MSG}✨ Bot is now running in tmux session: <code>alya-bot-develop</code>"
+          MSG="${MSG}✨ Bot is now running via systemd: <code>dev-alya-bot.service</code>"
 
-          # Send notification with proper error handling
-          echo "📤 Sending Telegram notification..."
-          
-          # Mask sensitive data untuk security
-          set +x  # Disable command echoing untuk hide curl command
-          
-          if [ -n "$TELEGRAM_TOPIC_ID" ]; then
-            RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST "$TELEGRAM_API" \
-              -d chat_id="$TELEGRAM_CHAT_ID" \
-              -d message_thread_id="$TELEGRAM_TOPIC_ID" \
+          # Send ke setiap admin (hide all output)
+          set +x
+          IFS=',' read -ra ADMIN_ARRAY <<< "$ADMIN_IDS"
+          for ADMIN_ID in "${ADMIN_ARRAY[@]}"; do
+            curl -s -X POST "$TELEGRAM_API" \
+              -d chat_id="$ADMIN_ID" \
               -d text="$MSG" \
-              -d parse_mode="HTML" 2>/dev/null)
-          else
-            RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST "$TELEGRAM_API" \
-              -d chat_id="$TELEGRAM_CHAT_ID" \
-              -d text="$MSG" \
-              -d parse_mode="HTML" 2>/dev/null)
-          fi
-          
-          set -x  # Re-enable command echoing
-          
-          # Parse response (without showing full response for security)
-          HTTP_STATUS=$(echo $RESPONSE | tr -d '\n' | sed -E 's/.*HTTPSTATUS:([0-9]{3})$/\1/')
-          
-          if [ "$HTTP_STATUS" -eq 200 ]; then
-            echo "✅ Deployment notification sent successfully to Telegram"
-          else
-            echo "❌ Failed to send Telegram notification. HTTP Status: $HTTP_STATUS"
-            echo "⚠️ Check your Telegram bot token and chat ID configuration"
-          fi
+              -d parse_mode="HTML" > /dev/null 2>&1
+          done
+          set -x
 
       - name: Notify deployment failure via Telegram
         if: failure()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_CHAT_ID }}
-          TELEGRAM_TOPIC_ID: ${{ secrets.DEPLOY_TOPIC_ID }}
         run: |
           cd /opt/dev-Alya-Bot-Telegram || cd /opt/dev-Alya-Bot-Telegram
-          
-          # Load .env as fallback
+
+          # Load credentials dari .env (no echo)
           if [ -f .env ]; then
             set -a
             source .env
             set +a
           fi
-          
-          # Fallback logic
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ -n "$BOT_TOKEN" ]; then
-            TELEGRAM_BOT_TOKEN="$BOT_TOKEN"
-          fi
-          
-          if [ -z "$TELEGRAM_CHAT_ID" ] && [ -n "$DEPLOY_CHAT_ID" ]; then
-            TELEGRAM_CHAT_ID="$DEPLOY_CHAT_ID"
-          fi
-          
-          # Skip if no credentials
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-            echo "⚠️ Missing Telegram credentials, skipping failure notification"
+
+          # Validate credentials
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$ADMIN_IDS" ]; then
             exit 0
           fi
-          
+
           # Get basic info
           BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
           COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-          
+
           # Prepare failure message
           TELEGRAM_API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
           MSG="❌ <b>AlyaBot Deploy GAGAL (Development)!</b> ❌%0A%0A"
@@ -191,31 +136,13 @@ jobs:
           MSG="${MSG}🔗 <b>Commit:</b> <code>$COMMIT_HASH</code>%0A%0A"
           MSG="${MSG}🔍 Cek GitHub Actions logs untuk detail error."
 
-          # Send failure notification dengan security
-          echo "📤 Sending failure notification..."
-          
-          # Mask sensitive operations
+          # Send ke setiap admin (hide all output)
           set +x
-          
-          if [ -n "$TELEGRAM_TOPIC_ID" ]; then
-            RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST "$TELEGRAM_API" \
-              -d chat_id="$TELEGRAM_CHAT_ID" \
-              -d message_thread_id="$TELEGRAM_TOPIC_ID" \
+          IFS=',' read -ra ADMIN_ARRAY <<< "$ADMIN_IDS"
+          for ADMIN_ID in "${ADMIN_ARRAY[@]}"; do
+            curl -s -X POST "$TELEGRAM_API" \
+              -d chat_id="$ADMIN_ID" \
               -d text="$MSG" \
-              -d parse_mode="HTML" 2>/dev/null)
-          else
-            RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST "$TELEGRAM_API" \
-              -d chat_id="$TELEGRAM_CHAT_ID" \
-              -d text="$MSG" \
-              -d parse_mode="HTML" 2>/dev/null)
-          fi
-          
+              -d parse_mode="HTML" > /dev/null 2>&1
+          done
           set -x
-          
-          HTTP_STATUS=$(echo $RESPONSE | tr -d '\n' | sed -E 's/.*HTTPSTATUS:([0-9]{3})$/\1/')
-          
-          if [ "$HTTP_STATUS" -eq 200 ]; then
-            echo "✅ Failure notification sent to Telegram"
-          else
-            echo "❌ Failed to send failure notification. HTTP Status: $HTTP_STATUS"
-          fi

@@ -8,16 +8,15 @@ from typing import Optional
 
 from telegram.ext import (
     Application, ApplicationBuilder, CallbackContext, CommandHandler, 
-    MessageHandler, filters
+    MessageHandler
 )
 
 from config.settings import (
-    BOT_TOKEN, LOG_LEVEL, LOG_FORMAT, PTB_DEFAULTS, 
-    FEATURES, MEMORY_EXPIRY_DAYS
+    BOT_TOKEN, LOG_LEVEL, LOG_FORMAT, FEATURES
 )
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
-from database.memory_manager import MemoryManager
+from core.memory import MemoryManager
 from database.database_manager import db_manager, DatabaseManager
 from core.nlp import NLPEngine
 from handlers.conversation import ConversationHandler
@@ -69,7 +68,7 @@ def initialize_application() -> Optional[Application]:
         ensure_database_schema()
         logger.info("Initializing components...")
         # Use global db_manager instance instead of creating new one
-        memory_manager = MemoryManager()
+        memory_manager = MemoryManager(db_manager)
         gemini_client = GeminiClient()
         persona_manager = PersonaManager()
         nlp_engine = None

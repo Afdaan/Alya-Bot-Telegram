@@ -32,12 +32,32 @@ def get_stats_response(lang: Literal['id', 'en'] = DEFAULT_LANGUAGE, db_manager:
                 user_name = user_info.get("username", "").strip()
             if not user_name:
                 user_name = "User"
-        
-        # Set default relationship data if not found
-        if relationship_info and "relationship" in relationship_info:
-            relationship = relationship_info["relationship"]
-            affection = relationship_info.get("affection", {"points": 0, "progress_percent": 0})
-            stats = relationship_info.get("stats", {"total_messages": 0, "positive_interactions": 0, "negative_interactions": 0, "role": "User"})
+
+        # --- ADAPTER: Map minimal relationship_info to expected structure ---
+        if relationship_info:
+            # Map minimal fields to expected nested dicts
+            level = relationship_info.get("relationship_level", 0)
+            affection_points = relationship_info.get("affection_points", 0)
+            interaction_count = relationship_info.get("interaction_count", 0)
+            role_name = relationship_info.get("role_name", "User")
+            # For now, progress_percent and next_level_at_* are dummy (could be improved)
+            relationship = {
+                "level": level,
+                "name": role_name,
+                "progress_percent": min(100, (interaction_count / 50) * 100) if level == 0 else min(100, (interaction_count / 100) * 100),
+                "next_level_at_interaction": 50 if level == 0 else 100,
+                "next_level_at_affection": 100 if level == 0 else 200,
+            }
+            affection = {
+                "points": affection_points,
+                "progress_percent": min(100, (affection_points / 100) * 100) if level == 0 else min(100, (affection_points / 200) * 100)
+            }
+            stats = {
+                "total_messages": interaction_count,
+                "positive_interactions": 0,
+                "negative_interactions": 0,
+                "role": role_name
+            }
         else:
             # Default values for new users
             relationship = {"level": 0, "name": "Stranger", "progress_percent": 0, "next_level_at_interaction": 50, "next_level_at_affection": 100}
@@ -57,7 +77,7 @@ def get_stats_response(lang: Literal['id', 'en'] = DEFAULT_LANGUAGE, db_manager:
             "name": "User",
             "relationship": {"level": 1, "name": "Acquaintance", "progress_percent": 50.0, "next_level_at_interaction": 100, "next_level_at_affection": 200},
             "affection": {"points": 75, "progress_percent": 37.5},
-            "stats": {"total_messages": 150, "positive_interactions": 20, "negative_interactions": 5, "role": "User"}
+            "stats": {"total_messages": 150, "positive_interactions": 0, "negative_interactions": 0, "role": "User"}
         }
     
     name = user_data["name"]
