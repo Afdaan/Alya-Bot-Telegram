@@ -141,6 +141,31 @@ def _get_fallback_message(lang: str = DEFAULT_LANGUAGE) -> str:
     }
     return fallback_map.get(lang, fallback_map[DEFAULT_LANGUAGE])
 
+def _preprocess_meta_lines(text: str) -> str:
+    """Remove meta headers like "Alya's Response:" and strip labels like "Mood:".
+
+    - Lines exactly like "Alya's Response:" (case-insensitive) are removed.
+    - Lines starting with "Mood:" or "Emosi:" have the label removed; the remainder
+      is converted to an italic roleplay paragraph.
+    """
+    if not text:
+        return ""
+    lines: List[str] = text.splitlines()
+    processed: List[str] = []
+    for ln in lines:
+        ltrim = ln.strip()
+        # Remove "Alya's Response:" meta header
+        if re.fullmatch(r"(?i)alya'?s\s+response\s*:\s*", ltrim):
+            continue
+        # Normalize "Mood:" or "Emosi:" lines -> italic content only
+        m_mood = re.match(r"(?i)^(mood|emosi)\s*[:：]\s*(.+)$", ltrim)
+        if m_mood:
+            content = m_mood.group(2).strip().strip('*').strip()
+            processed.append(f"__{content}__")
+            continue
+        processed.append(ln)
+    return "\n".join(processed)
+
 def format_response(
     message: str,
     user_id: Optional[int] = None,
@@ -160,46 +185,48 @@ def format_response(
     """
     if lang is None:
         lang = DEFAULT_LANGUAGE
-    
+
     logger.debug(f"Original message before processing: {repr(message)}")
-    
+
     # Sanitize and clean the message
     message = _sanitize_response(message, username)
     logger.debug(f"Message after sanitization: {repr(message)}")
-    
+
+    # Remove meta lines like "Alya's Response:" and strip Mood:/Emosi: labels
+    message = _preprocess_meta_lines(message)
+    logger.debug(f"Message after preprocessing: {repr(message)}")
+
     fallback = _get_fallback_message(lang)
     if not message or not message.strip():
         logger.warning("Message is empty after sanitization, returning fallback")
         return fallback
-    
+
     # Replace placeholders
     if "{username}" in message:
         safe_username = escape_html(username) if use_html else escape_markdown_v2(username)
         message = message.replace("{username}", safe_username)
-    
+
     if target_name and "{target}" in message:
         safe_target = escape_html(target_name) if use_html else escape_markdown_v2(target_name)
         message = message.replace("{target}", safe_target)
-    
+
     # Check if this looks like a persona response (contains roleplay elements)
     if _contains_roleplay_elements(message):
         formatted = format_persona_response(message, max_paragraphs, use_html, lang)
     else:
         # Simple paragraph formatting for regular responses
         formatted = format_paragraphs(message, use_html)
-    
+
     # Clean up excessive newlines
     formatted = re.sub(r'\n{3,}', '\n\n', formatted)
     formatted = formatted.strip()
 
-    # Removed YAML-based phrase translation to rely on model output language
-    
     logger.debug(f"Final formatted message: {repr(formatted)}")
-    
+
     # Check length and split if necessary
     if len(formatted) <= MAX_MESSAGE_LENGTH:
         return formatted if formatted else fallback
-    
+
     # Split into smaller parts
     parts = _split_long_message(formatted, use_html)
     return parts[0] if len(parts) == 1 else parts
