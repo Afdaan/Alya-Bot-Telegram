@@ -509,12 +509,18 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     if _is_code_block(para):
         return _format_code_block(para, use_html)
     
-    # Blockquotes (quoted or starts with >)
+    # Blockquotes (quoted dialog or starts with >) -> green bubble
     if _is_blockquote(para):
         return _format_blockquote(para, use_html)
     
-    # Default: normal conversation text -> green bubble
-    return _format_normal_text(para, use_html)
+    # Check if it's a quoted conversation (has opening/closing quotes)
+    if (para.startswith('"') and para.endswith('"')) or (para.startswith("'") and para.endswith("'")):
+        # This is dialog -> green bubble
+        return _format_normal_text(para, use_html)
+    
+    # Default: descriptive text (narration/action) -> italic
+    content = escape_html(para) if use_html else para
+    return f"<i>{content}</i>" if use_html else f"_{para}_"
 
 
 # ---------- Emoji limiter ----------
