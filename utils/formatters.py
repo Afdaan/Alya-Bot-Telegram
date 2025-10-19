@@ -131,7 +131,7 @@ def _get_fallback_message(lang: str = DEFAULT_LANGUAGE) -> str:
 def _preprocess_meta_lines(text: str) -> str:
     """Remove meta headers and strip "Mood:"/"Emosi:" labels to content only.
 
-    - Remove lines like "Alya's Response:" (case-insensitive).
+    - Remove lines like "Alya's Response:", "Mood Actions:", "Roleplay:" (case-insensitive).
     - Convert lines starting with "Mood:" or "Emosi:" to plain content (no label),
       rendered later as italic via roleplay path.
     """
@@ -141,8 +141,10 @@ def _preprocess_meta_lines(text: str) -> str:
     out: List[str] = []
     for ln in lines:
         s = ln.strip()
-        if re.fullmatch(r"(?i)alya[’']?s\s+response\s*:\s*", s):
+        # Remove meta headers completely
+        if re.fullmatch(r"(?i)(alya['']?s\s+response|mood\s+actions?|roleplay)\s*:\s*\*?", s):
             continue
+        # Convert mood/emosi labels to plain content
         m = re.match(r"(?i)^(mood|emosi)\s*[:：]\s*(.+)$", s)
         if m:
             content = m.group(2).strip().strip("*").strip()
