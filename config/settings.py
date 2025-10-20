@@ -88,18 +88,20 @@ RELATIONSHIP_ROLE_NAMES: Dict[int, str] = {
 }
 
 # Relationship level progression thresholds
+# NOTE: User gets whichever level is HIGHER between interaction-based and affection-based
+# This allows both frequent chatters and emotionally positive users to progress
 RELATIONSHIP_THRESHOLDS = {
     "interaction_count": {  # Messages exchanged to reach each level
-        1: 80,       # Stranger → Acquaintance (lowered from 100)
-        2: 160,       # Acquaintance → Friend (lowered from 300)
-        3: 240,       # Friend → Close Friend (lowered from 500)
-        4: 500       # Close Friend → Soulmate (lowered from 1000)
+        1: 50,       # Stranger → Acquaintance (easier to reach via chat frequency)
+        2: 120,      # Acquaintance → Friend
+        3: 250,      # Friend → Close Friend
+        4: 500       # Close Friend → Soulmate (requires long-term engagement)
     },
     "affection_points": {  # Affection points to reach each level
-        1: 120,       # Stranger → Acquaintance (lowered from 200)
-        2: 300,       # Acquaintance → Friend (lowered from 600)
-        3: 500,      # Friend → Close Friend (lowered from 1000)
-        4: 1000       # Close Friend → Soulmate (lowered from 2000)
+        1: 80,       # Stranger → Acquaintance (easier to reach via positive behavior)
+        2: 250,      # Acquaintance → Friend
+        3: 500,      # Friend → Close Friend
+        4: 1000      # Close Friend → Soulmate (requires deep emotional connection) 
     }
 }
 

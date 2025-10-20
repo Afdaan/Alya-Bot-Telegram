@@ -454,6 +454,10 @@ class DatabaseManager:
     def update_affection(self, user_id: int, points: int) -> bool:
         """
         Update user's affection points and relationship level.
+        
+        IMPORTANT: Level is determined by BOTH affection AND interaction thresholds.
+        User gets whichever level is higher (max of both metrics).
+        
         Args:
             user_id: Telegram user ID
             points: Points to add (can be negative)
@@ -465,17 +469,34 @@ class DatabaseManager:
                 user = session.query(User).filter(User.id == user_id).first()
                 if not user:
                     user = create_default_user(session, user_id)
+                
                 current_affection = int(user.affection_points) if user.affection_points is not None else 0
                 old_level = int(user.relationship_level) if user.relationship_level is not None else 0
+                
+                # Update affection points
                 new_affection = max(0, current_affection + int(points))
                 user.affection_points = new_affection
-                # Use affection_points for level calculation
-                new_level = self._calculate_relationship_level(new_affection, mode="affection_points")
+                
+                # Calculate level based on BOTH metrics (same logic as increment_interaction_count)
+                affection_level = self._calculate_relationship_level(
+                    new_affection, 
+                    mode="affection_points"
+                )
+                interaction_level = self._calculate_relationship_level(
+                    user.interaction_count or 0, 
+                    mode="interaction_count"
+                )
+                
+                # User gets the benefit of whichever threshold they've reached
+                new_level = max(affection_level, interaction_level)
+                
                 if new_level != old_level:
                     user.relationship_level = new_level
                     logger.warning(
-                        f"[DB] LEVEL UP! User {user_id}: level {old_level} → {new_level} "
-                        f"(affection: {new_affection})"
+                        f"[DB] LEVEL UPDATE via affection! User {user_id}: "
+                        f"level {old_level} → {new_level} "
+                        f"(affection: {new_affection}, affection_level: {affection_level}, "
+                        f"interaction_level: {interaction_level})"
                     )
                 
                 session.commit()
