@@ -76,8 +76,20 @@ class ConversationHandler:
         return is_admin
     
     def _get_relationship_level(self, user_id: int) -> int:
+        """Get user's current relationship level from database.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            Current relationship level (0-4)
+        """
         user_info = self.db.get_user_relationship_info(user_id)
-        return user_info.get("relationship", {}).get("level", 0) if user_info else 0
+        level = user_info.get("relationship", {}).get("level", 0) if user_info else 0
+        
+        logger.debug(f"[Conversation] Fetched relationship level for user {user_id}: {level}")
+        
+        return level
     
     async def _send_error_response(self, update: Update, username: str, lang: str) -> None:
         error_message = self.persona.get_error_message(username=username or "user", lang=lang)
@@ -154,6 +166,11 @@ class ConversationHandler:
             self.db.save_message(user.id, "user", query)
             self.memory.save_user_message(user.id, query)
             self.context_manager.apply_sliding_window(user.id)
+            
+            # Increment interaction count before preparing context
+            # This ensures level calculation is up-to-date
+            self.db.increment_interaction_count(user.id)
+            
             user_context = await self._prepare_conversation_context(user, query, lang)
             history = self.context_manager.get_context_window(user.id)
             response = await self.gemini.generate_response(
@@ -197,7 +214,14 @@ class ConversationHandler:
     async def _prepare_conversation_context(self, user, query: str, lang: str) -> Dict[str, Any]:
         user_task = asyncio.create_task(self._get_user_info(user))
         self.memory.save_user_message(user.id, query)
+        
+        # Fetch current relationship level from database
         relationship_level = self._get_relationship_level(user.id)
+        logger.info(
+            f"[Conversation] Preparing context for user {user.id} "
+            f"(current level: {relationship_level})"
+        )
+        
         # Gabungkan persona prompt ke context
         persona_prompt = self.persona.get_chat_prompt(
             username=user.first_name,

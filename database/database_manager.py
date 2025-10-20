@@ -473,32 +473,131 @@ class DatabaseManager:
                 new_level = self._calculate_relationship_level(new_affection, mode="affection_points")
                 if new_level != old_level:
                     user.relationship_level = new_level
+                    logger.warning(
+                        f"[DB] LEVEL UP! User {user_id}: level {old_level} → {new_level} "
+                        f"(affection: {new_affection})"
+                    )
+                
                 session.commit()
-                logger.info(f"Updated affection for user {user_id}: {current_affection} -> {new_affection}, level {old_level} -> {new_level}")
+                
+                logger.info(
+                    f"Updated affection for user {user_id}: "
+                    f"{current_affection} -> {new_affection}, level {old_level} -> {new_level}"
+                )
                 return True
         except Exception as e:
             logger.error(f"Error updating affection for user {user_id}: {e}", exc_info=True)
             return False
 
-    def _calculate_relationship_level(self, value: int, mode: str = "affection_points") -> int:
+    def increment_interaction_count(self, user_id: int) -> bool:
+        """Increment user's interaction count and recalculate relationship level.
+        
+        This should be called for each meaningful conversation turn to track
+        relationship progression based on interaction frequency.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            bool: True if updated successfully, False otherwise
         """
-        Calculate relationship level based on affection points or interaction count.
-
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    user = create_default_user(session, user_id)
+                
+                old_count = int(user.interaction_count) if user.interaction_count else 0
+                old_level = int(user.relationship_level) if user.relationship_level else 0
+                
+                # Increment interaction count
+                new_count = old_count + 1
+                user.interaction_count = new_count
+                
+                # Recalculate level based on BOTH interaction_count AND affection_points
+                # Take the HIGHER of the two to determine actual level
+                affection_level = self._calculate_relationship_level(
+                    user.affection_points or 0, 
+                    mode="affection_points"
+                )
+                interaction_level = self._calculate_relationship_level(
+                    new_count, 
+                    mode="interaction_count"
+                )
+                
+                # User gets the benefit of whichever threshold they've reached
+                new_level = max(affection_level, interaction_level)
+                
+                if new_level != old_level:
+                    user.relationship_level = new_level
+                    logger.warning(
+                        f"[DB] LEVEL UP via interaction! User {user_id}: "
+                        f"level {old_level} → {new_level} "
+                        f"(interactions: {new_count}, affection_level: {affection_level}, "
+                        f"interaction_level: {interaction_level})"
+                    )
+                
+                session.commit()
+                
+                logger.debug(
+                    f"[DB] Incremented interaction count for user {user_id}: "
+                    f"{old_count} → {new_count}, level: {old_level} → {new_level}"
+                )
+                
+                return True
+        except Exception as e:
+            logger.error(f"Error incrementing interaction count for user {user_id}: {e}", exc_info=True)
+            return False
+    
+    def _calculate_relationship_level(self, value: int, mode: str = "affection_points") -> int:
+        """Calculate relationship level based on affection points or interaction count.
+        
+        This method determines the user's relationship level by comparing their
+        progress against configured thresholds. The level represents how close
+        the user is to Alya, affecting her behavior and response tone.
+        
         Args:
             value: The value to compare (affection points or interaction count)
             mode: Which threshold to use ('affection_points' or 'interaction_count')
+            
         Returns:
             int: Relationship level (0-4)
+                0 = Stranger
+                1 = Acquaintance  
+                2 = Friend
+                3 = Close Friend
+                4 = Soulmate
+                
+        Example:
+            >>> _calculate_relationship_level(150, mode="affection_points")
+            2  # Friend level (threshold: 80-150)
         """
-        thresholds = RELATIONSHIP_THRESHOLDS.get(mode)
-        if not thresholds or not isinstance(thresholds, dict):
-            logger.error(f"Invalid relationship threshold mode: {mode}")
+        try:
+            # Get thresholds from config
+            thresholds = RELATIONSHIP_THRESHOLDS.get(mode)
+            
+            if not thresholds or not isinstance(thresholds, dict):
+                logger.error(f"[DB] Invalid relationship threshold mode: {mode}")
+                return 0
+            
+            # Check thresholds in descending order to find highest level reached
+            # Example: {1: 30, 2: 80, 3: 150, 4: 300}
+            for level in sorted(thresholds.keys(), reverse=True):
+                threshold = thresholds[level]
+                if value >= threshold:
+                    logger.debug(
+                        f"[DB] Level calculation: value={value}, mode={mode}, "
+                        f"threshold={threshold}, result_level={level}"
+                    )
+                    return int(level)
+            
+            # If no threshold reached, user is still at level 0
             return 0
-        for level, threshold in sorted(thresholds.items(), reverse=True):
-            if value >= threshold:
-                return int(level)
-        return 0
-
+            
+        except Exception as e:
+            logger.error(f"[DB] Error calculating relationship level: {e}", exc_info=True)
+            return 0
+    
     def get_user_relationship_info(self, user_id: int) -> Dict[str, Any]:
         """
         Get user's relationship information and statistics formatted for /stat command.
