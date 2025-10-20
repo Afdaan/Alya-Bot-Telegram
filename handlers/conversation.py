@@ -455,38 +455,6 @@ Based on this context:
             is_admin=is_admin,
             lang=lang
         )
-    
-    def _try_level_up(self, user_id: int) -> None:
-        """
-        Attempt to level up user relationship if eligible.
-        """
-        try:
-            from database.session import db_session_context
-            from database.models import User
-            
-            with db_session_context() as session:
-                user = session.query(User).filter(User.id == user_id).first()
-                if not user:
-                    return
-                
-                current_level = user.relationship_level
-                next_level = current_level + 1
-                
-                if next_level not in RELATIONSHIP_LEVELS:
-                    return  # Already at max level
-
-                interaction_count = user.interaction_count
-                affection_points = user.affection_points
-                
-                interaction_threshold = RELATIONSHIP_THRESHOLDS["interaction_count"].get(next_level, float('inf'))
-                affection_threshold = RELATIONSHIP_THRESHOLDS["affection_points"].get(next_level, float('inf'))
-
-                if interaction_count >= interaction_threshold and affection_points >= affection_threshold:
-                    self.db.update_relationship_level(user_id, next_level)
-                    logger.info(f"User {user_id} leveled up to level {next_level} ({RELATIONSHIP_LEVELS[next_level]})")
-                    
-        except Exception as e:
-            logger.error(f"Error in _try_level_up for user {user_id}: {e}")
 
     def _update_affection_from_context(self, user_id: int, message_context: Dict[str, Any]) -> None:
         """
@@ -502,8 +470,8 @@ Based on this context:
         """
         if not message_context:
             # Base affection for normal conversation (if no analysis available)
+            # Note: update_affection() automatically recalculates relationship level
             self.db.update_affection(user_id, AFFECTION_POINTS.get("conversation", 1))
-            self._try_level_up(user_id)
             return
 
         affection_delta = 0
@@ -578,5 +546,5 @@ Based on this context:
         if abs(affection_delta) >= 1:
             affection_delta = round(affection_delta)
             logger.debug(f"Updating affection for user {user_id}: {affection_delta:+d} points")
+            # Note: update_affection() automatically recalculates relationship level using max(affection_level, interaction_level)
             self.db.update_affection(user_id, affection_delta)
-            self._try_level_up(user_id)
