@@ -130,12 +130,15 @@ class CommandsHandler:
         status_message = await message.reply_text(sauce_texts["searching"])
         temp_path = None
         try:
+            logger.info(f"Processing sauce request from user {user.id}")
             photo_file = await photo_to_process.get_file()
             with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
                 await photo_file.download_to_drive(temp_file.name)
                 temp_path = temp_file.name
             
+            logger.info(f"Image downloaded to {temp_path}, sending to SauceNAO")
             search_results = await self.saucenao_searcher.search(temp_path)
+            logger.info(f"SauceNAO returned {len(search_results.get('results', []))} processed results")
             
             response_text, keyboard = format_sauce_results(search_results, lang)
             
@@ -151,7 +154,7 @@ class CommandsHandler:
             error_key = "error_rate_limit" if "rate limit" in str(e).lower() else "error_api"
             await status_message.edit_text(sauce_texts[error_key])
         except Exception as e:
-            logger.error(f"General error in sauce command for user {user.id}: {e}")
+            logger.error(f"General error in sauce command for user {user.id}: {e}", exc_info=True)
             await status_message.edit_text(sauce_texts["error_unknown"])
         finally:
             if temp_path and os.path.exists(temp_path):

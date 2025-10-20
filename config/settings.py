@@ -54,7 +54,7 @@ TOP_K: int = 40
 TOP_P: float = 0.95
 
 # SauceNAO API KEY
-SAUCENAO_API_KEY: Optional[str] = os.getenv("SAUCENAO_API_KEY", True)
+SAUCENAO_API_KEY: Optional[str] = os.getenv("SAUCENAO_API_KEY", None)
 
 # Memory Settings
 MAX_MEMORY_ITEMS: int = 80

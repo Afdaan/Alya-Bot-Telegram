@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Constants
 MAX_RETRIES = 2
 RETRY_DELAY = 2  # seconds
-DEFAULT_MIN_SIMILARITY = 60.0
+DEFAULT_MIN_SIMILARITY = 45.0  # Lowered threshold for better results coverage
 MAX_RESULTS = 8
 
 
@@ -131,7 +131,10 @@ class SauceNAOSearcher:
         header = api_response.get("header", {})
         results = api_response.get("results", [])
 
+        logger.info(f"SauceNAO API returned {len(results)} raw results")
+
         if not results:
+            logger.warning("No results returned from SauceNAO API")
             return {"header": header, "results": [], "has_low_similarity_results": False}
 
         # Filter and sort results
@@ -140,17 +143,29 @@ class SauceNAOSearcher:
             if 'header' in res and 'similarity' in res['header']
         ]
         
+        logger.info(f"Filtered to {len(valid_results)} valid results with similarity data")
+        
         # Sort by similarity descending
         valid_results.sort(
             key=lambda x: float(x['header']['similarity']),
             reverse=True
         )
 
+        # Log top result similarity for debugging
+        if valid_results:
+            top_similarity = float(valid_results[0]['header']['similarity'])
+            logger.info(f"Top result similarity: {top_similarity:.2f}%")
+
         # Separate high and low similarity results
         high_similarity_results = [
             res for res in valid_results 
             if float(res['header']['similarity']) >= DEFAULT_MIN_SIMILARITY
         ]
+        
+        logger.info(
+            f"Found {len(high_similarity_results)} results above threshold "
+            f"({DEFAULT_MIN_SIMILARITY}%)"
+        )
         
         has_low_similarity_results = len(valid_results) > len(high_similarity_results)
 
