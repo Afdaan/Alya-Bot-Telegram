@@ -115,28 +115,88 @@ class NLPEngine:
         }
 
     def suggest_mood_for_response(self, user_context: Dict[str, Any], relationship_level: int) -> str:
-        """Suggest Alya's mood for response based on user context and relationship."""
+        """Suggest Alya's mood for response based on user context and relationship.
+        
+        Uses a scalable mood configuration map for easy maintenance and extensibility.
+        
+        Relationship levels (0-4):
+        0: Stranger - Full tsundere cold mode
+        1: Acquaintance - Mostly tsundere with hints of warmth
+        2: Friend - Mix of tsundere and warm waifu
+        3: Close friend - Waifu mode activated, minimal tsundere
+        4: Soulmate - Dere mode fully unlocked, most caring
+        
+        Args:
+            user_context: Dictionary containing detected user emotion
+            relationship_level: Current relationship level (0-4)
+            
+        Returns:
+            Mood string to use for response generation
+        """
         emotion = user_context.get("emotion", "neutral")
-        if relationship_level >= 7:
-            if emotion == "joy":
-                return "dere_caring"
-            elif emotion == "anger":
-                return "tsundere_defensive"
-            elif emotion == "sadness":
-                return "tsundere_cold"
-            else:
-                return "waifu"
-        elif relationship_level >= 3:
-            if emotion == "joy":
-                return "waifu"
-            elif emotion == "anger":
-                return "tsundere_defensive"
-            elif emotion == "sadness":
-                return "tsundere_cold"
-            else:
-                return "tsundere_cold"
-        else:
-            return "tsundere_cold"
+        
+        # Scalable mood configuration map - easy to add more levels or emotions
+        # Format: {level: {emotion: mood}}
+        mood_map = {
+            4: {  # Soulmate - Dere mode unlocked, most caring and open
+                "joy": "dere_caring",
+                "happiness": "dere_caring",
+                "love": "dere_caring",
+                "anger": "tsundere_defensive",  # Still protective when angry
+                "sadness": "dere_caring",
+                "fear": "dere_caring",
+                "surprise": "waifu",
+                "default": "waifu"
+            },
+            3: {  # Close friend - Waifu mode primary, comfortable and warm
+                "joy": "waifu",
+                "happiness": "waifu",
+                "love": "waifu",
+                "anger": "tsundere_defensive",
+                "sadness": "waifu",  # Shows caring side
+                "fear": "waifu",
+                "surprise": "waifu",
+                "default": "waifu"
+            },
+            2: {  # Friend - Warm waifu with occasional tsundere moments
+                "joy": "waifu",
+                "happiness": "waifu",
+                "love": "tsundere_defensive",  # Still defensive about love
+                "anger": "tsundere_defensive",
+                "sadness": "waifu",  # Caring for friends' sadness
+                "fear": "waifu",
+                "surprise": "tsundere_defensive",
+                "default": "waifu"  # Default to warm for friends
+            },
+            1: {  # Acquaintance - Mostly defensive with hints of warmth
+                "joy": "tsundere_defensive",
+                "happiness": "tsundere_defensive",
+                "love": "tsundere_defensive",
+                "anger": "tsundere_defensive",
+                "sadness": "tsundere_defensive",  # Slightly concerned but guarded
+                "fear": "tsundere_cold",
+                "surprise": "tsundere_defensive",
+                "default": "tsundere_cold"
+            },
+            0: {  # Stranger - Full tsundere cold mode, maximum distance
+                "joy": "tsundere_cold",
+                "happiness": "tsundere_cold",
+                "love": "tsundere_cold",
+                "anger": "tsundere_defensive",  # Only defensive when provoked
+                "sadness": "tsundere_cold",
+                "fear": "tsundere_cold",
+                "surprise": "tsundere_cold",
+                "default": "tsundere_cold"
+            }
+        }
+        
+        # Get mood configuration for current level, fallback to level 0 if not found
+        level_moods = mood_map.get(relationship_level, mood_map[0])
+        
+        # Get mood for current emotion, fallback to default mood for this level
+        mood = level_moods.get(emotion, level_moods["default"])
+        
+        return mood
 
     def suggest_emojis(self, message: str, mood: str, count: int = 4) -> List[str]:
         """Suggest emojis for Alya's response based on mood."""

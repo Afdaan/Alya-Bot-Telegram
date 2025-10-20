@@ -90,16 +90,16 @@ RELATIONSHIP_ROLE_NAMES: Dict[int, str] = {
 # Relationship level progression thresholds
 RELATIONSHIP_THRESHOLDS = {
     "interaction_count": {  # Messages exchanged to reach each level
-        1: 100,      # Stranger → Acquaintance
-        2: 300,      # Acquaintance → Friend
-        3: 500,      # Friend → Close Friend
-        4: 1000      # Close Friend → Soulmate
+        1: 80,       # Stranger → Acquaintance (lowered from 100)
+        2: 160,       # Acquaintance → Friend (lowered from 300)
+        3: 240,       # Friend → Close Friend (lowered from 500)
+        4: 500       # Close Friend → Soulmate (lowered from 1000)
     },
     "affection_points": {  # Affection points to reach each level
-        1: 200,      # Stranger → Acquaintance
-        2: 600,      # Acquaintance → Friend
-        3: 1000,     # Friend → Close Friend
-        4: 2000      # Close Friend → Soulmate
+        1: 120,       # Stranger → Acquaintance (lowered from 200)
+        2: 300,       # Acquaintance → Friend (lowered from 600)
+        3: 500,      # Friend → Close Friend (lowered from 1000)
+        4: 1000       # Close Friend → Soulmate (lowered from 2000)
     }
 }
 
