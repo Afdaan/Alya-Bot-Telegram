@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 # Constants
 MAX_RETRIES = 2
 RETRY_DELAY = 2  # seconds
-DEFAULT_MIN_SIMILARITY = 60.0
+DEFAULT_MIN_SIMILARITY = 35.0  # Lower threshold to show more results with warnings
+HIGH_SIMILARITY_THRESHOLD = 70.0  # For marking highly confident results
 MAX_RESULTS = 8
 
 
@@ -130,8 +131,13 @@ class SauceNAOSearcher:
         """
         header = api_response.get("header", {})
         results = api_response.get("results", [])
+        api_min_similarity = float(header.get("minimum_similarity", 50.0))
+
+        logger.info(f"SauceNAO API returned {len(results)} raw results")
+        logger.info(f"API minimum_similarity threshold: {api_min_similarity}%")
 
         if not results:
+            logger.warning("No results returned from SauceNAO API")
             return {"header": header, "results": [], "has_low_similarity_results": False}
 
         # Filter and sort results
@@ -140,22 +146,45 @@ class SauceNAOSearcher:
             if 'header' in res and 'similarity' in res['header']
         ]
         
+        logger.info(f"Filtered to {len(valid_results)} valid results with similarity data")
+        
         # Sort by similarity descending
         valid_results.sort(
             key=lambda x: float(x['header']['similarity']),
             reverse=True
         )
 
-        # Separate high and low similarity results
-        high_similarity_results = [
-            res for res in valid_results 
-            if float(res['header']['similarity']) >= DEFAULT_MIN_SIMILARITY
-        ]
+        # Log top result similarity for debugging
+        if valid_results:
+            top_similarity = float(valid_results[0]['header']['similarity'])
+            logger.info(f"Top result similarity: {top_similarity:.2f}%")
+
+        # Separate results by confidence level
+        high_confidence_results = []
+        low_confidence_results = []
         
-        has_low_similarity_results = len(valid_results) > len(high_similarity_results)
+        for res in valid_results:
+            similarity = float(res['header']['similarity'])
+            if similarity >= DEFAULT_MIN_SIMILARITY:
+                # Mark if high confidence
+                res['_high_confidence'] = similarity >= HIGH_SIMILARITY_THRESHOLD
+                if similarity >= HIGH_SIMILARITY_THRESHOLD:
+                    high_confidence_results.append(res)
+                else:
+                    low_confidence_results.append(res)
+        
+        # Combine: prioritize high confidence first
+        filtered_results = high_confidence_results + low_confidence_results
+        
+        logger.info(
+            f"Found {len(high_confidence_results)} high confidence (>={HIGH_SIMILARITY_THRESHOLD}%) "
+            f"and {len(low_confidence_results)} low confidence (>={DEFAULT_MIN_SIMILARITY}%) results"
+        )
+        
+        has_low_similarity_results = len(valid_results) > len(filtered_results)
 
         # Limit to max results
-        final_results = high_similarity_results[:MAX_RESULTS]
+        final_results = filtered_results[:MAX_RESULTS]
 
         return {
             "header": header,

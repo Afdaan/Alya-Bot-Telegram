@@ -16,7 +16,7 @@ def get_texts(lang: str = DEFAULT_LANGUAGE) -> Dict[str, str]:
     """
     texts = {
         "id": {
-            "searching": "🔍 Alya lagi nyari sausnya, sabar ya...",
+            "searching": "🔍 Aku lagi nyari sausnya, sabar ya...",
             "usage": "Hmph! Kalau mau cari saus, balas ke gambar dengan perintah `!sauce`. Jangan cuma kirim perintahnya doang, dasar!",
             "no_results": "Hmph! Aku tidak menemukan saus yang cocok untuk gambar ini. Mungkin coba gambar lain? 😳",
             "error_api": "A-aku gagal mencari saus... API-nya lagi bermasalah. Coba lagi nanti ya. 😥",
@@ -29,11 +29,12 @@ def get_texts(lang: str = DEFAULT_LANGUAGE) -> Dict[str, str]:
             "characters": "Karakter",
             "material": "Material",
             "low_similarity_warning": "⚠️ Beberapa hasil dengan kemiripan rendah disembunyikan.",
+            "low_confidence_notice": "⚠️ <i>Kemiripan rendah (&lt;70%) - hasil mungkin tidak akurat</i>",
             "footer": "<i>~Hmph! B-bukan berarti aku mencarinya untukmu atau apa...~</i>",
             "view_on": "Lihat di {site}",
         },
         "en": {
-            "searching": "🔍 Alya is searching for the sauce, please wait...",
+            "searching": "🔍 I'm searching for the sauce, please wait...",
             "usage": "Hmph! To find the sauce, reply to an image with `!sauce`. Don't just send the command alone, baka!",
             "no_results": "Hmph! I couldn't find any matching sauce for this image. Maybe try another one? 😳",
             "error_api": "I-I failed to find the sauce... The API is having issues. Please try again later. 😥",
@@ -46,6 +47,7 @@ def get_texts(lang: str = DEFAULT_LANGUAGE) -> Dict[str, str]:
             "characters": "Characters",
             "material": "Material",
             "low_similarity_warning": "⚠️ Some results with low similarity were hidden.",
+            "low_confidence_notice": "⚠️ <i>Low similarity (&lt;70%) - results may not be accurate</i>",
             "footer": "<i>~Hmph! I-it's not like I searched for this for you or anything...~</i>",
             "view_on": "View on {site}",
         }
@@ -75,9 +77,18 @@ def format_sauce_results(
     # Build response message
     header_text = texts["results_header"].format(count=len(results))
     
+    # Check if we have any low confidence results
+    has_low_confidence = any(
+        not result.get('_high_confidence', False) for result in results
+    )
+    
     result_parts = []
     for result in results:
         result_parts.append(_format_single_result(result, texts))
+
+    # Add low confidence notice if applicable
+    if has_low_confidence:
+        result_parts.insert(0, texts["low_confidence_notice"])
 
     # Add low similarity warning if applicable
     if search_results.get("has_low_similarity_results"):
