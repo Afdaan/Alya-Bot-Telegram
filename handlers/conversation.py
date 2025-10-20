@@ -75,22 +75,6 @@ class ConversationHandler:
         )
         return is_admin
     
-    def _get_relationship_level(self, user_id: int) -> int:
-        """Get user's current relationship level from database.
-        
-        Args:
-            user_id: Telegram user ID
-            
-        Returns:
-            Current relationship level (0-4)
-        """
-        user_info = self.db.get_user_relationship_info(user_id)
-        level = user_info.get("relationship", {}).get("level", 0) if user_info else 0
-        
-        logger.debug(f"[Conversation] Fetched relationship level for user {user_id}: {level}")
-        
-        return level
-    
     async def _send_error_response(self, update: Update, username: str, lang: str) -> None:
         error_message = self.persona.get_error_message(username=username or "user", lang=lang)
         formatted_error = format_error_response(error_message)
@@ -167,11 +151,21 @@ class ConversationHandler:
             self.memory.save_user_message(user.id, query)
             self.context_manager.apply_sliding_window(user.id)
             
-            # Increment interaction count before preparing context
-            # This ensures level calculation is up-to-date
+            # === STEP 1: Analyze message context FIRST (for affection calculation) ===
+            message_context = {}
+            if FEATURES.get("emotion_detection", False) and self.nlp:
+                message_context = self.nlp.get_message_context(query, user.id)
+                logger.debug(f"Message context for user {user.id}: {message_context}")
+            
+            # === STEP 2: Update affection based on analysis ===
+            if message_context:
+                self._update_affection_from_context(user.id, message_context)
+            
+            # === STEP 3: Increment interaction count (will recalculate level) ===
             self.db.increment_interaction_count(user.id)
             
-            user_context = await self._prepare_conversation_context(user, query, lang)
+            # === STEP 4: Prepare context with LATEST relationship level ===
+            user_context = await self._prepare_conversation_context(user, query, lang, message_context)
             history = self.context_manager.get_context_window(user.id)
             response = await self.gemini.generate_response(
                 user_id=user.id,
@@ -211,18 +205,36 @@ class ConversationHandler:
         except Exception as e:
             logger.warning(f"Failed to send chat action: {e}")
     
-    async def _prepare_conversation_context(self, user, query: str, lang: str) -> Dict[str, Any]:
-        user_task = asyncio.create_task(self._get_user_info(user))
-        self.memory.save_user_message(user.id, query)
+    async def _prepare_conversation_context(
+        self, 
+        user, 
+        query: str, 
+        lang: str, 
+        message_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Prepare full conversation context for response generation.
         
-        # Fetch current relationship level from database
-        relationship_level = self._get_relationship_level(user.id)
+        Args:
+            user: Telegram user object
+            query: User's message text
+            lang: User's preferred language
+            message_context: Pre-analyzed message context from NLP engine
+            
+        Returns:
+            Dictionary containing all context needed for response generation
+        """
+        user_task = asyncio.create_task(self._get_user_info(user))
+        
+        # Fetch LATEST relationship level from database (after affection updates)
+        user_info = self.db.get_user_relationship_info(user.id)
+        relationship_level = user_info.get("relationship_level", 0)
+        
         logger.info(
             f"[Conversation] Preparing context for user {user.id} "
-            f"(current level: {relationship_level})"
+            f"(current level: {relationship_level}, affection: {user_info.get('affection_points', 0)})"
         )
         
-        # Gabungkan persona prompt ke context
+        # Build persona prompt with correct relationship level
         persona_prompt = self.persona.get_chat_prompt(
             username=user.first_name,
             message=query,
@@ -231,12 +243,12 @@ class ConversationHandler:
             is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
             lang=lang
         )
-        # Improved context extraction
-        message_context = {}
-        semantic_topics = []
-        if FEATURES.get("emotion_detection", False) and self.nlp:
-            message_context = self.nlp.get_message_context(query, user.id)
-            semantic_topics = message_context.get("semantic_topics", [])
+        
+        # Extract semantic topics from provided message_context
+        semantic_topics = message_context.get("semantic_topics", []) if message_context else []
+        
+        # Analyze conversation flow if NLP available
+        if FEATURES.get("emotion_detection", False) and self.nlp and message_context:
             flow_analysis = self.nlp.analyze_conversation_flow(user.id, query)
             message_context["conversation_flow"] = flow_analysis
             if flow_analysis.get("is_continuation", False):
@@ -245,15 +257,18 @@ class ConversationHandler:
                 persona_prompt += "\n\nUSER ENGAGEMENT: The user seems very engaged and interested. Match their energy level and be more expressive in your response."
             elif flow_analysis.get("user_engagement_level") == "low":
                 persona_prompt += "\n\nUSER ENGAGEMENT: The user seems less engaged. Try to be more encouraging and ask questions to increase engagement."
+        
+        # Gather conversation history and context
         history = self.context_manager.get_context_window(user.id)
         prev_messages = self.db.get_conversation_history(user.id, limit=5)
         prev_content = "\n".join([msg.get("content", "") for msg in prev_messages if msg.get("role") == "user"])
         summaries = self.context_manager.get_conversation_summaries(user.id)
         conversation_summary = summaries[0].get('content', '') if summaries else "No previous context"
         enhanced_query = self._call_method_safely(self.memory.create_context_prompt, user.id, query, lang)
+        
         conversation_context = {
             "current_topic": ", ".join(semantic_topics) if semantic_topics else "general conversation",
-            "user_emotion": message_context.get("emotion", "neutral"),
+            "user_emotion": message_context.get("emotion", "neutral") if message_context else "neutral",
             "conversation_history_summary": conversation_summary,
             "previous_user_messages": prev_content
         }
@@ -409,10 +424,19 @@ Based on this context:
         await update.message.reply_html(formatted_response)
     
     async def _get_user_info(self, user) -> Dict[str, Any]:
+        """Get user information including admin status and relationship level.
+        
+        Args:
+            user: Telegram user object
+            
+        Returns:
+            Dictionary with is_admin and relationship_level
+        """
         is_admin = user.id in ADMIN_IDS or (self.db and self.db.is_admin(user.id))
         if self.db:
             self._create_or_update_user(user)
-            relationship_level = self._get_relationship_level(user.id)
+            user_info = self.db.get_user_relationship_info(user.id)
+            relationship_level = user_info.get("relationship_level", 0)
         else:
             relationship_level = 0
         return {
