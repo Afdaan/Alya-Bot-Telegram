@@ -152,19 +152,74 @@ class PersonaManager:
             The full prompt for Gemini
         """
         persona = self.get_persona()  # Use default persona for chat
-        # Always start with system_prompt if available
+        
+        # Initialize prompt construction
         prompt_parts = []
+        
+        logger.debug(
+            f"[Persona] Constructing chat prompt for user '{username}' "
+            f"(level {relationship_level}, admin={is_admin}, lang={lang})"
+        )
+        
+        # Always start with system_prompt if available
         system_prompt = persona.get("system_prompt", "").strip()
         if system_prompt:
             prompt_parts.append(system_prompt)
+            logger.debug(f"[Persona] Added system_prompt ({len(system_prompt)} chars)")
+        else:
+            logger.warning("[Persona] No system_prompt found in persona YAML")
+        
+        # Inject connection_dynamics based on relationship level
+        connection_dynamics = persona.get("connection_dynamics", {})
+        if connection_dynamics:
+            logger.debug(
+                f"[Persona] Found connection_dynamics with "
+                f"{len(connection_dynamics)} phases in YAML"
+            )
+            
+            level_behavior = self._get_level_behavior(connection_dynamics, relationship_level)
+            
+            if level_behavior:
+                # Serialize behavior config to YAML format for structured injection
+                behavior_yaml = yaml.dump(level_behavior, allow_unicode=True, default_flow_style=False)
+                prompt_parts.append(
+                    f"\n# Current Relationship Level Behavior\n{behavior_yaml}"
+                )
+                logger.info(
+                    f"[Persona] Successfully injected connection_dynamics for level {relationship_level}"
+                )
+            else:
+                logger.warning(
+                    f"[Persona] Failed to extract level behavior for level {relationship_level}. "
+                    f"Gemini will use generic persona without level-specific guidance."
+                )
+        else:
+            logger.warning(
+                "[Persona] No connection_dynamics found in persona YAML. "
+                "Level-based behavior adaptation is disabled."
+            )
+        
         # Optionally add extra sections (e.g. emotional_processing, smart_alya_enhancement, etc)
         if extra_sections:
+            logger.debug(f"[Persona] Processing {len(extra_sections)} extra sections")
             for section in extra_sections:
                 section_data = persona.get(section)
                 if section_data:
-                    prompt_parts.append(f"\n# {section.replace('_', ' ').title()}\n{yaml.dump(section_data, allow_unicode=True)}")
+                    section_yaml = yaml.dump(section_data, allow_unicode=True, default_flow_style=False)
+                    prompt_parts.append(
+                        f"\n# {section.replace('_', ' ').title()}\n{section_yaml}"
+                    )
+                    logger.debug(f"[Persona] Added extra section: {section}")
+                else:
+                    logger.debug(f"[Persona] Extra section '{section}' not found in YAML")
+        
         # Fallback to old logic if system_prompt not found
         if not prompt_parts:
+            logger.warning(
+                "[Persona] No prompt_parts constructed from YAML. "
+                "Falling back to legacy persona construction logic."
+            )
+            
             persona_lang = persona.get(lang, persona.get(DEFAULT_LANGUAGE, {}))
             base_instructions = persona_lang.get("base_instructions", "")
             personality_traits = "\n- ".join(persona_lang.get("personality_traits", []))
@@ -172,6 +227,7 @@ class PersonaManager:
             response_format = persona_lang.get("response_format", "")
             russian_phrases = "\n- ".join([f"`{p}`: {d}" for p, d in persona_lang.get("russian_phrases", {}).items()])
             admin_note = persona_lang.get("admin_note", "") if is_admin else ""
+            
             prompt_parts.append(f"""{base_instructions}
 
 **Your Core Personality:**
@@ -184,7 +240,12 @@ class PersonaManager:
 **Russian Phrases You Can Use (sparingly, for emotional emphasis):**
 - {russian_phrases}
 """)
+            logger.debug("[Persona] Constructed prompt using legacy fallback logic")
+        
+        # Combine all prompt parts
         prompt = "\n\n".join(prompt_parts)
+        
+        logger.debug(f"[Persona] Total prompt length: {len(prompt)} characters")
         
         # Convert language code to clear language name
         lang_name = "Bahasa Indonesia" if lang == "id" else "English"
@@ -200,6 +261,18 @@ class PersonaManager:
 """
         
         prompt += f"\n\n**Conversation Context (Recent History):**\n---\n{context or 'This is the beginning of your conversation.'}\n---\n\n**User's Message:**\n> {message}\n\n{language_instruction}\n\n**Your Task:**\nRespond to {username} naturally as Alya, following ALL instructions above."
+        
+        logger.info(
+            f"[Persona] Chat prompt constructed successfully: "
+            f"{len(prompt)} total chars, "
+            f"{len(prompt_parts)} sections, "
+            f"level {relationship_level} behavior injected"
+        )
+        
+        # Debug: Log full prompt if debug level enabled (useful for troubleshooting)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"[Persona] Full prompt preview (first 500 chars):\n{prompt[:500]}...")
+        
         return prompt.strip()
 
     def get_media_analysis_prompt(
@@ -249,6 +322,84 @@ Analyze the media content and answer {username}'s question in **{persona_lang.ge
 """
         return prompt.strip()
 
+    def _get_level_behavior(self, connection_dynamics: Dict[str, Any], relationship_level: int) -> Optional[Dict[str, Any]]:
+        """Extract behavior configuration for current relationship level from connection_dynamics.
+        
+        This method maps relationship levels to YAML phase configurations, enabling
+        dynamic persona behavior based on user relationship progression.
+        
+        Args:
+            connection_dynamics: The connection_dynamics section from persona YAML
+            relationship_level: Current relationship level (0-4)
+            
+        Returns:
+            Dictionary with level-appropriate behavior settings including:
+                - current_phase: Phase name from YAML
+                - relationship_level: Numeric level
+                - interaction_range: Expected interaction count range
+                - address_pattern: How Alya should address the user
+                - communication_style: Tone and interaction style
+                - topics: Acceptable conversation topics
+                - russian_frequency: How often to use Russian expressions
+                - trust_level: What personal info Alya can share
+                - search_behavior: How Alya researches for this user
+            Returns None if configuration not found
+            
+        Raises:
+            None - Gracefully handles missing configurations with logging
+        """
+        # Relationship level to YAML phase mapping
+        # Scalable design: Add new levels by extending this dict
+        level_to_phase = {
+            0: "stranger_phase",
+            1: "acquaintance_phase", 
+            2: "developing_friendship",
+            3: "close_connection",
+            4: "close_connection"  # Level 4 uses enhanced intimacy within close_connection
+        }
+        
+        # Get phase name with fallback to stranger
+        phase_name = level_to_phase.get(relationship_level, "stranger_phase")
+        
+        logger.debug(
+            f"[Persona] Mapping relationship level {relationship_level} to phase '{phase_name}'"
+        )
+        
+        # Retrieve phase configuration from YAML
+        phase_config = connection_dynamics.get(phase_name, {})
+        
+        if not phase_config:
+            logger.warning(
+                f"[Persona] No connection_dynamics config found for phase '{phase_name}' "
+                f"(level {relationship_level}). Gemini will use base persona only."
+            )
+            return None
+        
+        # Construct behavior configuration with explicit level metadata
+        behavior = {
+            "current_phase": phase_name,
+            "relationship_level": relationship_level,
+            **phase_config
+        }
+        
+        logger.info(
+            f"[Persona] Injecting level behavior: {phase_name} (level {relationship_level}) "
+            f"with {len(phase_config)} configuration keys"
+        )
+        
+        # Debug: Log detailed behavior config (only if debug level enabled)
+        if logger.isEnabledFor(logging.DEBUG):
+            config_summary = {
+                "phase": phase_name,
+                "level": relationship_level,
+                "address_pattern": phase_config.get("address_pattern", "N/A"),
+                "communication_style": phase_config.get("communication_style", "N/A"),
+                "trust_level": phase_config.get("trust_level", "N/A")
+            }
+            logger.debug(f"[Persona] Behavior config summary: {config_summary}")
+        
+        return behavior
+    
     def _get_relationship_instructions(self, persona_lang: Dict[str, Any], level: int) -> str:
         """Get relationship-based instructions."""
         relationship_levels = persona_lang.get("relationship_levels", [])

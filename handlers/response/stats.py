@@ -35,22 +35,48 @@ def get_stats_response(lang: Literal['id', 'en'] = DEFAULT_LANGUAGE, db_manager:
 
         # --- ADAPTER: Map minimal relationship_info to expected structure ---
         if relationship_info:
+            from config.settings import RELATIONSHIP_THRESHOLDS
+            
             # Map minimal fields to expected nested dicts
             level = relationship_info.get("relationship_level", 0)
             affection_points = relationship_info.get("affection_points", 0)
             interaction_count = relationship_info.get("interaction_count", 0)
             role_name = relationship_info.get("role_name", "User")
-            # For now, progress_percent and next_level_at_* are dummy (could be improved)
+            
+            # Calculate next level thresholds
+            next_level = level + 1
+            interaction_thresholds = RELATIONSHIP_THRESHOLDS.get("interaction_count", {})
+            affection_thresholds = RELATIONSHIP_THRESHOLDS.get("affection_points", {})
+            
+            # Get threshold for next level (or current if max level)
+            next_interaction_req = interaction_thresholds.get(next_level, interaction_thresholds.get(level, 999999))
+            next_affection_req = affection_thresholds.get(next_level, affection_thresholds.get(level, 999999))
+            
+            # Calculate current level threshold (start point)
+            current_interaction_threshold = interaction_thresholds.get(level, 0)
+            current_affection_threshold = affection_thresholds.get(level, 0)
+            
+            # Calculate progress percentage to next level
+            if level < 4:  # Not max level
+                interaction_progress = ((interaction_count - current_interaction_threshold) / 
+                                      (next_interaction_req - current_interaction_threshold)) * 100
+                affection_progress = ((affection_points - current_affection_threshold) / 
+                                    (next_affection_req - current_affection_threshold)) * 100
+            else:  # Max level reached
+                interaction_progress = 100.0
+                affection_progress = 100.0
+            
             relationship = {
                 "level": level,
                 "name": role_name,
-                "progress_percent": min(100, (interaction_count / 50) * 100) if level == 0 else min(100, (interaction_count / 100) * 100),
-                "next_level_at_interaction": 50 if level == 0 else 100,
-                "next_level_at_affection": 100 if level == 0 else 200,
+                "progress_percent": min(100, max(0, interaction_progress)),
+                "next_level_at_interaction": next_interaction_req,
+                "next_level_at_affection": next_affection_req,
+                "interactions": interaction_count,
             }
             affection = {
                 "points": affection_points,
-                "progress_percent": min(100, (affection_points / 100) * 100) if level == 0 else min(100, (affection_points / 200) * 100)
+                "progress_percent": min(100, max(0, affection_progress))
             }
             stats = {
                 "total_messages": interaction_count,
