@@ -16,7 +16,7 @@ def get_texts(lang: str = DEFAULT_LANGUAGE) -> Dict[str, str]:
     """
     texts = {
         "id": {
-            "searching": "🔍 Alya lagi nyari sausnya, sabar ya...",
+            "searching": "🔍 Aku lagi nyari sausnya, sabar ya...",
             "usage": "Hmph! Kalau mau cari saus, balas ke gambar dengan perintah `!sauce`. Jangan cuma kirim perintahnya doang, dasar!",
             "no_results": "Hmph! Aku tidak menemukan saus yang cocok untuk gambar ini. Mungkin coba gambar lain? 😳",
             "error_api": "A-aku gagal mencari saus... API-nya lagi bermasalah. Coba lagi nanti ya. 😥",
@@ -34,7 +34,7 @@ def get_texts(lang: str = DEFAULT_LANGUAGE) -> Dict[str, str]:
             "view_on": "Lihat di {site}",
         },
         "en": {
-            "searching": "🔍 Alya is searching for the sauce, please wait...",
+            "searching": "🔍 I'm searching for the sauce, please wait...",
             "usage": "Hmph! To find the sauce, reply to an image with `!sauce`. Don't just send the command alone, baka!",
             "no_results": "Hmph! I couldn't find any matching sauce for this image. Maybe try another one? 😳",
             "error_api": "I-I failed to find the sauce... The API is having issues. Please try again later. 😥",
