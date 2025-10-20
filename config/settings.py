@@ -14,7 +14,7 @@ BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_NAME: str = "Alya"
 COMMAND_PREFIX: str = "!ai"
 SAUCENAO_PREFIX: str = "!sauce"
-DEFAULT_LANGUAGE: str = "id"  # Options: "id", "en"
+DEFAULT_LANGUAGE: str = "en"  # Options: "en", "id"
 
 # Database Settings
 DB_HOST: str = os.getenv("DB_HOST", "localhost")
