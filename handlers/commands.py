@@ -79,6 +79,16 @@ class CommandsHandler:
         
         # Other command handlers
         analyze_prefix = "!ask"
+        
+        # Handler for replying to media with !ask
+        self.application.add_handler(
+            MessageHandler(
+                filters.TEXT & filters.REPLY & filters.Regex(f"^{analyze_prefix}"),
+                self.handle_analyze_reply
+            )
+        )
+        
+        # Handler for media with !ask caption
         self.application.add_handler(
             MessageHandler(
                 (filters.PHOTO | filters.Document.ALL) & 
@@ -86,15 +96,11 @@ class CommandsHandler:
                 self.handle_analyze_media
             )
         )
+        
+        # Handler for direct !ask text queries
         self.application.add_handler(
             MessageHandler(
-                filters.TEXT & filters.ChatType.PRIVATE & filters.Regex(f"^{analyze_prefix}"),
-                self.handle_analyze_text
-            )
-        )
-        self.application.add_handler(
-            MessageHandler(
-                filters.TEXT & filters.ChatType.GROUPS & filters.Regex(f"^{analyze_prefix}"),
+                filters.TEXT & filters.Regex(f"^{analyze_prefix}"),
                 self.handle_analyze_text
             )
         )
@@ -160,6 +166,12 @@ class CommandsHandler:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
 
+    async def handle_analyze_reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle !ask when replying to a message with media."""
+        await self._send_chat_action(update, context, ChatAction.TYPING)
+        logger.info(f"Handling !ask reply from {update.effective_user.id}")
+        await MediaAnalyzer.handle_analysis_command(update, context)
+
     async def handle_analyze_media(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._send_chat_action(update, context, ChatAction.TYPING)
         message = update.effective_message
@@ -170,15 +182,19 @@ class CommandsHandler:
         await MediaAnalyzer.handle_analysis_command(update, context)
 
     async def handle_analyze_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle !ask with text query."""
         await self._send_chat_action(update, context, ChatAction.TYPING)
         message = update.effective_message
         text = message.text.replace("!ask", "", 1).strip()
-        if not text and update.effective_chat.type in ["group", "supergroup"]:
+        
+        # If empty query, show usage
+        if not text:
             lang = get_user_lang(update.effective_user.id)
+            from handlers.response.analyze import analyze_response
             response = analyze_response(lang=lang)
-            await message.reply_html(response, reply_to_message_id=message.message_id)
+            await message.reply_html(response)
             return
-        context.args = text.split() if text else []
+            
         logger.info(f"Handling !ask text analysis from {update.effective_user.id} with query: {text[:50]}...")
         await MediaAnalyzer.handle_analysis_command(update, context)
 

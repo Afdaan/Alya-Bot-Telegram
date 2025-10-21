@@ -103,14 +103,30 @@ def register_handlers(
     nlp_engine: Optional[NLPEngine] = None
 ) -> None:
     application.handlers.clear()
+    
+    # Register commands first (higher priority)
     logger.info("Registering standard command handlers...")
     register_commands(application)
+    
+    logger.info("Registering utility command handlers (includes !ask, !sauce, etc.)...")
+    CommandsHandler(application)
+    
     logger.info("Registering regex pattern handlers...")
     roast_handler = RoastHandler(gemini_client, persona_manager, db_manager)
     for handler in roast_handler.get_handlers():
         application.add_handler(handler)
         if isinstance(handler, MessageHandler):
             logger.info(f"  - Registered roast handler with filter: {handler.filters}")
+    
+    logger.info("Registering admin handlers...")
+    admin_handler = AdminHandler(db_manager, persona_manager)
+    for handler in admin_handler.get_handlers():
+        application.add_handler(handler)
+    
+    logger.info("Registering deployment handlers...")
+    register_admin_handlers(application, db_manager=db_manager, persona_manager=persona_manager)
+    
+    # Register conversation handler LAST (lowest priority, catches remaining messages)
     logger.info("Registering conversation handlers...")
     conversation_handler = ConversationHandler(
         gemini_client, 
@@ -122,14 +138,7 @@ def register_handlers(
         application.add_handler(handler)
         if isinstance(handler, MessageHandler):
             logger.info(f"  - Registered conversation handler with filter: {handler.filters}")
-    logger.info("Registering admin handlers...")
-    admin_handler = AdminHandler(db_manager, persona_manager)
-    for handler in admin_handler.get_handlers():
-        application.add_handler(handler)
-    logger.info("Registering deployment handlers...")
-    register_admin_handlers(application, db_manager=db_manager, persona_manager=persona_manager)
-    logger.info("Registering utility command handlers...")
-    CommandsHandler(application)
+    
     log_registered_handlers(application)
 
 def log_registered_handlers(application: Application) -> None:
