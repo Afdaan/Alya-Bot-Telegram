@@ -79,10 +79,20 @@ def _format_markdown_to_html(text: str) -> str:
     if not text:
         return ""
     
-    # Code blocks: ```code``` -> <pre>code</pre>
+    # Code blocks: ```language\ncode``` -> <pre>code</pre>
+    # Strip language identifier (html, python, etc.) from code blocks
+    def format_code_block(match):
+        content = match.group(1).strip()
+        # Remove language identifier from first line if present
+        lines = content.split('\n', 1)
+        if lines and re.match(r'^[a-z]+$', lines[0].strip(), re.IGNORECASE):
+            # First line is a language identifier, remove it
+            content = lines[1] if len(lines) > 1 else ""
+        return f"<pre>{escape_html_for_analysis(content.strip())}</pre>"
+    
     text = re.sub(
         r"```([^`]+?)```",
-        lambda m: f"<pre>{escape_html_for_analysis(m.group(1).strip())}</pre>",
+        format_code_block,
         text,
         flags=re.DOTALL
     )
