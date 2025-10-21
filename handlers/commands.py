@@ -34,17 +34,11 @@ class CommandsHandler:
     def __init__(self, application) -> None:
         self.application = application
         self.saucenao_searcher = SauceNAOSearcher()
-        # Assuming gemini_client and persona_manager are accessible, e.g., from application context
-        # This might need adjustment based on your actual application structure
         gemini_client = getattr(application, 'gemini_client', None)
         persona_manager = getattr(application, 'persona_manager', None)
         
         if not gemini_client or not persona_manager:
-            # This is a fallback. Ideally, these clients should be passed during initialization.
-            # For now, let's log a warning.
             logger.warning("GeminiClient or PersonaManager not found on application object. RoastHandler might not work.")
-            # You might want to raise an error or handle this more gracefully
-            # For the purpose of this refactor, we'll proceed but some features might fail.
             self.roast_handler = None
         else:
             self.roast_handler = RoastHandler(
@@ -57,13 +51,11 @@ class CommandsHandler:
         logger.info("Command handlers initialized and registered")
 
     def _register_handlers(self) -> None:
-        # Register roast handlers if available
         if self.roast_handler:
             for handler in self.roast_handler.get_handlers():
                 self.application.add_handler(handler)
             logger.info("Registered roast handlers successfully")
 
-        # SauceNAO handlers
         self.application.add_handler(
             MessageHandler(
                 filters.TEXT & filters.Regex(f"^{SAUCENAO_PREFIX}"),
@@ -73,22 +65,12 @@ class CommandsHandler:
         self.application.add_handler(
             MessageHandler(
                 filters.PHOTO & filters.CaptionRegex(f".*{SAUCENAO_PREFIX}.*"),
-                self.handle_sauce_command  # Re-route to the main handler
+                self.handle_sauce_command
             )
         )
         
-        # Other command handlers
         analyze_prefix = "!ask"
         
-        # Handler for replying to media with !ask
-        self.application.add_handler(
-            MessageHandler(
-                filters.TEXT & filters.REPLY & filters.Regex(f"^{analyze_prefix}"),
-                self.handle_analyze_reply
-            )
-        )
-        
-        # Handler for media with !ask caption
         self.application.add_handler(
             MessageHandler(
                 (filters.PHOTO | filters.Document.ALL) & 
@@ -97,11 +79,10 @@ class CommandsHandler:
             )
         )
         
-        # Handler for direct !ask text queries
         self.application.add_handler(
             MessageHandler(
                 filters.TEXT & filters.Regex(f"^{analyze_prefix}"),
-                self.handle_analyze_text
+                self.handle_analyze_command
             )
         )
         self.application.add_handler(CommandHandler("ping", ping_command))
@@ -166,10 +147,43 @@ class CommandsHandler:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    async def handle_analyze_reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle !ask when replying to a message with media."""
+    async def handle_analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Unified handler for !ask commands. Routes based on reply_to_message presence."""
         await self._send_chat_action(update, context, ChatAction.TYPING)
-        logger.info(f"Handling !ask reply from {update.effective_user.id}")
+        message = update.effective_message
+        
+        if message.reply_to_message is not None:
+            logger.info(f"[!ask REPLY] User {update.effective_user.id} | Chat: {update.effective_chat.type} | Thread: {getattr(message, 'message_thread_id', None)}")
+            await MediaAnalyzer.handle_analysis_command(update, context)
+        else:
+            logger.info(f"[!ask TEXT] User {update.effective_user.id} | Chat: {update.effective_chat.type} | Thread: {getattr(message, 'message_thread_id', None)}")
+            logger.debug(f"[!ask TEXT] Raw message text: {repr(message.text)}")
+            
+            original_text = message.text or ""
+            if original_text.startswith("!ask"):
+                text = original_text[4:].strip()
+            else:
+                text = original_text.replace("!ask", "", 1).replace("!ASK", "", 1).strip()
+            
+            logger.debug(f"[!ask TEXT] Text after removing prefix: {repr(text)} (length: {len(text)})")
+            
+            if not text or len(text) == 0:
+                logger.info(f"[!ask TEXT] Empty query, showing usage")
+                lang = get_user_lang(update.effective_user.id)
+                from handlers.response.analyze import analyze_response
+                response = analyze_response(lang=lang)
+                await message.reply_html(response)
+                return
+            
+            logger.info(f"[!ask TEXT] Processing query: {text[:50]}...")
+            await MediaAnalyzer.handle_analysis_command(update, context)
+
+    async def handle_analyze_reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle !ask when replying to a message (DEPRECATED - use handle_analyze_command)."""
+        await self._send_chat_action(update, context, ChatAction.TYPING)
+        message = update.effective_message
+        has_reply = message.reply_to_message is not None
+        logger.info(f"[!ask REPLY] User {update.effective_user.id} | Has reply_to_message: {has_reply} | Chat: {update.effective_chat.type}")
         await MediaAnalyzer.handle_analysis_command(update, context)
 
     async def handle_analyze_media(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -182,35 +196,31 @@ class CommandsHandler:
         await MediaAnalyzer.handle_analysis_command(update, context)
 
     async def handle_analyze_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle !ask with text query."""
+        """Handle !ask with text query (DEPRECATED - use handle_analyze_command)."""
         await self._send_chat_action(update, context, ChatAction.TYPING)
         message = update.effective_message
         
-        logger.debug(f"[!ask] Raw message text: {repr(message.text)}")
-        logger.debug(f"[!ask] Chat type: {update.effective_chat.type}")
+        logger.info(f"[!ask TEXT] User {update.effective_user.id} | Chat: {update.effective_chat.type} | Has reply: {message.reply_to_message is not None}")
+        logger.debug(f"[!ask TEXT] Raw message text: {repr(message.text)}")
         
-        # More robust text extraction - handle various formats
         original_text = message.text or ""
         
-        # Remove prefix more carefully
         if original_text.startswith("!ask"):
-            text = original_text[4:].strip()  # Remove "!ask" (4 chars) and strip
+            text = original_text[4:].strip()
         else:
-            # Fallback: case-insensitive replace
             text = original_text.replace("!ask", "", 1).replace("!ASK", "", 1).strip()
         
-        logger.debug(f"[!ask] Text after removing prefix: {repr(text)} (length: {len(text)})")
+        logger.debug(f"[!ask TEXT] Text after removing prefix: {repr(text)} (length: {len(text)})")
         
-        # If empty query, show usage
         if not text or len(text) == 0:
-            logger.info(f"[!ask] Empty query from user {update.effective_user.id} in {update.effective_chat.type}, showing usage")
+            logger.info(f"[!ask TEXT] Empty query from user {update.effective_user.id}, showing usage")
             lang = get_user_lang(update.effective_user.id)
             from handlers.response.analyze import analyze_response
             response = analyze_response(lang=lang)
             await message.reply_html(response)
             return
             
-        logger.info(f"Handling !ask text analysis from {update.effective_user.id} with query: {text[:50]}...")
+        logger.info(f"[!ask TEXT] Processing query from {update.effective_user.id}: {text[:50]}...")
         await MediaAnalyzer.handle_analysis_command(update, context)
 
     async def _send_chat_action(
@@ -237,8 +247,6 @@ async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     start_time = time.time()
     lang = get_user_lang(update.effective_user.id)
     
-    # The initial message is simple and language-agnostic.
-    # The final response will be in the user's language.
     message = await update.message.reply_text("Pinging...")
     
     end_time = time.time()
@@ -315,7 +323,6 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     if not db_manager:
         logger.error("Database manager not found for lang command.")
-        # Default to English for this specific error message if we can't even get lang
         await update.message.reply_html(get_system_error_response('en'))
         return
     
@@ -324,7 +331,6 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if new_lang in ['en', 'id']:
             try:
                 db_manager.update_user_settings(user_id, {'language': new_lang})
-                # The response function now only needs the new language
                 response = get_lang_response(lang=new_lang, new_lang=new_lang)
                 logger.info(f"User {user_id} changed language to {new_lang}")
                 await set_bot_commands(context.application, lang=new_lang)
@@ -333,11 +339,9 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 logger.error(f"Failed to update language for user {user_id}: {e}")
                 response = get_system_error_response(current_lang)
         else:
-            # If the arg is invalid, get current lang to show usage in the correct language
             current_lang = get_user_lang(user_id)
             response = get_lang_response(lang=current_lang)
     else:
-        # If no args, get current lang to show usage
         current_lang = get_user_lang(user_id)
         response = get_lang_response(lang=current_lang)
         
@@ -397,9 +401,6 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def set_bot_commands(application, lang='en') -> None:
     """Sets the bot commands based on user language."""
-    # This function can be expanded to set commands in different languages
-    # For now, we'll set them in English as a default
-    
     commands_en = [
         BotCommand("start", "✨ Start the bot"),
         BotCommand("help", "❓ Show help message"),
@@ -421,20 +422,10 @@ async def set_bot_commands(application, lang='en') -> None:
     ]
 
     try:
-        # Set commands for English users
-        await application.bot.set_my_commands(
-            commands=commands_en,
-            language_code="en"
-        )
-        # Set commands for Indonesian users
-        await application.bot.set_my_commands(
-            commands=commands_id,
-            language_code="id"
-        )
-        # Set default commands based on DEFAULT_LANGUAGE
+        await application.bot.set_my_commands(commands=commands_en, language_code="en")
+        await application.bot.set_my_commands(commands=commands_id, language_code="id")
         default_commands = commands_en if DEFAULT_LANGUAGE == "en" else commands_id
         await application.bot.set_my_commands(commands=default_commands)
-        
         logger.info("Successfully set bot commands for all languages.")
     except Exception as e:
         logger.error(f"Failed to set bot commands: {e}")
