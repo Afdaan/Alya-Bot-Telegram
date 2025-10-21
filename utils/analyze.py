@@ -197,9 +197,14 @@ class MediaAnalyzer:
                 query=query,
                 user_id=user.id
             )
-            # Use format_response to ensure proper formatting
-            from utils.formatters import format_response
-            formatted_result = format_response(result, user_id=user.id, username=user.first_name, use_html=True)
+            # Use analysis formatter for informative responses (not persona conversation)
+            from utils.analysis_formatter import format_analysis_response
+            lang = get_user_lang(user.id)
+            formatted_result = format_analysis_response(
+                text=result,
+                lang=lang,
+                username=user.first_name
+            )
             
             # Handle if result is a list (long message split)
             if isinstance(formatted_result, list):

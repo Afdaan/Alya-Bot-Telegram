@@ -48,12 +48,16 @@ class ConversationHandler:
     def get_handlers(self) -> List:
         handlers = [
             MessageHandler(
-                filters.TEXT & filters.ChatType.PRIVATE & ~filters.COMMAND,
+                filters.TEXT 
+                & filters.ChatType.PRIVATE 
+                & ~filters.COMMAND 
+                & ~filters.Regex(r"^!"),  # Ignore messages starting with ! (special commands)
                 self.chat_command
             ),
             MessageHandler(
                 (
                     filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND &
+                    ~filters.Regex(r"^!") &  # Ignore messages starting with !
                     (
                         filters.Regex(f"^{COMMAND_PREFIX}") |
                         filters.REPLY
