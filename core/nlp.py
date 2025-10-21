@@ -205,37 +205,37 @@ class NLPEngine:
         # Define candidate intent labels (bilingual support)
         if lang == "id":
             candidate_labels = [
-                "terima kasih atau apresiasi",
-                "permintaan maaf atau menyesal",
-                "salam atau pembukaan ramah",
-                "pujian atau feedback positif",
-                "hinaan atau kata-kata negatif",
-                "minat romantis atau cinta",
-                "kasih sayang atau kelekatan emosional",
-                "pertanyaan atau bertanya",
-                "perilaku toxic atau bullying",
-                "katakasar atau tidak sopan",
-                "bertanya tentang bot",
-                "mengingat percakapan sebelumnya",
-                "percakapan bermakna atau substansial",
-                "normal atau netral"
+                "ungkapan rasa terima kasih atau apresiasi",
+                "permintaan maaf atau penyesalan",
+                "sapaan atau pembukaan ramah",
+                "pujian atau komplimen positif",
+                "hinaan atau kata-kata merendahkan",
+                "ekspresi cinta atau minat romantis",
+                "ungkapan kasih sayang atau keterikatan emosional",
+                "pertanyaan atau permintaan informasi",
+                "perilaku toxic atau ancaman",
+                "kata-kata kasar atau tidak sopan",
+                "pertanyaan tentang bot atau penanya",
+                "mengingat atau mereferensikan percakapan masa lalu",
+                "percakapan bermakna atau diskusi substansial",
+                "percakapan biasa atau netral"
             ]
         else:  # English
             candidate_labels = [
-                "gratitude or thanks",
-                "apology or sorry",
-                "greeting or hello",
-                "compliment or praise",
-                "insult or derogatory",
-                "romantic or love interest",
-                "affection or emotional attachment",
-                "question or asking",
-                "toxic behavior or bullying",
-                "rude or impolite",
-                "asking about the bot",
-                "remembering past conversations",
-                "meaningful or substantive conversation",
-                "normal or neutral"
+                "expressing gratitude or appreciation",
+                "apologizing or expressing regret",
+                "greeting or friendly opening",
+                "compliment or positive praise",
+                "insult or derogatory language",
+                "expressing love or romantic interest",
+                "expressing affection or emotional attachment",
+                "asking a question or seeking information",
+                "toxic behavior or threatening language",
+                "crude or impolite language",
+                "asking about the bot or about the person",
+                "remembering or referencing past conversations",
+                "meaningful or substantive discussion",
+                "casual or neutral conversation"
             ]
         
         try:
@@ -243,7 +243,7 @@ class NLPEngine:
             result = self.zero_shot_classifier(
                 text,
                 candidate_labels,
-                multi_class=False
+                multi_label=False
             )
             
             # Check if top result meets confidence threshold
@@ -275,35 +275,60 @@ class NLPEngine:
         """
         label_lower = label.lower()
         
-        # Common patterns across both languages
-        if "gratitude" in label_lower or "thanks" in label_lower or "terima kasih" in label_lower or "apresiasi" in label_lower:
+        # Gratitude patterns (Indonesian & English)
+        if any(word in label_lower for word in ["gratitude", "thanks", "terima kasih", "apresiasi", "appreciation"]):
             return "gratitude"
-        elif "apology" in label_lower or "sorry" in label_lower or "maaf" in label_lower or "menyesal" in label_lower:
+        
+        # Apology patterns
+        if any(word in label_lower for word in ["apology", "sorry", "maaf", "penyesalan", "regret"]):
             return "apology"
-        elif "greeting" in label_lower or "hello" in label_lower or "salam" in label_lower or "pembukaan" in label_lower:
+        
+        # Greeting patterns
+        if any(word in label_lower for word in ["greeting", "hello", "sapaan", "pembukaan", "friendly opening"]):
             return "greeting"
-        elif "compliment" in label_lower or "praise" in label_lower or "pujian" in label_lower or "positif" in label_lower:
+        
+        # Compliment patterns (improved for "compliment" or "praise")
+        if any(word in label_lower for word in ["compliment", "praise", "pujian", "positif", "positive praise"]):
             return "compliment"
-        elif "insult" in label_lower or "derogatory" in label_lower or "hinaan" in label_lower or "negatif" in label_lower:
+        
+        # Insult patterns
+        if any(word in label_lower for word in ["insult", "derogatory", "hinaan", "merendahkan"]):
             return "insult"
-        elif "romantic" in label_lower or "love" in label_lower or "romantis" in label_lower or "cinta" in label_lower:
+        
+        # Romantic interest / Love patterns (improved detection)
+        if any(word in label_lower for word in ["romantic", "love", "cinta", "minat romantis", "expressing love"]):
             return "romantic_interest"
-        elif "affection" in label_lower or "attachment" in label_lower or "kasih sayang" in label_lower or "kelekatan" in label_lower:
+        
+        # Affection patterns (improved for "I love you" -> affection)
+        if any(word in label_lower for word in ["affection", "attachment", "kasih sayang", "keterikatan", "emotional"]):
             return "affection"
-        elif "question" in label_lower or "asking" in label_lower or "pertanyaan" in label_lower or "bertanya" in label_lower:
+        
+        # Question patterns
+        if any(word in label_lower for word in ["question", "asking", "pertanyaan", "bertanya", "seeking information"]):
             return "question"
-        elif "toxic" in label_lower or "bullying" in label_lower or "katakasar" in label_lower:
+        
+        # Toxic behavior patterns
+        if any(word in label_lower for word in ["toxic", "threatening", "ancaman", "threat"]):
             return "toxic_behavior"
-        elif "rude" in label_lower or "impolite" in label_lower or "tidak sopan" in label_lower:
+        
+        # Rudeness patterns
+        if any(word in label_lower for word in ["rude", "impolite", "crude", "kasar", "tidak sopan"]):
             return "rudeness"
-        elif "bot" in label_lower or "you" in label_lower or "kamu" in label_lower:
+        
+        # Asking about bot/person patterns
+        if any(word in label_lower for word in ["bot", "person", "penanya", "about the"]):
             return "asking_about_alya"
-        elif "remembering" in label_lower or "past" in label_lower or "mengingat" in label_lower or "sebelumnya" in label_lower:
+        
+        # Remembering patterns
+        if any(word in label_lower for word in ["remembering", "past", "mengingat", "masa lalu", "referencing"]):
             return "remembering_details"
-        elif "meaningful" in label_lower or "substantive" in label_lower or "bermakna" in label_lower or "substansial" in label_lower:
+        
+        # Meaningful conversation patterns
+        if any(word in label_lower for word in ["meaningful", "substantive", "bermakna", "substansial", "discussion"]):
             return "meaningful_conversation"
-        else:
-            return "normal"
+        
+        # Default to normal
+        return "normal"
     
     def _detect_relationship_signals(self, text: str, emotion: str, intent: str) -> Dict[str, float]:
         """Detect relationship signals (positive/negative behaviors).

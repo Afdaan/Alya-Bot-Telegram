@@ -152,7 +152,7 @@ ZERO_SHOT_MODEL: str = os.getenv(
     "ZERO_SHOT_MODEL",
     "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"  # Better multilingual support (ID + EN)
 )
-ZERO_SHOT_CONFIDENCE_THRESHOLD: float = 0.3  # Minimum confidence for intent classification
+ZERO_SHOT_CONFIDENCE_THRESHOLD: float = 0.25  # Lowered from 0.3 for better sensitivity
 
 # Feature Flags
 FEATURES: Dict[str, bool] = {
