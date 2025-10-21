@@ -130,38 +130,63 @@ class MediaAnalyzer:
         # This check is important to ensure the instances are created and available
         if "gemini_client" not in context.bot_data or "persona_manager" not in context.bot_data:
             logger.error("GeminiClient or PersonaManager not found in bot_data")
-            await message.reply_html("Sorry, the analysis service is not configured correctly.")
+            lang = get_user_lang(user.id)
+            await message.reply_html(get_system_error_response(lang))
             return
             
         analyzer = MediaAnalyzer(context.bot_data["gemini_client"], context.bot_data["persona_manager"])
         
         media_content = None
         media_type = None
+        query = ""
         
-        if message.photo:
+        # Check if this is a reply to message with media
+        if message.reply_to_message:
+            replied_message = message.reply_to_message
+            if replied_message.photo:
+                media_content_file = await replied_message.photo[-1].get_file()
+                media_content_bytes = await media_content_file.download_as_bytearray()
+                media_content = bytes(media_content_bytes)
+                media_type = "image"
+            elif replied_message.document:
+                media_content_file = await replied_message.document.get_file()
+                media_content_bytes = await media_content_file.download_as_bytearray()
+                media_content = bytes(media_content_bytes)
+                media_type = "document"
+            # Extract query from the reply text
+            query = message.text.replace("!ask", "").strip() if message.text else ""
+        # Check if message itself contains media
+        elif message.photo:
             media_content_file = await message.photo[-1].get_file()
             media_content_bytes = await media_content_file.download_as_bytearray()
             media_content = bytes(media_content_bytes)
             media_type = "image"
+            # Extract query from caption
+            query = (message.caption or "").replace("!ask", "").strip()
         elif message.document:
             media_content_file = await message.document.get_file()
             media_content_bytes = await media_content_file.download_as_bytearray()
             media_content = bytes(media_content_bytes)
             media_type = "document"
+            # Extract query from caption
+            query = (message.caption or "").replace("!ask", "").strip()
+        # Plain text query
         elif message.text and "!ask" in message.text:
             media_content = message.text.replace("!ask", "").strip()
             media_type = "text"
+            query = media_content  # For text analysis, content and query are the same
         
-        query = " ".join(context.args) if context.args else (message.caption or "").replace("!ask", "").strip()
-        if not query and media_type != "text":
-            # If there's no specific question for media, use a default one.
-            lang = get_user_lang(user.id)
-            query = "Analyze this for me, please." if lang == 'en' else "Tolong analisis ini."
-
+        # If no media content found, show usage
         if not media_content:
             lang = get_user_lang(user.id)
-            await message.reply_html(get_system_error_response(lang, error_type="no_media"))
+            from handlers.response.analyze import analyze_response
+            await message.reply_html(analyze_response(lang))
             return
+        
+        # If no query specified for media, use default
+        if not query and media_type != "text":
+            lang = get_user_lang(user.id)
+            query = "Analyze this for me, please." if lang == 'en' else "Tolong analisis ini."
 
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
@@ -172,7 +197,16 @@ class MediaAnalyzer:
                 query=query,
                 user_id=user.id
             )
-            await message.reply_html(result)
+            # Use format_response to ensure proper formatting
+            from utils.formatters import format_response
+            formatted_result = format_response(result, user_id=user.id, username=user.first_name, use_html=True)
+            
+            # Handle if result is a list (long message split)
+            if isinstance(formatted_result, list):
+                for part in formatted_result:
+                    await message.reply_html(part, disable_web_page_preview=True)
+            else:
+                await message.reply_html(formatted_result, disable_web_page_preview=True)
         except Exception as e:
             logger.error(f"Failed to handle analysis command for user {user.id}: {e}", exc_info=True)
             lang = get_user_lang(user.id)

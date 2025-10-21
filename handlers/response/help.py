@@ -30,6 +30,7 @@ Alya sebagai wakil ketua OSIS siap membantu kamu dengan berbagai keperluan:
 
 <b>🔧 Utilitas:</b>
 • <code>!sauce [reply ke gambar]</code> - Cari sumber gambar anime/manga.
+• <code>!ask [reply ke gambar/dokumen]</code> - Minta untuk menganalisis image, document atau bertanya tentang apapun.
 
 Alya akan berusaha sebaik mungkin membantumu! 💫
 
@@ -52,6 +53,7 @@ Alya, as the vice president of the student council, is ready to help you with va
 
 <b>🔧 Utilities:</b>
 • <code>!sauce [reply to image]</code> - Find the source of an anime/manga image.
+• <code>!ask [reply to image/document]</code> - Ask to analyze the image, document or asking about something.
 
 Alya will do her best to help you! 💫
 
