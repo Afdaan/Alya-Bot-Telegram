@@ -533,9 +533,20 @@ Based on this context:
 
         # === RELATIONSHIP SIGNALS ===
         relationship_signals = message_context.get("relationship_signals", {})
-        affection_delta += relationship_signals.get("friendliness", 0) * AFFECTION_POINTS.get("friendliness", 6)
-        affection_delta += relationship_signals.get("romantic_interest", 0) * AFFECTION_POINTS.get("romantic_interest", 10)
-        affection_delta += relationship_signals.get("conflict", 0) * AFFECTION_POINTS.get("conflict", -3)
+        signal_delta = 0
+        signal_delta += relationship_signals.get("friendliness", 0) * AFFECTION_POINTS.get("friendliness", 6)
+        signal_delta += relationship_signals.get("romantic_interest", 0) * AFFECTION_POINTS.get("romantic_interest", 10)
+        signal_delta += relationship_signals.get("conflict", 0) * AFFECTION_POINTS.get("conflict", -3)
+        
+        if signal_delta != 0:
+            logger.debug(
+                f"[AFFECTION] User {user_id} signal bonuses: "
+                f"friendliness={relationship_signals.get('friendliness', 0):.1f}*6={relationship_signals.get('friendliness', 0) * 6:.1f}, "
+                f"romantic={relationship_signals.get('romantic_interest', 0):.1f}*10={relationship_signals.get('romantic_interest', 0) * 10:.1f}, "
+                f"conflict={relationship_signals.get('conflict', 0):.1f}*(-3)={relationship_signals.get('conflict', 0) * -3:.1f}"
+            )
+        
+        affection_delta += signal_delta
 
         # Apply minimum penalty limit
         min_penalty = AFFECTION_POINTS.get("min_penalty", -4)
@@ -549,6 +560,15 @@ Based on this context:
         # Apply affection change if significant enough
         if abs(affection_delta) >= 1:
             affection_delta = round(affection_delta)
-            logger.debug(f"Updating affection for user {user_id}: {affection_delta:+d} points")
+            logger.info(
+                f"[AFFECTION] User {user_id}: {affection_delta:+d} points | "
+                f"Breakdown: emotion={emotion}, intent={intent}, "
+                f"signals={relationship_signals}"
+            )
             # Note: update_affection() automatically recalculates relationship level using max(affection_level, interaction_level)
             self.db.update_affection(user_id, affection_delta)
+        else:
+            logger.debug(
+                f"[AFFECTION] User {user_id}: no significant change "
+                f"(delta={affection_delta:.1f})"
+            )

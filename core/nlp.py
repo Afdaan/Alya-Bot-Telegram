@@ -151,6 +151,13 @@ class NLPEngine:
         relationship_signals = self._detect_relationship_signals(text, emotion, intent)
         directed_at_alya = self._is_directed_at_alya(text)
         
+        # Log analysis results for affection tracking
+        logger.info(
+            f"[NLP] User {user_id} message context: "
+            f"emotion={emotion}, intent={intent}, "
+            f"signals={relationship_signals}, directed_at_alya={directed_at_alya}"
+        )
+        
         return {
             "emotion": emotion,
             "intent": intent,
@@ -325,37 +332,54 @@ class NLPEngine:
         }
         
         text_lower = text.lower()
+        signal_reasons = []  # Track why signals were assigned
         
         # Friendliness signals
         if intent in ["gratitude", "compliment", "greeting", "affection"]:
             signals["friendliness"] = 1
+            signal_reasons.append(f"friendliness=1.0 (intent={intent})")
         elif emotion in ["joy", "happiness", "love"]:
             signals["friendliness"] = 0.8
+            signal_reasons.append(f"friendliness=0.8 (emotion={emotion})")
         elif intent in ["asking_about_alya", "meaningful_conversation", "remembering_details"]:
             signals["friendliness"] = 0.7
+            signal_reasons.append(f"friendliness=0.7 (intent={intent})")
         elif emotion in ["sadness", "fear", "worry"]:
             # Showing vulnerability builds connection
             signals["friendliness"] = 0.5
+            signal_reasons.append(f"friendliness=0.5 (vulnerable emotion={emotion})")
         elif intent in ["insult", "rudeness", "toxic_behavior"]:
             signals["conflict"] = 1
+            signal_reasons.append(f"conflict=1.0 (negative intent={intent})")
         
         # Romantic interest signals
         if intent == "affection":
             signals["romantic_interest"] = 1
+            signal_reasons.append(f"romantic=1.0 (intent=affection)")
         elif intent == "romantic_interest":
             signals["romantic_interest"] = 0.8
+            signal_reasons.append(f"romantic=0.8 (intent=romantic_interest)")
         elif any(word in text_lower for word in ["jadi pacarnya", "pacaran", "istri", "suami", "marry"]):
             signals["romantic_interest"] = 0.9
+            signal_reasons.append(f"romantic=0.9 (romantic keywords detected)")
         elif emotion == "love":
             signals["romantic_interest"] = 0.6
+            signal_reasons.append(f"romantic=0.6 (emotion=love)")
         
         # Conflict signals
         if emotion in ["anger", "frustration", "disgust"]:
             signals["conflict"] = 0.7
+            signal_reasons.append(f"conflict=0.7 (emotion={emotion})")
         elif intent in ["insult", "rudeness", "toxic_behavior"]:
             signals["conflict"] = 1
+            signal_reasons.append(f"conflict=1.0 (intent={intent})")
         elif intent == "apology":
             signals["conflict"] = -0.5  # Resolve conflict
+            signal_reasons.append(f"conflict=-0.5 (apology resolves conflict)")
+        
+        # Log signal detection for affection tracking
+        if signal_reasons:
+            logger.debug(f"[NLP] Relationship signals detected: {', '.join(signal_reasons)}")
         
         return signals
     
