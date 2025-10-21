@@ -161,26 +161,26 @@ class NLPEngine:
     def _detect_intent(self, text: str, user_id: int = None) -> str:
         """Detect user's intent from message text using zero-shot classification.
         
-        Uses zero-shot classification for semantic intent detection with multilingual support
-        (Indonesian & English):
-        - gratitude: thanks, appreciation
-        - apology: sorry, apologetic
-        - greeting: hello, casual opening
-        - compliment: praise, positive feedback
-        - insult: derogatory, negative
-        - romantic_interest: romantic signals
-        - affection: emotional attachment
-        - question: information seeking
-        - toxic_behavior: harmful, bullying
-        - rudeness: impolite language
-        - asking_about_alya: questions about Alya
-        - remembering_details: referencing past conversations
-        - meaningful_conversation: substantive discussion
-        - normal: default/neutral
+        Uses zero-shot ML for semantic intent detection (no hardcoded keywords).
+        Supports multilingual intent detection (Indonesian & English) with
+        simplified, distinct labels for model clarity.
+        
+        Intent categories:
+        - gratitude: thanks, appreciation, terima kasih
+        - apology: sorry, apologetic, maaf
+        - greeting: hello, casual opening, salam
+        - compliment: praise, positive feedback, pujian
+        - insult: derogatory, negative remarks, hinaan
+        - affection: emotional attachment, sayang
+        - romantic: romantic interest, cinta, jatuh cinta
+        - question: information seeking, pertanyaan
+        - toxic: harmful, bullying, threats, ancaman
+        - rude: impolite language, kasar
+        - normal: neutral, everyday conversation
         
         Args:
             text: User's message text
-            user_id: User ID for caching
+            user_id: User ID for caching (optional)
             
         Returns:
             str: Detected intent category
@@ -199,65 +199,67 @@ class NLPEngine:
         # Get user language for bilingual label selection
         lang = DEFAULT_LANGUAGE
         if user_id:
-            user_settings = db_manager.get_user_settings(user_id)
-            lang = user_settings.get("language", DEFAULT_LANGUAGE)
+            try:
+                user_settings = db_manager.get_user_settings(user_id)
+                lang = user_settings.get("language", DEFAULT_LANGUAGE)
+            except Exception as e:
+                logger.debug(f"Could not get user language for {user_id}: {e}")
         
-        # Define candidate intent labels (bilingual support)
-        # Labels kept simple and distinct to avoid model confusion
+        # Define candidate intent labels - SIMPLIFIED & DISTINCT for clarity
+        # Using multi-word descriptive labels to make intent clear to model
         if lang == "id":
             candidate_labels = [
-                "terima kasih",
-                "maaf",
-                "salam",
-                "pujian",
-                "hinaan",
-                "cinta",
-                "sayang",
-                "pertanyaan",
-                "ancaman",
-                "kasar",
-                "tentang bot",
-                "mengingat",
-                "diskusi bermakna",
-                "obrolan biasa"
+                "mengucapkan terima kasih",
+                "meminta maaf",
+                "memberi salam",
+                "memberikan pujian",
+                "menghina atau mengatai",
+                "menunjukkan kasih sayang",
+                "menunjukkan minat romantis",
+                "mengajukan pertanyaan",
+                "membuat ancaman atau menghina parah",
+                "berbicara dengan tidak sopan",
+                "percakapan biasa"
             ]
         else:  # English
             candidate_labels = [
-                "thanks",
-                "sorry",
-                "hello",
-                "praise",
-                "insult",
-                "love",
-                "affection",
-                "question",
-                "threat",
-                "rude",
-                "about bot",
-                "remember",
-                "meaningful",
-                "normal"
+                "expressing thanks",
+                "apologizing",
+                "greeting",
+                "giving compliment",
+                "insulting or calling names",
+                "showing affection",
+                "showing romantic interest",
+                "asking question",
+                "threatening or severe insult",
+                "speaking rudely",
+                "normal conversation"
             ]
         
         try:
-            # Use zero-shot classification
+            # Use zero-shot classification (purely ML-based, no keyword fallback)
             result = self.zero_shot_classifier(
                 text,
                 candidate_labels,
                 multi_label=False
             )
             
-            # Check if top result meets confidence threshold
-            if result and result.get("scores") and result["scores"][0] >= ZERO_SHOT_CONFIDENCE_THRESHOLD:
-                # Map classification result back to intent
+            if result and result.get("scores"):
+                top_score = result["scores"][0]
                 top_label = result["labels"][0]
+                
+                # Map to intent category
                 intent = self._map_label_to_intent(top_label, lang)
+                
+                # Cache result
                 self._intent_cache[text_hash] = (intent, time.time())
+                
+                logger.debug(
+                    f"Intent detection: '{text[:50]}...' → {intent} "
+                    f"(confidence: {top_score:.2f})"
+                )
                 return intent
             else:
-                # Fallback if confidence is too low
-                logger.debug(f"Intent confidence too low for: {text}")
-                self._intent_cache[text_hash] = ("normal", time.time())
                 return "normal"
                 
         except Exception as e:
@@ -276,33 +278,27 @@ class NLPEngine:
         """
         label_lower = label.lower().strip()
         
-        # Direct matching for simple labels
-        if label_lower in ["terima kasih", "thanks", "thank"]:
+        # Map zero-shot labels to intent categories
+        if "terima kasih" in label_lower or "thanks" in label_lower or "expressing thanks" in label_lower:
             return "gratitude"
-        elif label_lower in ["maaf", "sorry", "apology"]:
+        elif "maaf" in label_lower or "apologizing" in label_lower or "sorry" in label_lower:
             return "apology"
-        elif label_lower in ["salam", "hello", "greeting"]:
+        elif "salam" in label_lower or "greeting" in label_lower or "hello" in label_lower:
             return "greeting"
-        elif label_lower in ["pujian", "praise", "compliment"]:
+        elif "pujian" in label_lower or "compliment" in label_lower or "praise" in label_lower:
             return "compliment"
-        elif label_lower in ["hinaan", "insult"]:
+        elif "hinaan" in label_lower or "insulting" in label_lower or "insult" in label_lower or "calling names" in label_lower:
             return "insult"
-        elif label_lower in ["cinta", "love"]:
+        elif "cinta" in label_lower or "romantic" in label_lower or "love" in label_lower or "romantic interest" in label_lower:
             return "romantic_interest"
-        elif label_lower in ["sayang", "affection"]:
+        elif "sayang" in label_lower or "affection" in label_lower or "showing affection" in label_lower:
             return "affection"
-        elif label_lower in ["pertanyaan", "question"]:
+        elif "pertanyaan" in label_lower or "question" in label_lower or "asking question" in label_lower:
             return "question"
-        elif label_lower in ["ancaman", "threat"]:
+        elif "ancaman" in label_lower or "threatening" in label_lower or "threat" in label_lower or "severe insult" in label_lower:
             return "toxic_behavior"
-        elif label_lower in ["kasar", "rude"]:
+        elif "kasar" in label_lower or "rude" in label_lower or "rudely" in label_lower or "not sopan" in label_lower:
             return "rudeness"
-        elif label_lower in ["tentang bot", "about bot"]:
-            return "asking_about_alya"
-        elif label_lower in ["mengingat", "remember"]:
-            return "remembering_details"
-        elif label_lower in ["diskusi bermakna", "meaningful"]:
-            return "meaningful_conversation"
         else:
             return "normal"
     
