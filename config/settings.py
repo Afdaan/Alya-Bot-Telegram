@@ -146,6 +146,14 @@ EMOTION_MODEL_EN: str = os.getenv(
     "AnasAlokla/multilingual_go_emotions"
 )
 
+# Zero-shot classification model for intent detection
+# Using mDeBERTa which is explicitly trained for multilingual (incl. Indonesian)
+ZERO_SHOT_MODEL: str = os.getenv(
+    "ZERO_SHOT_MODEL",
+    "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"  # Better multilingual support (ID + EN)
+)
+ZERO_SHOT_CONFIDENCE_THRESHOLD: float = 0.25  # Lowered from 0.3 for better sensitivity
+
 # Feature Flags
 FEATURES: Dict[str, bool] = {
     "memory": True,

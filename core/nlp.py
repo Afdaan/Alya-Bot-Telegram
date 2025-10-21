@@ -14,6 +14,8 @@ from config.settings import (
     SLIDING_WINDOW_SIZE,
     EMOTION_MODEL_ID,
     EMOTION_MODEL_EN,
+    ZERO_SHOT_MODEL,
+    ZERO_SHOT_CONFIDENCE_THRESHOLD,
     DEFAULT_LANGUAGE
 )
 from database.database_manager import db_manager, DatabaseManager
@@ -25,7 +27,9 @@ class NLPEngine:
     def __init__(self):
         self.emotion_classifier_id: Optional[Pipeline] = None
         self.emotion_classifier_en: Optional[Pipeline] = None
+        self.zero_shot_classifier: Optional[Pipeline] = None
         self._emotion_cache: Dict[str, Tuple[str, float]] = {}
+        self._intent_cache: Dict[str, Tuple[str, float]] = {}
         self._cache_ttl = 300
         self._max_cache_size = 1000
         self._initialize_models()
@@ -64,10 +68,18 @@ class NLPEngine:
                 top_k=3
             )
             logger.info("multilingual_go_emotions loaded.")
+            # Load zero-shot classification model for intent detection
+            logger.info(f"Loading zero-shot classifier: {ZERO_SHOT_MODEL}")
+            self.zero_shot_classifier = pipeline(
+                task="zero-shot-classification",
+                model=ZERO_SHOT_MODEL
+            )
+            logger.info("Zero-shot classifier loaded.")
         except Exception as e:
             logger.error(f"Error initializing emotion models: {str(e)}")
             self.emotion_classifier_id = None
             self.emotion_classifier_en = None
+            self.zero_shot_classifier = None
 
     def detect_emotion(self, text: str, user_id: int = None) -> Optional[str]:
         """
@@ -116,11 +128,289 @@ class NLPEngine:
         return None
 
     def get_message_context(self, text: str, user_id: int = None) -> Dict[str, Any]:
-        """Analyze message for emotion only."""
+        """Analyze message for emotion, intent, and relationship signals.
+        
+        Detects:
+        - Emotion: User's emotional state (joy, anger, sadness, etc.)
+        - Intent: What the user is trying to do (gratitude, insult, greeting, etc.)
+        - Relationship signals: Positive/negative behaviors affecting affection
+        
+        Args:
+            text: User's message text
+            user_id: User ID for language detection
+            
+        Returns:
+            Dict with emotion, intent, relationship_signals, and directed_at_alya flag
+        """
+        # Periodic cache cleanup
+        self._cleanup_cache(self._emotion_cache)
+        self._cleanup_cache(self._intent_cache)
+        
         emotion = self.detect_emotion(text, user_id)
+        intent = self._detect_intent(text, user_id)
+        relationship_signals = self._detect_relationship_signals(text, emotion, intent)
+        directed_at_alya = self._is_directed_at_alya(text)
+        
+        # Log analysis results for affection tracking
+        logger.info(
+            f"[NLP] User {user_id} message context: "
+            f"emotion={emotion}, intent={intent}, "
+            f"signals={relationship_signals}, directed_at_alya={directed_at_alya}"
+        )
+        
         return {
-            "emotion": emotion
+            "emotion": emotion,
+            "intent": intent,
+            "relationship_signals": relationship_signals,
+            "directed_at_alya": directed_at_alya
         }
+    
+    def _detect_intent(self, text: str, user_id: int = None) -> str:
+        """Detect user's intent from message text using zero-shot classification.
+        
+        Uses zero-shot ML for semantic intent detection (no hardcoded keywords).
+        Supports multilingual intent detection (Indonesian & English) with
+        simplified, distinct labels for model clarity.
+        
+        Intent categories:
+        - gratitude: thanks, appreciation, terima kasih
+        - apology: sorry, apologetic, maaf
+        - greeting: hello, casual opening, salam
+        - compliment: praise, positive feedback, pujian
+        - insult: derogatory, negative remarks, hinaan
+        - affection: emotional attachment, sayang
+        - romantic: romantic interest, cinta, jatuh cinta
+        - question: information seeking, pertanyaan
+        - toxic: harmful, bullying, threats, ancaman
+        - rude: impolite language, kasar
+        - normal: neutral, everyday conversation
+        
+        Args:
+            text: User's message text
+            user_id: User ID for caching (optional)
+            
+        Returns:
+            str: Detected intent category
+        """
+        if not self.zero_shot_classifier:
+            logger.warning("Zero-shot classifier not loaded, defaulting to 'normal'")
+            return "normal"
+        
+        # Check cache first
+        text_hash = self._get_text_hash(f"intent:{text}")
+        if text_hash in self._intent_cache:
+            intent, timestamp = self._intent_cache[text_hash]
+            if self._is_cache_valid(timestamp):
+                return intent
+        
+        # Get user language for bilingual label selection
+        lang = DEFAULT_LANGUAGE
+        if user_id:
+            try:
+                user_settings = db_manager.get_user_settings(user_id)
+                lang = user_settings.get("language", DEFAULT_LANGUAGE)
+            except Exception as e:
+                logger.debug(f"Could not get user language for {user_id}: {e}")
+        
+        # Define candidate intent labels - SIMPLIFIED & DISTINCT for clarity
+        # Using multi-word descriptive labels to make intent clear to model
+        if lang == "id":
+            candidate_labels = [
+                "mengucapkan terima kasih",
+                "meminta maaf",
+                "memberi salam",
+                "memberikan pujian",
+                "menghina atau mengatai",
+                "menunjukkan kasih sayang",
+                "menunjukkan minat romantis",
+                "mengajukan pertanyaan",
+                "membuat ancaman atau menghina parah",
+                "berbicara dengan tidak sopan",
+                "percakapan biasa"
+            ]
+        else:  # English
+            candidate_labels = [
+                "expressing thanks",
+                "apologizing",
+                "greeting",
+                "giving compliment",
+                "insulting or calling names",
+                "showing affection",
+                "showing romantic interest",
+                "asking question",
+                "threatening or severe insult",
+                "speaking rudely",
+                "normal conversation"
+            ]
+        
+        try:
+            # Use zero-shot classification (purely ML-based, no keyword fallback)
+            result = self.zero_shot_classifier(
+                text,
+                candidate_labels,
+                multi_label=False
+            )
+            
+            if result and result.get("scores"):
+                top_score = result["scores"][0]
+                top_label = result["labels"][0]
+                
+                # Map to intent category
+                intent = self._map_label_to_intent(top_label, lang)
+                
+                # Cache result
+                self._intent_cache[text_hash] = (intent, time.time())
+                
+                logger.debug(
+                    f"Intent detection: '{text[:50]}...' → {intent} "
+                    f"(confidence: {top_score:.2f})"
+                )
+                return intent
+            else:
+                return "normal"
+                
+        except Exception as e:
+            logger.error(f"Error in zero-shot intent detection: {e}")
+            return "normal"
+    
+    def _map_label_to_intent(self, label: str, lang: str = "en") -> str:
+        """Map zero-shot classification label to intent category (bilingual).
+        
+        Args:
+            label: Zero-shot classification label (Indonesian or English)
+            lang: Language of the label ("id" or "en")
+            
+        Returns:
+            str: Intent category
+        """
+        label_lower = label.lower().strip()
+        
+        # Map zero-shot labels to intent categories
+        if "terima kasih" in label_lower or "thanks" in label_lower or "expressing thanks" in label_lower:
+            return "gratitude"
+        elif "maaf" in label_lower or "apologizing" in label_lower or "sorry" in label_lower:
+            return "apology"
+        elif "salam" in label_lower or "greeting" in label_lower or "hello" in label_lower:
+            return "greeting"
+        elif "pujian" in label_lower or "compliment" in label_lower or "praise" in label_lower:
+            return "compliment"
+        elif "hinaan" in label_lower or "insulting" in label_lower or "insult" in label_lower or "calling names" in label_lower:
+            return "insult"
+        elif "cinta" in label_lower or "romantic" in label_lower or "love" in label_lower or "romantic interest" in label_lower:
+            return "romantic_interest"
+        elif "sayang" in label_lower or "affection" in label_lower or "showing affection" in label_lower:
+            return "affection"
+        elif "pertanyaan" in label_lower or "question" in label_lower or "asking question" in label_lower:
+            return "question"
+        elif "ancaman" in label_lower or "threatening" in label_lower or "threat" in label_lower or "severe insult" in label_lower:
+            return "toxic_behavior"
+        elif "kasar" in label_lower or "rude" in label_lower or "rudely" in label_lower or "not sopan" in label_lower:
+            return "rudeness"
+        else:
+            return "normal"
+    
+    def _detect_relationship_signals(self, text: str, emotion: str, intent: str) -> Dict[str, float]:
+        """Detect relationship signals (positive/negative behaviors).
+        
+        Returns a dict with:
+        - friendliness: 0 = hostile, 1 = very friendly
+        - romantic_interest: 0 = none, 1 = strong romantic signal
+        - conflict: 0 = none, 1 = conflict present
+        
+        Args:
+            text: User's message
+            emotion: Detected emotion
+            intent: Detected intent
+            
+        Returns:
+            Dict with relationship signal scores
+        """
+        signals = {
+            "friendliness": 0,
+            "romantic_interest": 0,
+            "conflict": 0
+        }
+        
+        text_lower = text.lower()
+        signal_reasons = []  # Track why signals were assigned
+        
+        # Friendliness signals
+        if intent in ["gratitude", "compliment", "greeting", "affection"]:
+            signals["friendliness"] = 1
+            signal_reasons.append(f"friendliness=1.0 (intent={intent})")
+        elif emotion in ["joy", "happiness", "love"]:
+            signals["friendliness"] = 0.8
+            signal_reasons.append(f"friendliness=0.8 (emotion={emotion})")
+        elif intent in ["asking_about_alya", "meaningful_conversation", "remembering_details"]:
+            signals["friendliness"] = 0.7
+            signal_reasons.append(f"friendliness=0.7 (intent={intent})")
+        elif emotion in ["sadness", "fear", "worry"]:
+            # Showing vulnerability builds connection
+            signals["friendliness"] = 0.5
+            signal_reasons.append(f"friendliness=0.5 (vulnerable emotion={emotion})")
+        elif intent in ["insult", "rudeness", "toxic_behavior"]:
+            signals["conflict"] = 1
+            signal_reasons.append(f"conflict=1.0 (negative intent={intent})")
+        
+        # Romantic interest signals
+        if intent == "affection":
+            signals["romantic_interest"] = 1
+            signal_reasons.append(f"romantic=1.0 (intent=affection)")
+        elif intent == "romantic_interest":
+            signals["romantic_interest"] = 0.8
+            signal_reasons.append(f"romantic=0.8 (intent=romantic_interest)")
+        elif any(word in text_lower for word in ["jadi pacarnya", "pacaran", "istri", "suami", "marry"]):
+            signals["romantic_interest"] = 0.9
+            signal_reasons.append(f"romantic=0.9 (romantic keywords detected)")
+        elif emotion == "love":
+            signals["romantic_interest"] = 0.6
+            signal_reasons.append(f"romantic=0.6 (emotion=love)")
+        
+        # Conflict signals
+        if emotion in ["anger", "frustration", "disgust"]:
+            signals["conflict"] = 0.7
+            signal_reasons.append(f"conflict=0.7 (emotion={emotion})")
+        elif intent in ["insult", "rudeness", "toxic_behavior"]:
+            signals["conflict"] = 1
+            signal_reasons.append(f"conflict=1.0 (intent={intent})")
+        elif intent == "apology":
+            signals["conflict"] = -0.5  # Resolve conflict
+            signal_reasons.append(f"conflict=-0.5 (apology resolves conflict)")
+        
+        # Log signal detection for affection tracking
+        if signal_reasons:
+            logger.debug(f"[NLP] Relationship signals detected: {', '.join(signal_reasons)}")
+        
+        return signals
+    
+    def _is_directed_at_alya(self, text: str) -> bool:
+        """Check if message is directed at Alya specifically.
+        
+        Args:
+            text: User's message
+            
+        Returns:
+            bool: True if message is directed at Alya
+        """
+        text_lower = text.lower()
+        
+        # Check for direct address patterns
+        alya_patterns = [
+            "alya", "kamu", "lu", "elu", "lo", "mu", "kau",
+            "you", "ur", "yourself", "yourself"
+        ]
+        
+        # If message starts with or contains direct address, likely directed at Alya
+        for pattern in alya_patterns:
+            if text_lower.startswith(pattern) or f" {pattern} " in text_lower:
+                return True
+        
+        # If message is a question or response in conversation context, likely directed at Alya
+        if text_lower.endswith("?") or any(word in text_lower for word in ["apa", "siapa", "bagaimana"]):
+            return True
+        
+        # Default to True if not clear (safer assumption)
+        return True
 
     def suggest_mood_for_response(self, user_context: Dict[str, Any], relationship_level: int) -> str:
         """Suggest Alya's mood for response based on user context and relationship.
