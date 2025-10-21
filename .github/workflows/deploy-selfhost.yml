@@ -2,10 +2,9 @@ name: Deploy AlyaBot to Self-Hosted Server (Production)
 
 on:
   workflow_dispatch:
-  # Uncomment below if you want to allow manual trigger only
-  # push:
-  #   branches:
-  #     - master
+  push:
+    branches:
+      - master
 
 jobs:
   deploy:
@@ -64,13 +63,13 @@ jobs:
 
           # Prepare message
           TELEGRAM_API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
-          MSG="🚀 <b>AlyaBot Deploy Sukses (Development)!</b> 🚀%0A%0A"
+          MSG="🚀 <b>AlyaBot Deploy Sukses (Production)!</b> 🚀%0A%0A"
           MSG="${MSG}📦 <b>Branch:</b> <code>$BRANCH_NAME</code>%0A"
           MSG="${MSG}🔗 <b>Commit:</b> <code>$LAST_COMMIT_HASH</code>%0A"
           MSG="${MSG}👤 <b>Author:</b> $LAST_COMMIT_AUTHOR%0A"
           MSG="${MSG}⏰ <b>Time:</b> $LAST_COMMIT_TIME%0A%0A"
           MSG="${MSG}📝 <b>Changelog:</b>%0A$LAST_COMMIT_MSG%0A%0A"
-          MSG="${MSG}✨ Bot is now running via systemd: <code>dev-alya-bot.service</code>"
+          MSG="${MSG}✨ Bot is now running via systemd: <code>prod-alya-bot.service</code>"
 
           # Send ke setiap admin (hide all output)
           set +x
@@ -106,7 +105,7 @@ jobs:
 
           # Prepare failure message
           TELEGRAM_API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
-          MSG="❌ <b>AlyaBot Deploy GAGAL (Development)!</b> ❌%0A%0A"
+          MSG="❌ <b>AlyaBot Deploy GAGAL (Production)!</b> ❌%0A%0A"
           MSG="${MSG}📦 <b>Branch:</b> <code>$BRANCH_NAME</code>%0A"
           MSG="${MSG}🔗 <b>Commit:</b> <code>$COMMIT_HASH</code>%0A%0A"
           MSG="${MSG}🔍 Cek GitHub Actions logs untuk detail error."
