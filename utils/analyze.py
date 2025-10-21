@@ -193,8 +193,13 @@ class MediaAnalyzer:
         media_type = None
         query = ""
         
-        # Check if this is a reply to message with media
-        if message.reply_to_message:
+        extracted_query = context.user_data.get('extracted_query', None)
+        if extracted_query:
+            media_content = extracted_query
+            media_type = "text"
+            query = extracted_query
+            context.user_data.pop('extracted_query', None)
+        elif message.reply_to_message:
             replied_message = message.reply_to_message
             if replied_message.photo:
                 media_content_file = await replied_message.photo[-1].get_file()
