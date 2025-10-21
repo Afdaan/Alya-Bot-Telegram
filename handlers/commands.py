@@ -194,6 +194,9 @@ class CommandsHandler:
                 return
             
             logger.info(f"[!ask TEXT] Processing query: {text[:50]}...")
+
+            context.user_data['extracted_query'] = text
+            
             await MediaAnalyzer.handle_analysis_command(update, context)
 
     async def handle_analyze_reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
