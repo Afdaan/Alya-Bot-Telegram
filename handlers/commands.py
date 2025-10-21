@@ -148,15 +148,33 @@ class CommandsHandler:
                 os.unlink(temp_path)
 
     async def handle_analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Unified handler for !ask commands. Routes based on reply_to_message presence."""
+        """Unified handler for !ask commands. Routes based on actual user reply intent."""
         await self._send_chat_action(update, context, ChatAction.TYPING)
         message = update.effective_message
         
+        is_actual_reply = False
+        
         if message.reply_to_message is not None:
-            logger.info(f"[!ask REPLY] User {update.effective_user.id} | Chat: {update.effective_chat.type} | Thread: {getattr(message, 'message_thread_id', None)}")
+            replied_msg = message.reply_to_message
+            
+            has_media = replied_msg.photo or replied_msg.document or replied_msg.video
+            has_meaningful_text = replied_msg.text and len(replied_msg.text.strip()) > 0
+
+            is_same_message = replied_msg.message_id == message.message_id
+            
+            thread_id = getattr(message, 'message_thread_id', None)
+            is_general_topic = thread_id == 1 or thread_id is None
+            
+            if not is_same_message and (has_media or has_meaningful_text):
+                is_actual_reply = True
+        
+        thread_id = getattr(message, 'message_thread_id', None)
+        
+        if is_actual_reply:
+            logger.info(f"[!ask REPLY] User {update.effective_user.id} | Chat: {update.effective_chat.type} | Thread: {thread_id} | Replied to: {message.reply_to_message.message_id}")
             await MediaAnalyzer.handle_analysis_command(update, context)
         else:
-            logger.info(f"[!ask TEXT] User {update.effective_user.id} | Chat: {update.effective_chat.type} | Thread: {getattr(message, 'message_thread_id', None)}")
+            logger.info(f"[!ask TEXT] User {update.effective_user.id} | Chat: {update.effective_chat.type} | Thread: {thread_id}")
             logger.debug(f"[!ask TEXT] Raw message text: {repr(message.text)}")
             
             original_text = message.text or ""
