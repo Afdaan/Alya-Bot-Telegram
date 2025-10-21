@@ -263,12 +263,14 @@ class ContextManager:
             summary = {
                 "content": summary_text,
                 "message_count": len(old_messages),
-                "date_range_start": old_messages[0]["timestamp"],
-                "date_range_end": old_messages[-1]["timestamp"]
+                "date_range_start": old_messages[0].get("created_at") or old_messages[0].get("timestamp"),
+                "date_range_end": old_messages[-1].get("created_at") or old_messages[-1].get("timestamp")
             }
             self.add_summary(user_id, summary)
             # Remove old messages from conversation history
-            self.db.delete_conversation_messages(user_id, before=old_messages[-1]["timestamp"])
+            before_timestamp = old_messages[-1].get("created_at") or old_messages[-1].get("timestamp")
+            if before_timestamp:
+                self.db.delete_conversation_messages(user_id, before=before_timestamp)
 
     def _summarize_messages(self, messages: List[Dict[str, Any]]) -> str:
         """Summarize a list of messages (simple join, can be replaced with LLM)."""
