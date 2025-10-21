@@ -309,7 +309,7 @@ def _load_translation_map() -> dict:
         return {}
 
 
-def translate_response(text: str, lang: str = "id") -> str:
+def translate_response(text: str, lang: str = DEFAULT_LANGUAGE) -> str:
     if not text:
         return text
     translations = _load_translation_map()
@@ -320,7 +320,7 @@ def translate_response(text: str, lang: str = "id") -> str:
     return text
 
 
-def get_translate_prompt(text: str, lang: str = "id") -> str:
+def get_translate_prompt(text: str, lang: str = DEFAULT_LANGUAGE) -> str:
     templates = _load_translation_map().get("translate_templates", {})
     prompt = templates.get(lang)
     return text if not prompt else prompt.replace("{text}", text)

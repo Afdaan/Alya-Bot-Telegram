@@ -7,7 +7,7 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from database.database_manager import db_manager, DatabaseManager
 from config.settings import (
-    MAX_MEMORY_ITEMS, RAG_MAX_RESULTS, SLIDING_WINDOW_SIZE
+    MAX_MEMORY_ITEMS, RAG_MAX_RESULTS, SLIDING_WINDOW_SIZE, DEFAULT_LANGUAGE
 )
 
 logger = logging.getLogger(__name__)
@@ -211,13 +211,13 @@ class MemoryManager:
             
         return self.db.reset_conversation(user_id)
     
-    def create_context_prompt(self, user_id: int, query: str, lang: str = 'id') -> str:
+    def create_context_prompt(self, user_id: int, query: str, lang: str = DEFAULT_LANGUAGE) -> str:
         """Create a context-aware prompt with relevant memories.
         
         Args:
             user_id: Telegram user ID
             query: User query
-            lang: Language for context prompt ('id' or 'en')
+            lang: Language for context prompt ('id' or 'en'), defaults to DEFAULT_LANGUAGE
             
         Returns:
             Enhanced prompt with context

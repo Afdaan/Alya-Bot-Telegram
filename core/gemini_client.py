@@ -15,7 +15,7 @@ from google.generativeai.types.generation_types import GenerationConfig
 
 from config.settings import (
     GEMINI_API_KEYS, GEMINI_MODEL, MAX_OUTPUT_TOKENS,
-    TEMPERATURE, TOP_K, TOP_P
+    TEMPERATURE, TOP_K, TOP_P, DEFAULT_LANGUAGE
 )
 
 logger = logging.getLogger(__name__)
@@ -134,7 +134,7 @@ class GeminiClient:
         context: str,
         relationship_level: int,
         is_admin: bool,
-        lang: str = 'id', # Add lang parameter
+        lang: str = DEFAULT_LANGUAGE,
         retry_count: int = 3,
         is_media_analysis: bool = False,
         media_context: Optional[str] = None

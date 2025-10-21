@@ -12,6 +12,8 @@ from typing import List, Dict, Any, Optional, Union, Literal
 import aiohttp
 from urllib.parse import urlparse, quote_plus
 
+from config.settings import DEFAULT_LANGUAGE
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -33,7 +35,7 @@ async def search_web(
     max_results: int = 8,
     safe_search: str = "off",
     search_type: Optional[Literal["profile", "news", "image", "general"]] = None,
-    language: str = "id",
+    language: str = DEFAULT_LANGUAGE,
     exact_terms: Optional[str] = None,
     site_restrict: Optional[str] = None
 ) -> List[SearchResult]:
@@ -243,7 +245,7 @@ async def _execute_search(
     cse_id: str,
     max_results: int = 8,
     safe_search: str = "off",
-    language: str = "id",
+    language: str = DEFAULT_LANGUAGE,
     search_type: Optional[str] = None,
     extra_params: Dict[str, Any] = None
 ) -> List[SearchResult]:

@@ -444,7 +444,7 @@ Based on this context:
             'relationship_level': relationship_level
         }
 
-    def _get_relationship_context(self, user: Any, relationship_level: int, is_admin: bool, lang: str = "id") -> str:
+    def _get_relationship_context(self, user: Any, relationship_level: int, is_admin: bool, lang: str = DEFAULT_LANGUAGE) -> str:
         """Get relationship context in the specified language."""
         first_name = getattr(user, 'first_name', None) or "user"
         

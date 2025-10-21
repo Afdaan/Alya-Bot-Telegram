@@ -432,7 +432,7 @@ Analyze the media content and answer {username}'s question in **{persona_lang.ge
             username: User's first name
             relationship_level: Current relationship level (0-4)
             is_admin: Whether user is admin
-            lang: Language code ('id' or 'en')
+            lang: Language code ('id' or 'en'), defaults to DEFAULT_LANGUAGE
         Returns:
             Formatted relationship context string
         """

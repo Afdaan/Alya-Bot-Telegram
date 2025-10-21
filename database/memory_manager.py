@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 
-from config.settings import MEMORY_EXPIRY_DAYS, MAX_CONTEXT_MESSAGES, SLIDING_WINDOW_SIZE
+from config.settings import MEMORY_EXPIRY_DAYS, MAX_CONTEXT_MESSAGES, SLIDING_WINDOW_SIZE, DEFAULT_LANGUAGE
 from core.gemini_client import GeminiClient
 from database.models import Conversation, ConversationSummary, User
 from database.session import db_session_context
@@ -153,7 +153,7 @@ class MemoryManager:
                         context="",
                         relationship_level=0,
                         is_admin=True,
-                        lang='id',
+                        lang=DEFAULT_LANGUAGE,
                         retry_count=2
                     )
                 )

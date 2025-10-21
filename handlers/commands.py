@@ -7,7 +7,7 @@ from telegram import Update, BotCommand
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes, MessageHandler, filters, CommandHandler
 
-from config.settings import SAUCENAO_PREFIX, COMMAND_PREFIX
+from config.settings import SAUCENAO_PREFIX, COMMAND_PREFIX, DEFAULT_LANGUAGE
 from database.database_manager import db_manager, get_user_lang
 from utils.saucenao import SauceNAOSearcher, SauceNAOError
 from utils.search_engine import search_web
@@ -400,8 +400,9 @@ async def set_bot_commands(application, lang='en') -> None:
             commands=commands_id,
             language_code="id"
         )
-        # Set default commands
-        await application.bot.set_my_commands(commands=commands_id)
+        # Set default commands based on DEFAULT_LANGUAGE
+        default_commands = commands_en if DEFAULT_LANGUAGE == "en" else commands_id
+        await application.bot.set_my_commands(commands=default_commands)
         
         logger.info("Successfully set bot commands for all languages.")
     except Exception as e:

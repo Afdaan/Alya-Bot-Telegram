@@ -13,7 +13,8 @@ from config.settings import (
     EMOTION_CONFIDENCE_THRESHOLD,
     SLIDING_WINDOW_SIZE,
     EMOTION_MODEL_ID,
-    EMOTION_MODEL_EN
+    EMOTION_MODEL_EN,
+    DEFAULT_LANGUAGE
 )
 from database.database_manager import db_manager, DatabaseManager
 
@@ -71,12 +72,19 @@ class NLPEngine:
     def detect_emotion(self, text: str, user_id: int = None) -> Optional[str]:
         """
         Detect emotion using the appropriate model based on user language.
+        
+        Args:
+            text: Input text to analyze
+            user_id: User ID for language detection
+            
+        Returns:
+            Detected emotion label or None if detection fails, defaults to DEFAULT_LANGUAGE
         """
         # Determine user language from database
-        lang = "id"
+        lang = DEFAULT_LANGUAGE
         if user_id:
             user_settings = db_manager.get_user_settings(user_id)
-            lang = user_settings.get("language", "id")
+            lang = user_settings.get("language", DEFAULT_LANGUAGE)
         self._cleanup_cache(self._emotion_cache)
         text_hash = self._get_text_hash(f"{lang}:{text}")
         if text_hash in self._emotion_cache:
