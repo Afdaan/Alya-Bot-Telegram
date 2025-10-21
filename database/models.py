@@ -9,6 +9,7 @@ from sqlalchemy.orm import relationship, synonym
 from sqlalchemy.dialects.mysql import LONGTEXT, MEDIUMTEXT
 
 from database.session import Base
+from config.settings import DEFAULT_LANGUAGE
 
 
 class User(Base):
@@ -20,7 +21,7 @@ class User(Base):
     username = Column(String(32), nullable=True, index=True)
     first_name = Column(String(64), nullable=True)
     last_name = Column(String(64), nullable=True)
-    language_code = Column(String(10), default="id", index=True)
+    language_code = Column(String(10), default=DEFAULT_LANGUAGE, index=True)
     
     created_at = Column(DateTime, default=datetime.now, index=True)
     last_interaction = Column(DateTime, default=datetime.now, index=True)
