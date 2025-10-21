@@ -49,6 +49,15 @@ def _clean_response(text: str) -> str:
     # Remove invisible Unicode control characters
     text = re.sub(r'[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]', '', text)
     
+    # Remove HTML document wrapper tags (not supported by Telegram)
+    # Strip <html>, <body>, <head>, <!DOCTYPE> etc.
+    text = re.sub(r'(?i)<\s*!DOCTYPE[^>]*>', '', text)
+    text = re.sub(r'(?i)<\s*/?\s*html[^>]*>', '', text)
+    text = re.sub(r'(?i)<\s*/?\s*head[^>]*>', '', text)
+    text = re.sub(r'(?i)<\s*/?\s*body[^>]*>', '', text)
+    text = re.sub(r'(?i)<\s*/?\s*meta[^>]*>', '', text)
+    text = re.sub(r'(?i)<\s*/?\s*title[^>]*>.*?<\s*/\s*title\s*>', '', text, flags=re.DOTALL)
+    
     lines = text.splitlines()
     out: List[str] = []
     
