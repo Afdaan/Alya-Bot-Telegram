@@ -185,10 +185,25 @@ class CommandsHandler:
         """Handle !ask with text query."""
         await self._send_chat_action(update, context, ChatAction.TYPING)
         message = update.effective_message
-        text = message.text.replace("!ask", "", 1).strip()
+        
+        logger.debug(f"[!ask] Raw message text: {repr(message.text)}")
+        logger.debug(f"[!ask] Chat type: {update.effective_chat.type}")
+        
+        # More robust text extraction - handle various formats
+        original_text = message.text or ""
+        
+        # Remove prefix more carefully
+        if original_text.startswith("!ask"):
+            text = original_text[4:].strip()  # Remove "!ask" (4 chars) and strip
+        else:
+            # Fallback: case-insensitive replace
+            text = original_text.replace("!ask", "", 1).replace("!ASK", "", 1).strip()
+        
+        logger.debug(f"[!ask] Text after removing prefix: {repr(text)} (length: {len(text)})")
         
         # If empty query, show usage
-        if not text:
+        if not text or len(text) == 0:
+            logger.info(f"[!ask] Empty query from user {update.effective_user.id} in {update.effective_chat.type}, showing usage")
             lang = get_user_lang(update.effective_user.id)
             from handlers.response.analyze import analyze_response
             response = analyze_response(lang=lang)
