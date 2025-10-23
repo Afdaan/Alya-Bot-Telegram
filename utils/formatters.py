@@ -514,18 +514,20 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     if para.startswith(">"):
         return _format_blockquote(para, use_html)
     
-    # Quoted conversation (dialog with quotes) -> green bubble
-    # Check for quotes even if there are emojis or special chars
+    # Quoted conversation (dialog with quotes) -> green bubble blockquote
+    # This handles: "text here", "text 😊", 'text here', etc.
     stripped = para.strip()
-    if (stripped.startswith('"') and '"' in stripped[1:]) or (stripped.startswith("'") and "'" in stripped[1:]):
+    
+    # Check for proper quoted text (opening and closing quotes)
+    has_double_quotes = stripped.startswith('"') and stripped.count('"') >= 2
+    has_single_quotes = stripped.startswith("'") and stripped.count("'") >= 2
+    
+    if has_double_quotes or has_single_quotes:
+        # This is conversation dialog -> blockquote (green bubble)
         return _format_normal_text(para, use_html)
     
-    # Additional check: if contains quoted text with emoji patterns
-    # Pattern: "text with emoji 😊" or variations
-    if re.search(r'^["\'].*["\'][\s\U0001F600-\U0001F64F\U0001F300-\U0001F5FF]*$', stripped):
-        return _format_normal_text(para, use_html)
-    
-    # Default: descriptive text (narration/action without quotes) -> italic
+    # Default: descriptive text/mood actions (no quotes) -> italic narration
+    # This handles plain text like: Tersipu malu, berusaha menyembunyikan senyum
     content = escape_html(para) if use_html else para
     return f"<i>{content}</i>" if use_html else f"_{para}_"
 

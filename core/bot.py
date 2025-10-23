@@ -108,26 +108,29 @@ def register_handlers(
     logger.info("Registering standard command handlers...")
     register_commands(application)
     
-    logger.info("Registering utility command handlers (includes !ask, !sauce, etc.)...")
-    CommandsHandler(application)
+    # ============================================================================
+    # HANDLER REGISTRATION ORDER (Critical for proper routing)
+    # ============================================================================
+    # Order matters: First matching handler wins!
+    # Priority: Specific handlers > General handlers
+    # 
+    # 1. ConversationHandler (highest priority)
+    #    - Handles: !ai prefix, replies to bot, mentions
+    #    - Filter: ~filters.Regex(r"^!(?!ai)") blocks other ! commands
+    # 
+    # 2. CommandsHandler (medium priority)
+    #    - Handles: !ask, !sauce, and other utility commands
+    # 
+    # 3. RoastHandler, AdminHandler (lower priority)
+    #    - Handles: !roast, !gitroast, admin commands
+    # ============================================================================
     
-    logger.info("Registering regex pattern handlers...")
-    roast_handler = RoastHandler(gemini_client, persona_manager, db_manager)
-    for handler in roast_handler.get_handlers():
-        application.add_handler(handler)
-        if isinstance(handler, MessageHandler):
-            logger.info(f"  - Registered roast handler with filter: {handler.filters}")
+    logger.info("=" * 60)
+    logger.info("REGISTERING HANDLERS (Priority Order)")
+    logger.info("=" * 60)
     
-    logger.info("Registering admin handlers...")
-    admin_handler = AdminHandler(db_manager, persona_manager)
-    for handler in admin_handler.get_handlers():
-        application.add_handler(handler)
-    
-    logger.info("Registering deployment handlers...")
-    register_admin_handlers(application, db_manager=db_manager, persona_manager=persona_manager)
-    
-    # Register conversation handler LAST (lowest priority, catches remaining messages)
-    logger.info("Registering conversation handlers...")
+    # PRIORITY 1: Conversation Handler (Most specific - !ai, replies, mentions)
+    logger.info("[1/4] Registering ConversationHandler (Priority: HIGHEST)")
     conversation_handler = ConversationHandler(
         gemini_client, 
         persona_manager, 
@@ -137,7 +140,29 @@ def register_handlers(
     for handler in conversation_handler.get_handlers():
         application.add_handler(handler)
         if isinstance(handler, MessageHandler):
-            logger.info(f"  - Registered conversation handler with filter: {handler.filters}")
+            logger.info(f"  ✓ Conversation handler: {handler.filters}")
+    
+    # PRIORITY 2: Utility Commands (!ask, !sauce, search, etc.)
+    logger.info("[2/4] Registering CommandsHandler (Priority: HIGH)")
+    CommandsHandler(application)
+    
+    # PRIORITY 3: Roast Handler (!roast, !gitroast)
+    logger.info("[3/4] Registering RoastHandler (Priority: MEDIUM)")
+    roast_handler = RoastHandler(gemini_client, persona_manager, db_manager)
+    for handler in roast_handler.get_handlers():
+        application.add_handler(handler)
+        if isinstance(handler, MessageHandler):
+            logger.info(f"  ✓ Roast handler: {handler.filters}")
+    
+    # PRIORITY 4: Admin & System Commands
+    logger.info("[4/4] Registering Admin & System Handlers (Priority: LOW)")
+    admin_handler = AdminHandler(db_manager, persona_manager)
+    for handler in admin_handler.get_handlers():
+        application.add_handler(handler)
+    
+    register_admin_handlers(application, db_manager=db_manager, persona_manager=persona_manager)
+    
+    logger.info("=" * 60)
     
     log_registered_handlers(application)
 
