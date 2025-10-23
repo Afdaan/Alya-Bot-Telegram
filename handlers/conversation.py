@@ -51,13 +51,13 @@ class ConversationHandler:
                 filters.TEXT 
                 & filters.ChatType.PRIVATE 
                 & ~filters.COMMAND 
-                & ~filters.Regex(r"^!"),  # Ignore messages starting with ! (special commands)
+                & ~filters.Regex(r"^!(?!ai)"),  # Ignore ! commands except !ai
                 self.chat_command
             ),
             MessageHandler(
                 (
                     filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND &
-                    ~filters.Regex(r"^!") &  # Ignore messages starting with !
+                    ~filters.Regex(r"^!(?!ai)") &  # Ignore ! commands except !ai (same as private)
                     (
                         filters.Regex(f"^{COMMAND_PREFIX}") |
                         filters.REPLY
