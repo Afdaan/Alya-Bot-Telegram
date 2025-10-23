@@ -146,13 +146,16 @@ EMOTION_MODEL_EN: str = os.getenv(
     "AnasAlokla/multilingual_go_emotions"
 )
 
-# Zero-shot classification model for intent detection
-# Using mDeBERTa which is explicitly trained for multilingual (incl. Indonesian)
-ZERO_SHOT_MODEL: str = os.getenv(
-    "ZERO_SHOT_MODEL",
-    "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"  # Better multilingual support (ID + EN)
+# Intent detection model - Using lightweight sentiment classifier + rule-based hybrid
+# Lightweight multilingual sentiment model for emotion baseline
+INTENT_SENTIMENT_MODEL: str = os.getenv(
+    "INTENT_SENTIMENT_MODEL",
+    "cardiffnlp/twitter-roberta-base-sentiment-latest"  # 125M params, fast, multilingual
 )
-ZERO_SHOT_CONFIDENCE_THRESHOLD: float = 0.25  # Lowered from 0.3 for better sensitivity
+INTENT_CONFIDENCE_THRESHOLD: float = 0.30  # Confidence threshold for sentiment-based intent
+
+# Feature flag: Use hybrid intent detection (rule-based + ML fallback)
+USE_HYBRID_INTENT: bool = os.getenv("USE_HYBRID_INTENT", "true").lower() == "true"
 
 # Feature Flags
 FEATURES: Dict[str, bool] = {
