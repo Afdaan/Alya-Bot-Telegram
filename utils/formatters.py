@@ -89,13 +89,20 @@ def format_markdown_response(
     """Format response for MarkdownV2, with placeholder substitutions."""
     if not text:
         return ""
-    subs = {
-        "{username}": username,
+    
+    # Handle username placeholder variants
+    if username:
+        safe_username = escape_markdown_v2(username)
+        # Replace all username variants in one go using regex
+        text = re.sub(r"\{username(?:-(?:san|kun|chan|sama))?\}", safe_username, text, flags=re.IGNORECASE)
+    
+    # Handle other placeholders
+    other_subs = {
         "{telegram_username}": telegram_username,
         "{mentioned_username}": mentioned_username,
         "{mentioned_text}": mentioned_text,
     }
-    for ph, val in subs.items():
+    for ph, val in other_subs.items():
         if val:
             text = text.replace(ph, str(val))
     return format_response(text, use_html=True)
@@ -182,9 +189,11 @@ def format_response(
     if not message or not message.strip():
         return fallback
 
-    if "{username}" in message:
+    # Replace all username placeholder variants  
+    if username:
         safe_username = escape_html(username) if use_html else escape_markdown_v2(username)
-        message = message.replace("{username}", safe_username)
+        message = re.sub(r"\{username(?:-(?:san|kun|chan|sama))?\}", safe_username, message, flags=re.IGNORECASE)
+    
     if target_name and "{target}" in message:
         safe_target = escape_html(target_name) if use_html else escape_markdown_v2(target_name)
         message = message.replace("{target}", safe_target)
