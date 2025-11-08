@@ -446,7 +446,22 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
         return _format_roleplay(para, use_html)
 
     if para.lstrip().startswith("*"):
-        return _format_action(para, use_html)
+        stripped_start = para.lstrip()
+        first_ast_pos = len(para) - len(stripped_start)
+        remaining = stripped_start[1:]
+        
+        close_pos = remaining.find("*")
+        if close_pos != -1:
+            clean_text = remaining[:close_pos].strip()
+            trailing = remaining[close_pos + 1:].strip()
+            clean_text = _strip_stray_asterisks(clean_text)
+            content = escape_html(clean_text) if use_html else clean_text
+            result = f"<i>{content}</i>" if use_html else f"_{content}_"
+            if trailing:
+                result += f" {trailing}"
+            return result
+        else:
+            return _format_action(para, use_html)
 
     action_match = re.match(r"(?i)^\s*action\s*[:\-—]?\s*(.+)$", para)
     if action_match:
@@ -466,9 +481,7 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
         content = _strip_stray_asterisks(para)
         return f"<blockquote>{escape_html(content)}</blockquote>" if use_html else f"> {content}"
 
-    content = _strip_stray_asterisks(para)
-    content = escape_html(content) if use_html else content
-    return f"<i>{content}</i>" if use_html else f"_{content}_"
+    return _format_normal_text(para, use_html)
 
 
 # ---------- Emoji limiter ----------
