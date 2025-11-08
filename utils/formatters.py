@@ -33,7 +33,6 @@ def escape_html(text: str) -> str:
     if not text:
         return ""
 
-    # Preserve existing safe tags temporarily
     protected: List[tuple[str, str]] = []
     safe_tags = ["b", "i", "u", "s", "code", "pre", "blockquote", "a"]
     for tag in safe_tags:
@@ -73,7 +72,6 @@ def clean_html_entities(text: str) -> str:
     """Clean malformed HTML entities/tags for Telegram HTML mode."""
     if not text:
         return ""
-    # Remove attributes from tags to keep only tag name
     text = re.sub(r"<([a-z]+)[^>]*>", lambda m: f"<{m.group(1)}>", text)
     text = re.sub(r"</([a-z]+)[^>]*>", lambda m: f"</{m.group(1)}>", text)
     return text
@@ -90,13 +88,10 @@ def format_markdown_response(
     if not text:
         return ""
     
-    # Handle username placeholder variants
     if username:
         safe_username = escape_markdown_v2(username)
-        # Replace all username variants in one go using regex
         text = re.sub(r"\{username(?:-(?:san|kun|chan|sama))?\}", safe_username, text, flags=re.IGNORECASE)
     
-    # Handle other placeholders
     other_subs = {
         "{telegram_username}": telegram_username,
         "{mentioned_username}": mentioned_username,
@@ -136,22 +131,15 @@ def _get_fallback_message(lang: str = DEFAULT_LANGUAGE) -> str:
 
 
 def _preprocess_meta_lines(text: str) -> str:
-    """Remove meta headers and strip "Mood:"/"Emosi:" labels to content only.
-
-    - Remove lines like "Alya's Response:", "Mood Actions:", "Roleplay:" (case-insensitive).
-    - Convert lines starting with "Mood:" or "Emosi:" to plain content (no label),
-      rendered later as italic via roleplay path.
-    """
+    """Remove meta headers and strip Mood/Emosi labels to content only."""
     if not text:
         return ""
     lines = text.splitlines()
     out: List[str] = []
     for ln in lines:
         s = ln.strip()
-        # Remove meta headers completely
         if re.fullmatch(r"(?i)(alya['']?s\s+response|mood\s+actions?|roleplay)\s*:\s*\*?", s):
             continue
-        # Convert mood/emosi labels to plain content
         m = re.match(r"(?i)^(mood|emosi)\s*[:：]\s*(.+)$", s)
         if m:
             content = m.group(2).strip().strip("*").strip()
@@ -189,7 +177,6 @@ def format_response(
     if not message or not message.strip():
         return fallback
 
-    # Replace all username placeholder variants  
     if username:
         safe_username = escape_html(username) if use_html else escape_markdown_v2(username)
         message = re.sub(r"\{username(?:-(?:san|kun|chan|sama))?\}", safe_username, message, flags=re.IGNORECASE)
@@ -214,19 +201,10 @@ def format_persona_response(
     use_html: bool = True,
     lang: str = DEFAULT_LANGUAGE,
 ) -> str:
-    """Render persona response paragraphs with simple rules.
-
-    - Paragraphs starting with '*' (action) -> bold
-    - Paragraphs wrapped with __...__ (roleplay) -> italic
-    - Quoted or '>' lines -> blockquote
-    - Others -> blockquote (green bubble)
-    
-    Cleans all invisible control characters and stray formatting markers.
-    """
+    """Render persona response paragraphs with formatting rules."""
     if not message:
         return ""
     
-    # Global cleanup: remove invisible Unicode control characters
     message = re.sub(r'[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]', '', message)
 
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", message.strip()) if p.strip()]
@@ -243,9 +221,7 @@ def format_persona_response(
     final_text = _limit_emoji_in_text(final_text, max_total=MAX_EMOJI_PER_RESPONSE)
     final_text = translate_response(final_text, lang)
     
-    # Final cleanup: remove any remaining stray asterisks outside of HTML tags
     if use_html:
-        # Remove standalone asterisks that aren't part of tags
         final_text = re.sub(r'(?<![<>/])\*+(?![<>/])', '', final_text)
     
     return final_text.strip()
@@ -255,12 +231,12 @@ def format_persona_response(
 
 def _contains_roleplay_elements(message: str) -> bool:
     patterns = [
-        r"\*[^*]+\*",  # *action*
-        r"__[^_]+__",  # __roleplay__
-        r"^>",  # blockquote style
-        r"```[\s\S]+?```",  # fenced code
-        r"`[^`]+`",  # inline code
-        r"(?i)^[\s*_]*\b(action|roleplay|italic)\b\s*[:\-—]?",  # labels (no mood)
+        r"\*[^*]+\*",
+        r"__[^_]+__",
+        r"^>",
+        r"```[\s\S]+?```",
+        r"`[^`]+`",
+        r"(?i)^[\s*_]*\b(action|roleplay|italic)\b\s*[:\-—]?",
     ]
     for pat in patterns:
         if re.search(pat, message, re.MULTILINE):
@@ -338,21 +314,12 @@ def get_translate_prompt(text: str, lang: str = DEFAULT_LANGUAGE) -> str:
 # ---------- Paragraph helpers ----------
 
 def _strip_stray_asterisks(text: str) -> str:
-    """Remove stray asterisks and invisible control characters from text.
-    
-    Cleans leading/trailing asterisks (both single and multiple), and removes
-    invisible Unicode characters that can break formatting.
-    """
+    """Remove stray asterisks and invisible control characters from text."""
     if not text:
         return text
     
-    # Remove invisible/control characters (zero-width spaces, joiners, etc.)
     text = re.sub(r'[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]', '', text)
-    
-    # Remove leading asterisks with optional spaces
     text = re.sub(r"^\*+\s*", "", text)
-    
-    # Remove trailing asterisks with optional spaces
     text = re.sub(r"\s*\*+$", "", text)
     
     return text.strip()
@@ -362,7 +329,6 @@ def _is_roleplay_text(text: str) -> bool:
     """Check if text is roleplay/descriptive narration."""
     if not text:
         return False
-    # Only check for explicit __ markers
     return text.startswith("__") and "__" in text[2:]
 
 
@@ -391,36 +357,21 @@ def _format_blockquote(text: str, use_html: bool) -> str:
 
 
 def _format_action(text: str, use_html: bool) -> str:
-    """Format action text (starting with asterisk) as bold.
-    
-    Handles various formats:
-    - *action text*
-    - *action text* with remainder
-    - *action text (without closing asterisk)
-    
-    Returns clean HTML bold or Markdown formatting.
-    """
+    """Format action text (starting with asterisk) as bold."""
     if not text:
         return ""
     
-    # Strip leading/trailing whitespace and control chars
     text = text.strip()
     text = re.sub(r'[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]', '', text)
-    
-    # Remove all leading asterisks
     text = re.sub(r"^\*+\s*", "", text)
     
-    # Find closing asterisk (if exists)
     closing_idx = text.find("*")
     
     if closing_idx != -1:
-        # Split into action content and remainder
         content = text[:closing_idx].strip()
         remainder = text[closing_idx + 1:].strip()
-        # Clean any extra asterisks from remainder
         remainder = re.sub(r"^\*+\s*", "", remainder)
     else:
-        # No closing asterisk - treat entire text as action content
         content = text.strip("*").strip()
         remainder = ""
     
@@ -433,7 +384,6 @@ def _format_action(text: str, use_html: bool) -> str:
             result += f" {escape_html(remainder)}"
         return result
     
-    # Markdown format
     result = f"*{content}*"
     if remainder:
         result += f" {remainder}"
@@ -441,40 +391,33 @@ def _format_action(text: str, use_html: bool) -> str:
 
 
 def _format_roleplay(text: str, use_html: bool) -> str:
-    """Format roleplay text (wrapped with __) as italic."""
-    if not text:
+    """Format roleplay text (contains __ markers anywhere) as italic."""
+    if not text or "__" not in text:
         return ""
     
-    # Clean stray asterisks and control chars first
-    text = _strip_stray_asterisks(text)
+    text = re.sub(r'[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]', '', text)
     
-    # Must start with __
-    if not text.startswith("__"):
-        return _format_normal_text(text, use_html)
+    stripped = text.strip()
+    if stripped.startswith("__"):
+        closing_idx = stripped.find("__", 2)
+        if closing_idx != -1:
+            content = stripped[2:closing_idx].strip()
+            remainder = stripped[closing_idx + 2:].strip()
+            
+            if use_html:
+                result = f"<i>{escape_html(content)}</i>"
+                if remainder:
+                    result += f" {escape_html(remainder)}"
+                return result
+            
+            result = f"__{content}__"
+            if remainder:
+                result += f" {remainder}"
+            return result
     
-    # Find closing __
-    closing_idx = text.find("__", 2)
-    
-    if closing_idx != -1:
-        content = text[2:closing_idx].strip()
-        remainder = text[closing_idx + 2:].strip()
-    else:
-        content = text[2:].strip("_").strip()
-        remainder = ""
-    
-    if not content:
-        return ""
-    
-    if use_html:
-        result = f"<i>{escape_html(content)}</i>"
-        if remainder:
-            result += f" {escape_html(remainder)}"
-        return result
-    
-    result = f"__{content}__"
-    if remainder:
-        result += f" {remainder}"
-    return result
+    clean_text = text.replace("__", "").strip()
+    clean_text = _strip_stray_asterisks(clean_text)
+    return f"<i>{escape_html(clean_text)}</i>" if use_html else f"_{clean_text}_"
 
 
 def _format_code_block(text: str, use_html: bool) -> str:
@@ -487,9 +430,7 @@ def _format_code_block(text: str, use_html: bool) -> str:
 
 def _format_normal_text(text: str, use_html: bool) -> str:
     """Format normal conversation text as blockquote (green bubble)."""
-    # Clean stray asterisks before rendering
     text = _strip_stray_asterisks(text)
-    # Keep the quotes in the text - don't strip them
     return f"<blockquote>{escape_html(text)}</blockquote>" if use_html else f"> {text}"
 
 
@@ -498,47 +439,34 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     para = (para or "").strip()
     if not para:
         return ""
-    
-    # Clean stray asterisks and control chars first
-    para = _strip_stray_asterisks(para)
-    
-    # Action text (starts with asterisk) -> bold
+
+    para = re.sub(r'[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]', '', para)
+
+    if "__" in para:
+        return _format_roleplay(para, use_html)
+
     if para.lstrip().startswith("*"):
         return _format_action(para, use_html)
-    
-    # Labeled action (e.g., "Action: does something")
+
     action_match = re.match(r"(?i)^\s*action\s*[:\-—]?\s*(.+)$", para)
     if action_match:
         return _format_action(action_match.group(1).strip(), use_html)
-    
-    # Roleplay text (wrapped with __) -> italic
-    if _is_roleplay_text(para):
-        return _format_roleplay(para, use_html)
-    
-    # Code blocks
+
     if _is_code_block(para):
         return _format_code_block(para, use_html)
-    
-    # Blockquotes (starts with >) -> green bubble
+
     if para.startswith(">"):
         return _format_blockquote(para, use_html)
-    
-    # Quoted conversation (dialog with quotes) -> green bubble blockquote
-    # This handles: "text here", "text 😊", 'text here', etc.
+
     stripped = para.strip()
-    
-    # Check for proper quoted text (opening and closing quotes)
-    has_double_quotes = stripped.startswith('"') and stripped.count('"') >= 2
-    has_single_quotes = stripped.startswith("'") and stripped.count("'") >= 2
-    
-    if has_double_quotes or has_single_quotes:
-        # This is conversation dialog -> blockquote (green bubble)
+    is_double_quoted = stripped.startswith('"') and stripped.endswith('"') and len(stripped) > 1
+    is_single_quoted = stripped.startswith("'") and stripped.endswith("'") and len(stripped) > 1
+    if is_double_quoted or is_single_quoted:
         return _format_normal_text(para, use_html)
-    
-    # Default: descriptive text/mood actions (no quotes) -> italic narration
-    # This handles plain text like: Tersipu malu, berusaha menyembunyikan senyum
-    content = escape_html(para) if use_html else para
-    return f"<i>{content}</i>" if use_html else f"_{para}_"
+
+    content = _strip_stray_asterisks(para)
+    content = escape_html(content) if use_html else content
+    return f"<i>{content}</i>" if use_html else f"_{content}_"
 
 
 # ---------- Emoji limiter ----------
