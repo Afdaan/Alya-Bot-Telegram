@@ -459,10 +459,12 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
         return _format_blockquote(para, use_html)
 
     stripped = para.strip()
-    is_double_quoted = stripped.startswith('"') and stripped.endswith('"') and len(stripped) > 1
-    is_single_quoted = stripped.startswith("'") and stripped.endswith("'") and len(stripped) > 1
-    if is_double_quoted or is_single_quoted:
-        return _format_normal_text(para, use_html)
+    has_opening_quote = stripped.startswith('"') or stripped.startswith("'")
+    has_closing_quote = '"' in stripped[1:] or "'" in stripped[1:]
+    
+    if has_opening_quote and has_closing_quote:
+        content = _strip_stray_asterisks(para)
+        return f"<blockquote>{escape_html(content)}</blockquote>" if use_html else f"> {content}"
 
     content = _strip_stray_asterisks(para)
     content = escape_html(content) if use_html else content
