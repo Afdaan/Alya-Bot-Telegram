@@ -25,6 +25,10 @@ from core.memory import MemoryManager
 from database.database_manager import db_manager, get_user_lang
 from core.nlp import NLPEngine, ContextManager
 from utils.formatters import format_response, format_error_response, format_paragraphs, format_persona_response
+from utils.russian_translator import (
+    append_russian_translation_if_needed,
+    append_russian_translation_if_needed_async
+)
 
 logger = logging.getLogger(__name__)
 
@@ -418,8 +422,22 @@ Based on this context:
         # formatted_response = format_paragraphs(formatted_response, markdown=True, HTML=True)
         # formatted_response = f"{formatted_response}\u200C"
 
-        # # --- NEW: Persona formatting ---
+        #        # --- NEW: Persona formatting ---
         formatted_response = format_persona_response(response, use_html=True)
+        
+        # --- Append Russian translation with AI-powered fallback ---
+        # Use async version with Gemini for better handling of unknown Russian expressions
+        try:
+            formatted_response = await append_russian_translation_if_needed_async(
+                formatted_response, 
+                lang=lang,
+                gemini_client=self.gemini  # Use instance's gemini client for AI translation
+            )
+        except Exception as e:
+            # Fallback to synchronous version if async fails
+            logger.warning(f"Async Russian translation failed, using sync fallback: {e}")
+            formatted_response = append_russian_translation_if_needed(formatted_response, lang=lang)
+        
         formatted_response = f"{formatted_response}\u200C"
 
         # --- Ensure ALL output in user language (after formatting) ---
