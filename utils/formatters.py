@@ -205,6 +205,8 @@ def format_persona_response(
     if not message:
         return ""
     
+    message = message.replace("\\n", "\n")
+    
     message = re.sub(r'[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]', '', message)
 
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", message.strip()) if p.strip()]

@@ -423,20 +423,22 @@ Based on this context:
         # formatted_response = f"{formatted_response}\u200C"
 
         #        # --- NEW: Persona formatting ---
-        formatted_response = format_persona_response(response, use_html=True)
-        
-        # --- Append Russian translation with AI-powered fallback ---
+        # --- Append Russian translation with AI-powered fallback FIRST ---
         # Use async version with Gemini for better handling of unknown Russian expressions
         try:
-            formatted_response = await append_russian_translation_if_needed_async(
-                formatted_response, 
+            response_with_trans = await append_russian_translation_if_needed_async(
+                response, 
                 lang=lang,
                 gemini_client=self.gemini  # Use instance's gemini client for AI translation
             )
         except Exception as e:
             # Fallback to synchronous version if async fails
             logger.warning(f"Async Russian translation failed, using sync fallback: {e}")
-            formatted_response = append_russian_translation_if_needed(formatted_response, lang=lang)
+            response_with_trans = append_russian_translation_if_needed(response, lang=lang)
+        
+        # --- THEN format persona response (includes translation block) ---
+        # Use unlimited paragraphs (-1) so translation block isn't cut off
+        formatted_response = format_persona_response(response_with_trans, max_paragraphs=-1, use_html=True)
         
         formatted_response = f"{formatted_response}\u200C"
 

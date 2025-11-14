@@ -331,37 +331,40 @@ def format_russian_translation_block(
     russian_words: List[str],
     lang: str = "id"
 ) -> str:
-    """Format Russian words with their translations as HTML blockquote.
+    """Format Russian words with their translations as plain text block.
+    
+    Returns as quoted text (will be converted to blockquote by format_persona_response).
     
     Args:
         russian_words: List of Russian words found
         lang: User language preference (id or en)
         
     Returns:
-        Formatted HTML translation block, or empty string if no translations
+        Formatted translation block as quoted text, or empty string if no translations
     """
     if not russian_words:
         return ""
     
     headers = {
-        "id": "💬 <i>Terjemahan Russian:</i>",
-        "en": "💬 <i>Russian Translation:</i>",
+        "id": "💬 Terjemahan Russian:",
+        "en": "💬 Russian Translation:",
     }
     header = headers.get(lang, headers["en"])
     
     unique_words = sorted(set(russian_words))
     
-    translation_lines = [header]
+    translation_lines = [f"\"{header}"]
     for word in unique_words:
         translation = get_translation_for_word(word)
         if translation:
-            translation_lines.append(f"<b>{word}</b> = {translation}")
+            translation_lines.append(f"{word} = {translation}")
     
     if len(translation_lines) <= 1:
         return ""
     
+    translation_lines.append("\"")
     translation_text = "\n".join(translation_lines)
-    return f"<blockquote>{translation_text}</blockquote>"
+    return translation_text
 
 
 async def format_russian_translation_block_with_ai(
@@ -371,20 +374,22 @@ async def format_russian_translation_block_with_ai(
 ) -> str:
     """Format Russian words with translations using AI fallback for unknown words.
     
+    Returns as quoted text (will be converted to blockquote by format_persona_response).
+    
     Args:
         russian_words: List of Russian words found
         lang: User language preference (id or en)
         gemini_client: Optional GeminiClient for AI-powered translation
         
     Returns:
-        Formatted HTML translation block, or empty string if no translations
+        Formatted translation block as quoted text, or empty string if no translations
     """
     if not russian_words:
         return ""
     
     headers = {
-        "id": "💬 <i>Terjemahan Russian:</i>",
-        "en": "💬 <i>Russian Translation:</i>",
+        "id": "💬 Terjemahan Russian:",
+        "en": "💬 Russian Translation:",
     }
     header = headers.get(lang, headers["en"])
     
@@ -433,7 +438,7 @@ async def format_russian_translation_block_with_ai(
         except Exception as e:
             logger.debug(f"AI translation batch failed: {e}")
     
-    translation_lines = [header]
+    translation_lines = [f"\"{header}"]
     
     for word in unique_words:
         translation = None
@@ -448,13 +453,14 @@ async def format_russian_translation_block_with_ai(
                 translation = f"{romanized} (romanized)"
         
         if translation:
-            translation_lines.append(f"<b>{word}</b> = {translation}")
+            translation_lines.append(f"{word} = {translation}")
     
     if len(translation_lines) <= 1:
         return ""
     
+    translation_lines.append("\"")
     translation_text = "\n".join(translation_lines)
-    return f"<blockquote>{translation_text}</blockquote>"
+    return translation_text
 
 
 def append_russian_translation_if_needed(
