@@ -93,3 +93,5 @@ google_credentials.json
 
 # Ignore specific files
 .github/copilot-instructions.md
+.QC
+QC/

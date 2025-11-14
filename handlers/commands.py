@@ -339,34 +339,36 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_html(response)
 
 async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles the /lang command to change user's language preference."""
+    """Handle /lang command to change user language preference."""
+    
     user_id = update.effective_user.id
+    current_lang = get_user_lang(user_id)
     
     if not db_manager:
-        logger.error("Database manager not found for lang command.")
-        await update.message.reply_html(get_system_error_response('en'))
+        logger.error("Database manager not found for lang_command")
+        await update.message.reply_html(get_system_error_response(current_lang))
         return
     
-    if context.args:
-        new_lang = context.args[0].lower()
-        if new_lang in ['en', 'id']:
-            try:
-                db_manager.update_user_settings(user_id, {'language': new_lang})
-                response = get_lang_response(lang=new_lang, new_lang=new_lang)
-                logger.info(f"User {user_id} changed language to {new_lang}")
-                await set_bot_commands(context.application, lang=new_lang)
-            except Exception as e:
-                current_lang = get_user_lang(user_id)
-                logger.error(f"Failed to update language for user {user_id}: {e}")
-                response = get_system_error_response(current_lang)
-        else:
-            current_lang = get_user_lang(user_id)
-            response = get_lang_response(lang=current_lang)
-    else:
-        current_lang = get_user_lang(user_id)
+    if not context.args or len(context.args) == 0:
         response = get_lang_response(lang=current_lang)
-        
-    await update.message.reply_html(response)
+        await update.message.reply_html(response)
+        return
+    
+    new_lang = context.args[0].lower().strip()
+    
+    if new_lang not in ['en', 'id']:
+        response = get_lang_response(lang=current_lang)
+        await update.message.reply_html(response)
+        return
+    
+    try:
+        db_manager.update_user_settings(user_id, {'language': new_lang})
+        logger.info(f"User {user_id} changed language from {current_lang} to {new_lang}")
+        response = get_lang_response(lang=new_lang, new_lang=new_lang)
+        await update.message.reply_html(response)
+    except Exception as e:
+        logger.error(f"Failed to update language for user {user_id}: {e}", exc_info=True)
+        await update.message.reply_html(get_system_error_response(current_lang))
 
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
