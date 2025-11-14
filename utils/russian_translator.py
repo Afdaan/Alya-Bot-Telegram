@@ -331,16 +331,14 @@ def format_russian_translation_block(
     russian_words: List[str],
     lang: str = "id"
 ) -> str:
-    """Format Russian words with their translations as plain text block.
-    
-    Returns as quoted text (will be converted to blockquote by format_persona_response).
+    """Format Russian words with their translations as HTML blockquote.
     
     Args:
         russian_words: List of Russian words found
         lang: User language preference (id or en)
         
     Returns:
-        Formatted translation block as quoted text, or empty string if no translations
+        Formatted translation block as HTML blockquote
     """
     if not russian_words:
         return ""
@@ -353,7 +351,7 @@ def format_russian_translation_block(
     
     unique_words = sorted(set(russian_words))
     
-    translation_lines = [f"\"{header}"]
+    translation_lines = [header]
     for word in unique_words:
         translation = get_translation_for_word(word)
         if translation:
@@ -362,9 +360,8 @@ def format_russian_translation_block(
     if len(translation_lines) <= 1:
         return ""
     
-    translation_lines.append("\"")
     translation_text = "\n".join(translation_lines)
-    return translation_text
+    return f"<blockquote expandable>{translation_text}</blockquote>"
 
 
 async def format_russian_translation_block_with_ai(
@@ -374,15 +371,13 @@ async def format_russian_translation_block_with_ai(
 ) -> str:
     """Format Russian words with translations using AI fallback for unknown words.
     
-    Returns as quoted text (will be converted to blockquote by format_persona_response).
-    
     Args:
         russian_words: List of Russian words found
         lang: User language preference (id or en)
         gemini_client: Optional GeminiClient for AI-powered translation
         
     Returns:
-        Formatted translation block as quoted text, or empty string if no translations
+        Formatted translation block as HTML blockquote
     """
     if not russian_words:
         return ""
@@ -438,7 +433,7 @@ async def format_russian_translation_block_with_ai(
         except Exception as e:
             logger.debug(f"AI translation batch failed: {e}")
     
-    translation_lines = [f"\"{header}"]
+    translation_lines = [header]
     
     for word in unique_words:
         translation = None
@@ -458,9 +453,8 @@ async def format_russian_translation_block_with_ai(
     if len(translation_lines) <= 1:
         return ""
     
-    translation_lines.append("\"")
     translation_text = "\n".join(translation_lines)
-    return translation_text
+    return f"<blockquote expandable>{translation_text}</blockquote>"
 
 
 def append_russian_translation_if_needed(
