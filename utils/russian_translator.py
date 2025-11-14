@@ -59,50 +59,123 @@ RUSSIAN_TRANSLATIONS: Dict[str, str] = {
     "знаешь": "znaesh (you know - informal)",
 }
 
+# Common Russian-Latin hybrid variants (typos, keyboard misdetection, etc.)
+RUSSIAN_LATIN_VARIANTS: Dict[str, str] = {
+    "boze": "боже",      # Bože → боже (oh god)
+    "boz": "боже",
+    "buze": "боже",
+    "buzhe": "боже",
+    "bozhe": "боже",
+    "durak": "дурак",    # Common typo variant
+    "durack": "дурак",
+    "baka": "бака",
+    "baca": "бака",
+}
+
 
 def detect_russian_expressions(text: str) -> List[str]:
     """Detect and extract Russian (Cyrillic) words from text.
+    
+    Handles:
+    - Pure Cyrillic words
+    - Cyrillic with diacritics (é, è, ž, etc.)
+    - Mixed case variations
+    - Common Russian-Latin variants (typos like "Bože", "boze")
+    - Latin words with Cyrillic-like diacritics
     
     Args:
         text: Text to analyze
         
     Returns:
-        List of unique Russian words found (case-insensitive)
+        List of unique Russian words found (normalized)
     """
     if not text:
         return []
     
-    # Cyrillic Unicode range: \u0400-\u04FF
-    # Pattern matches one or more Cyrillic characters (words)
+    detected = []
+    
+    # Pattern 1: Pure Cyrillic (а-я, А-Я, ё, Ё)
     cyrillic_pattern = r'[а-яёА-ЯЁ]+'
-    matches = re.findall(cyrillic_pattern, text)
+    cyrillic_matches = re.findall(cyrillic_pattern, text, re.UNICODE)
     
-    if not matches:
-        return []
+    if cyrillic_matches:
+        detected.extend([m.lower() for m in cyrillic_matches])
     
-    # Return unique Russian words (normalized to lowercase for matching)
-    unique_words = list(set(word.lower() for word in matches))
-    return unique_words
+    # Pattern 2: Latin words with diacritics (Slavic variants like "Bože", "naïve", etc.)
+    # Match words containing diacritical marks that suggest Russian/Slavic origin
+    # Pattern: Latin letters + at least one diacritical mark
+    diacritic_pattern = r'\b[a-zA-Z]*[àáâãäåèéêëìíîïòóôõöùúûüýÿžžčščđ][a-zA-Z]*\b'
+    diacritic_matches = re.findall(diacritic_pattern, text, re.UNICODE)
+    
+    if diacritic_matches:
+        for match in diacritic_matches:
+            match_lower = match.lower()
+            # Check if this matches a known Russian variant
+            if match_lower in RUSSIAN_LATIN_VARIANTS:
+                canonical = RUSSIAN_LATIN_VARIANTS[match_lower]
+                detected.append(canonical.lower())
+            elif normalize_russian_variant(match_lower) in RUSSIAN_LATIN_VARIANTS:
+                canonical = RUSSIAN_LATIN_VARIANTS[normalize_russian_variant(match_lower)]
+                detected.append(canonical.lower())
+            # Also add the original for display
+            detected.append(match_lower)
+    
+    # Pattern 3: Known Russian-Latin variants (typos/keyboard misdetection)
+    text_lower = text.lower()
+    for variant, canonical in RUSSIAN_LATIN_VARIANTS.items():
+        if variant in text_lower and variant not in [m.lower() for m in diacritic_matches]:
+            # Add canonical Cyrillic form
+            detected.append(canonical.lower())
+            # Find actual occurrence in text with original case
+            pattern = re.compile(re.escape(variant), re.IGNORECASE)
+            matches = pattern.findall(text)
+            if matches:
+                detected.append(matches[0].lower())
+    
+    # Return unique Russian words
+    return list(set(detected))
 
 
 def has_russian_expressions(text: str) -> bool:
     """Quick check if text contains any Russian expressions.
     
+    Checks for:
+    - Pure Cyrillic characters
+    - Latin words with diacritics (Slavic variants like "Bože", "čeština", etc.)
+    - Common Russian-Latin variants (typos like "Bože", "boze", etc.)
+    
     Args:
         text: Text to check
         
     Returns:
-        True if Cyrillic text found, False otherwise
+        True if Russian detected, False otherwise
     """
     if not text:
         return False
-    return bool(re.search(r'[а-яёА-ЯЁ]', text))
+    
+    # Check for pure Cyrillic
+    if re.search(r'[а-яёА-ЯЁ]', text):
+        return True
+    
+    # Check for Latin with diacritics (Slavic-looking)
+    if re.search(r'[àáâãäåèéêëìíîïòóôõöùúûüýÿžčščđ]', text, re.UNICODE):
+        return True
+    
+    # Check for common Russian-Latin variants
+    text_lower = text.lower()
+    for variant in RUSSIAN_LATIN_VARIANTS.keys():
+        if variant in text_lower:
+            return True
+    
+    return False
 
 
 def get_russian_translations_for_words(
     russian_words: List[str]
 ) -> Dict[str, str]:
     """Get translations for detected Russian words.
+    
+    Uses normalization to handle variants, typos, and diacritics.
     
     Args:
         russian_words: List of Russian words to translate
@@ -116,13 +189,19 @@ def get_russian_translations_for_words(
     translations = {}
     for word in russian_words:
         word_lower = word.lower()
+        
+        # Try direct lookup first
         if word_lower in RUSSIAN_TRANSLATIONS:
             translations[word] = RUSSIAN_TRANSLATIONS[word_lower]
+            continue
+        
+        # Try normalized variant (removes diacritics, handles typos)
+        normalized = normalize_russian_variant(word)
+        if normalized in RUSSIAN_TRANSLATIONS:
+            translations[word] = RUSSIAN_TRANSLATIONS[normalized]
     
     return translations
 
-
-# ---------- Romanization fallback for unmapped Russian words ----------
 
 def romanize_russian_word(word: str) -> str:
     """Romanize Russian (Cyrillic) word to Latin characters.
@@ -139,10 +218,8 @@ def romanize_russian_word(word: str) -> str:
     if not word:
         return ""
     
-    # Russian Cyrillic to Latin transliteration mapping
-    # Based on common transliteration standards (ISO 9, BGN/PCGN)
+    # Russian Cyrillic to Latin transliteration mapping (ISO 9, BGN/PCGN standards)
     transliteration_map = {
-        # Uppercase
         "А": "A", "Б": "B", "В": "V", "Г": "G", "Д": "D",
         "Е": "E", "Ё": "Yo", "Ж": "Zh", "З": "Z", "И": "I",
         "Й": "Y", "К": "K", "Л": "L", "М": "M", "Н": "N",
@@ -150,7 +227,6 @@ def romanize_russian_word(word: str) -> str:
         "У": "U", "Ф": "F", "Х": "Kh", "Ц": "Ts", "Ч": "Ch",
         "Ш": "Sh", "Щ": "Shch", "Ъ": "", "Ы": "Y", "Ь": "",
         "Э": "E", "Ю": "Yu", "Я": "Ya",
-        # Lowercase
         "а": "a", "б": "b", "в": "v", "г": "g", "д": "d",
         "е": "e", "ё": "yo", "ж": "zh", "з": "z", "и": "i",
         "й": "y", "к": "k", "л": "l", "м": "m", "н": "n",
@@ -168,13 +244,17 @@ def romanize_russian_word(word: str) -> str:
 
 
 def get_translation_for_word(word: str) -> str:
-    """Get translation for a Russian word with dictionary + romanization fallback.
+    """Get translation for a Russian word with variant/typo handling.
     
-    If word is in dictionary, return translation.
-    If word is not in dictionary, return romanized version with note.
+    Uses variant mapping, normalization, then romanization.
+    Handles:
+    - Pure Cyrillic lookups
+    - Latin variants (e.g., "Bože" → "боже")
+    - Diacritic removal
+    - Fallback romanization
     
     Args:
-        word: Russian word to translate
+        word: Russian word to translate (may have typos/diacritics)
         
     Returns:
         Translation string or romanized fallback
@@ -184,9 +264,26 @@ def get_translation_for_word(word: str) -> str:
     
     word_lower = word.lower()
     
-    # Check dictionary first
+    # Check direct Cyrillic dictionary lookup
     if word_lower in RUSSIAN_TRANSLATIONS:
         return RUSSIAN_TRANSLATIONS[word_lower]
+    
+    # Check if it's a known Latin variant (e.g., "bože" → "боже")
+    if word_lower in RUSSIAN_LATIN_VARIANTS:
+        canonical = RUSSIAN_LATIN_VARIANTS[word_lower].lower()
+        if canonical in RUSSIAN_TRANSLATIONS:
+            return RUSSIAN_TRANSLATIONS[canonical]
+    
+    # Try normalized variant (handles diacritics like "Bože" → "boze" → lookup)
+    normalized = normalize_russian_variant(word)
+    if normalized in RUSSIAN_TRANSLATIONS:
+        return RUSSIAN_TRANSLATIONS[normalized]
+    
+    # Check if normalized form maps to a known variant
+    if normalized in RUSSIAN_LATIN_VARIANTS:
+        canonical = RUSSIAN_LATIN_VARIANTS[normalized].lower()
+        if canonical in RUSSIAN_TRANSLATIONS:
+            return RUSSIAN_TRANSLATIONS[canonical]
     
     # Fallback: romanize the word
     romanized = romanize_russian_word(word)
@@ -232,7 +329,7 @@ Example: любовь (love)
 Keep it short and simple."""
             
             translation = await gemini_client.generate_response(
-                user_id=0,  # System request, no user context
+                user_id=0,
                 username="system",
                 message=prompt,
                 context="",
@@ -327,21 +424,70 @@ async def format_russian_translation_block_with_ai(
     }
     header = headers.get(lang, headers["en"])
     
-    # Build translation lines with AI fallback support
+    # Separate known and unknown words for efficient processing
+    unique_words = sorted(set(russian_words))
+    known_translations = {}
+    unknown_words = []
+    
+    # First pass: collect known translations
+    for word in unique_words:
+        word_lower = word.lower()
+        if word_lower in RUSSIAN_TRANSLATIONS:
+            known_translations[word] = RUSSIAN_TRANSLATIONS[word_lower]
+        else:
+            unknown_words.append(word)
+    
+    # Second pass: AI translate unknown words if client available
+    ai_translations = {}
+    if unknown_words and gemini_client:
+        try:
+            prompt = build_gemini_translation_prompt(unknown_words)
+            response = await gemini_client.generate_response(
+                user_id=0,
+                username="system",
+                message=prompt,
+                context="",
+                relationship_level=0,
+                is_admin=False,
+                lang="en",
+                retry_count=1,
+                is_media_analysis=False,
+                media_context=None
+            )
+            
+            if response:
+                # Parse AI response: "word = meaning" format
+                for line in response.split("\n"):
+                    line = line.strip()
+                    if "=" in line:
+                        parts = line.split("=", 1)
+                        if len(parts) == 2:
+                            word_part = parts[0].strip().strip('"\'')
+                            meaning = parts[1].strip()
+                            ai_translations[word_part] = meaning
+        except Exception as e:
+            logger.debug(f"AI translation batch failed: {e}")
+    
+    # Build final translation lines
     translation_lines = [header]
     
-    # If gemini_client available, use async AI translation for all unknown words
-    if gemini_client:
-        for word in sorted(set(russian_words)):
-            translation = await get_translation_for_word_with_ai(word, gemini_client)
-            if translation:
-                translation_lines.append(f"<b>{word}</b> = {translation}")
-    else:
-        # Fallback to synchronous dictionary + romanization
-        for word in sorted(set(russian_words)):
-            translation = get_translation_for_word(word)
-            if translation:
-                translation_lines.append(f"<b>{word}</b> = {translation}")
+    for word in unique_words:
+        translation = None
+        
+        # Try known translation first
+        if word in known_translations:
+            translation = known_translations[word]
+        # Try AI translation
+        elif word in ai_translations:
+            translation = ai_translations[word]
+        # Fallback to romanization
+        else:
+            romanized = romanize_russian_word(word)
+            if romanized and romanized != word:
+                translation = f"{romanized} (romanized)"
+        
+        if translation:
+            translation_lines.append(f"<b>{word}</b> = {translation}")
     
     # Return empty if only header exists
     if len(translation_lines) <= 1:
@@ -429,3 +575,74 @@ async def append_russian_translation_if_needed_async(
     except Exception as e:
         logger.error(f"Error appending Russian translation (async): {e}")
         return response
+
+
+def normalize_russian_variant(word: str) -> str:
+    """Normalize Russian word variant to canonical form for dictionary lookup.
+    
+    Handles:
+    - Latin diacritics (é, è, ž, etc.) → remove
+    - Case variations → lowercase
+    - Extra spaces → remove
+    
+    Args:
+        word: Russian word (possibly with variants/typos)
+        
+    Returns:
+        Normalized word for dictionary lookup
+    """
+    if not word:
+        return ""
+    
+    # Convert to lowercase and remove diacritics
+    normalized = word.lower().strip()
+    
+    # Map common diacritics to base Latin characters (e.g., "Bože" → "boze")
+    diacritic_map = {
+        'é': 'e', 'è': 'e', 'ê': 'e',
+        'ä': 'a', 'ö': 'o', 'ü': 'u',
+        'ž': 'z', 'č': 'c', 'š': 's', 'ć': 'c', 'đ': 'd',
+        'à': 'a', 'ù': 'u', 'ì': 'i',
+        'ý': 'y', 'ý': 'y',
+    }
+    
+    for diacritic, replacement in diacritic_map.items():
+        normalized = normalized.replace(diacritic, replacement)
+    
+    return normalized
+
+
+def build_gemini_translation_prompt(russian_words: List[str]) -> str:
+    """Build a prompt for Gemini to translate Russian expressions.
+    
+    Creates a single, efficient prompt that requests translations for
+    multiple Russian words at once.
+    
+    Args:
+        russian_words: List of Russian words to translate
+        
+    Returns:
+        Prompt string for Gemini translation request
+    """
+    if not russian_words:
+        return ""
+    
+    # Remove duplicates and sort
+    unique_words = sorted(set(russian_words))
+    words_str = ", ".join([f'"{word}"' for word in unique_words])
+    
+    prompt = f"""Translate these Russian words/expressions to English with brief meanings.
+
+Russian words: {words_str}
+
+Respond in format:
+word = meaning
+
+Examples:
+люблю = lyublyu (I love)
+дурак = durak (fool)
+боже = bozhe (oh god)
+
+Keep meanings SHORT and concise. Only translate, no explanations."""
+    
+    return prompt
