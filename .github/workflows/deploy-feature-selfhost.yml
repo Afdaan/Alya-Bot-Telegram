@@ -1,0 +1,151 @@
+name: Deploy AlyaBot to Self-Hosted Server (Feature/Fix Branch)
+
+on:
+    push:
+        branches:
+            - "feature/**"
+            - "fix/**"
+            - "hotfix/**"
+            - "feat/**"
+            - "bugfix/**"
+
+jobs:
+    deploy:
+        runs-on: self-hosted
+
+        steps:
+            - name: Checkout latest code
+              uses: actions/checkout@v4
+
+            - name: Setup Python environment
+              run: |
+                  if ! command -v python3 &> /dev/null; then
+                    echo "Python3 not found, installing..."
+                    sudo apt update && sudo apt install -y python3 python3-pip python3-venv
+                  fi
+
+                  if [ ! -d "/opt/dev-Alya-Bot-Telegram/venv" ]; then
+                    python3 -m venv /opt/dev-Alya-Bot-Telegram/venv
+                  fi
+
+            - name: Prepare and update codebase
+              run: |
+                  sudo mkdir -p /opt/dev-Alya-Bot-Telegram
+                  sudo chown $USER:$USER /opt/dev-Alya-Bot-Telegram
+                  cd /opt/dev-Alya-Bot-Telegram
+                  if [ ! -d ".git" ]; then
+                    git init
+                    git remote add origin https://github.com/Afdaan/Alya-Bot-Telegram.git
+                  fi
+                  git stash --include-untracked || true
+                  git fetch origin
+                  BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+                  git checkout "$BRANCH_NAME" || git checkout -b "$BRANCH_NAME" origin/"$BRANCH_NAME"
+                  git pull origin "$BRANCH_NAME"
+
+            - name: Install Python dependencies
+              run: |
+                  cd /opt/dev-Alya-Bot-Telegram
+                  source venv/bin/activate
+                  python -m pip install --upgrade pip
+                  pip install -r requirements.txt
+                  echo "Dependencies installed successfully"
+
+            - name: Run basic syntax check
+              run: |
+                  cd /opt/dev-Alya-Bot-Telegram
+                  source venv/bin/activate
+                  python -m py_compile main.py
+                  echo "✅ Syntax check passed"
+
+            - name: Restart AlyaBot via systemd (Feature)
+              run: |
+                  sudo systemctl restart dev-alya-bot.service
+                  echo "AlyaBot restarted via systemd (dev-alya-bot.service)"
+
+            - name: Verify AlyaBot systemd service
+              run: |
+                  sleep 5
+                  sudo systemctl status dev-alya-bot.service --no-pager
+                  if sudo systemctl is-active --quiet dev-alya-bot.service; then
+                    echo "✅ AlyaBot is running successfully via systemd (dev-alya-bot.service)"
+                  else
+                    echo "❌ AlyaBot failed to start via systemd (dev-alya-bot.service)"
+                    exit 1
+                  fi
+
+            - name: Notify deployment success via Telegram
+              if: success()
+              run: |
+                  cd /opt/dev-Alya-Bot-Telegram
+
+                  if [ -f .env ]; then
+                    set -a
+                    source .env
+                    set +a
+                  fi
+
+                  if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$ADMIN_IDS" ]; then
+                    exit 0
+                  fi
+
+                  GIT_INFO=$(git log -1 --pretty=format:"%s|%h|%an|%ar")
+                  LAST_COMMIT_MSG=$(echo "$GIT_INFO" | cut -d'|' -f1 | sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g')
+                  LAST_COMMIT_HASH=$(echo "$GIT_INFO" | cut -d'|' -f2)
+                  LAST_COMMIT_AUTHOR=$(echo "$GIT_INFO" | cut -d'|' -f3 | sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g')
+                  LAST_COMMIT_TIME=$(echo "$GIT_INFO" | cut -d'|' -f4)
+                  BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD | sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g')
+
+                  TELEGRAM_API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+                  MSG="🚀 <b>AlyaBot Feature Deploy Sukses!</b> 🚀%0A%0A"
+                  MSG="${MSG}📦 <b>Branch:</b> <code>$BRANCH_NAME</code>%0A"
+                  MSG="${MSG}🔗 <b>Commit:</b> <code>$LAST_COMMIT_HASH</code>%0A"
+                  MSG="${MSG}👤 <b>Author:</b> $LAST_COMMIT_AUTHOR%0A"
+                  MSG="${MSG}⏰ <b>Time:</b> $LAST_COMMIT_TIME%0A%0A"
+                  MSG="${MSG}📝 <b>Changelog:</b>%0A$LAST_COMMIT_MSG%0A%0A"
+                  MSG="${MSG}✨ Bot is now running via systemd: <code>dev-alya-bot.service</code>%0A"
+                  MSG="${MSG}🧪 Ready for testing!"
+
+                  set +x
+                  IFS=',' read -ra ADMIN_ARRAY <<< "$ADMIN_IDS"
+                  for ADMIN_ID in "${ADMIN_ARRAY[@]}"; do
+                    curl -s -X POST "$TELEGRAM_API" \
+                      -d chat_id="$ADMIN_ID" \
+                      -d text="$MSG" \
+                      -d parse_mode="HTML" > /dev/null 2>&1
+                  done
+                  set -x
+
+            - name: Notify deployment failure via Telegram
+              if: failure()
+              run: |
+                  cd /opt/dev-Alya-Bot-Telegram || true
+
+                  if [ -f .env ]; then
+                    set -a
+                    source .env
+                    set +a
+                  fi
+
+                  if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$ADMIN_IDS" ]; then
+                    exit 0
+                  fi
+
+                  BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+                  COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
+                  TELEGRAM_API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+                  MSG="❌ <b>AlyaBot Feature Deploy GAGAL!</b> ❌%0A%0A"
+                  MSG="${MSG}📦 <b>Branch:</b> <code>$BRANCH_NAME</code>%0A"
+                  MSG="${MSG}🔗 <b>Commit:</b> <code>$COMMIT_HASH</code>%0A%0A"
+                  MSG="${MSG}🔍 Cek GitHub Actions logs untuk detail error."
+
+                  set +x
+                  IFS=',' read -ra ADMIN_ARRAY <<< "$ADMIN_IDS"
+                  for ADMIN_ID in "${ADMIN_ARRAY[@]}"; do
+                    curl -s -X POST "$TELEGRAM_API" \
+                      -d chat_id="$ADMIN_ID" \
+                      -d text="$MSG" \
+                      -d parse_mode="HTML" > /dev/null 2>&1
+                  done
+                  set -x
