@@ -360,6 +360,7 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         )
         
         clean_response = response.strip()
+        original_response = clean_response  # Keep original for Russian detection
         
         # Remove HTML blockquotes, code blocks, and markdown blockquotes
         clean_response = re.sub(r'<blockquote>.*?</blockquote>', '', clean_response, flags=re.DOTALL | re.IGNORECASE)
@@ -382,9 +383,9 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         
         clean_response = '\n\n'.join(preserved_paragraphs)
         
-        # Detect and append translation block
-        if has_russian_expressions(clean_response):
-            russian_words = detect_russian_expressions(clean_response)
+        # Detect Russian from ORIGINAL response (before HTML/blockquote removal)
+        if has_russian_expressions(original_response):
+            russian_words = detect_russian_expressions(original_response)
             if russian_words:
                 translation_lines = []
                 seen_translations = set()
