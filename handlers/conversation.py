@@ -133,7 +133,7 @@ class ConversationHandler:
                 prefix=COMMAND_PREFIX,
                 lang=lang  # Pass language parameter
             )
-            formatted_help = format_persona_response(help_message)
+            formatted_help = format_persona_response(help_message, use_html=True)
             await update.message.reply_html(formatted_help)
             return
         chat = update.effective_chat
@@ -346,7 +346,7 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             self._update_affection_from_context(user.id, message_context)
 
         response = self._clean_and_append_russian_translation(response, lang)
-        formatted_response = format_persona_response(response, max_paragraphs=-1, use_html=True)
+        formatted_response = format_persona_response(response, use_html=True)
         formatted_response = f"{formatted_response}\u200C"
 
         await update.message.reply_html(formatted_response)
