@@ -25,10 +25,7 @@ from core.memory import MemoryManager
 from database.database_manager import db_manager, get_user_lang
 from core.nlp import NLPEngine, ContextManager
 from utils.formatters import format_response, format_error_response, format_paragraphs, format_persona_response
-from utils.russian_translator import (
-    append_russian_translation_if_needed,
-    append_russian_translation_if_needed_async
-)
+
 
 logger = logging.getLogger(__name__)
 
@@ -408,42 +405,12 @@ Based on this context:
         roleplay_action = roleplay_mapping.get("roleplay_action", "")
         russian_expression = roleplay_mapping.get("russian_expression", "")
 
-        #--- Format response ---
-        #--- OLD: Neutral formatting (commented out) ---
-        # formatted_response = format_response(
-        #     response,
-        #     emotion=emotion,
-        #     mood=mood,
-        #     intensity=intensity,
-        #     username=user.first_name or "user",
-        #     roleplay_action=roleplay_action,
-        #     russian_expression=russian_expression
-        # )
-        # formatted_response = format_paragraphs(formatted_response, markdown=True, HTML=True)
-        # formatted_response = f"{formatted_response}\u200C"
-
-        #        # --- NEW: Persona formatting ---
-        # --- Append Russian translation with AI-powered fallback FIRST ---
-        # Use async version with Gemini for better handling of unknown Russian expressions
-        try:
-            response_with_trans = await append_russian_translation_if_needed_async(
-                response, 
-                lang=lang,
-                gemini_client=self.gemini  # Use instance's gemini client for AI translation
-            )
-        except Exception as e:
-            # Fallback to synchronous version if async fails
-            logger.warning(f"Async Russian translation failed, using sync fallback: {e}")
-            response_with_trans = append_russian_translation_if_needed(response, lang=lang)
-        
-        # --- THEN format persona response (includes translation block) ---
-        # Use unlimited paragraphs (-1) so translation block isn't cut off
-        formatted_response = format_persona_response(response_with_trans, max_paragraphs=-1, use_html=True)
-        
+        formatted_response = format_persona_response(
+            response,
+            max_paragraphs=-1,
+            use_html=True
+        )
         formatted_response = f"{formatted_response}\u200C"
-
-        # --- Ensure ALL output in user language (after formatting) ---
-        # formatted_response = await self._ensure_language(formatted_response, lang, user)
 
         await update.message.reply_html(formatted_response)
     
