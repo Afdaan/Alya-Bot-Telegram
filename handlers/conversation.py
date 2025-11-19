@@ -348,82 +348,42 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             if message_context:
                 self._update_affection_from_context(user.id, message_context)
 
-            logger.debug(f"[RESPONSE_RAW] Before cleaning: {response[:200]}...")
             response = self._clean_and_append_russian_translation(response, lang)
-            logger.debug(f"[RESPONSE_AFTER] After cleaning: {response[:200]}...")
             formatted_response = format_persona_response(response, use_html=True)
             formatted_response = f"{formatted_response}\u200C"
 
             await update.message.reply_html(formatted_response)
         except Exception as e:
-            logger.error(f"[PROCESS_RESPONSE_ERROR] Error processing response: {e}", exc_info=True)
+            logger.error(f"Error processing response: {e}", exc_info=True)
             await self._send_error_response(update, user.first_name, lang)
     
     def _clean_and_append_russian_translation(self, response: str, lang: str = DEFAULT_LANGUAGE) -> str:
-        """Remove manual translation blocks and append clean translation block if Russian expressions exist."""
-        from utils.russian_translator import (
-            detect_russian_expressions,
-            has_russian_expressions,
-            RUSSIAN_TRANSLATIONS
-        )
-        
+        """Extract Russian markers from response and append translation block."""
         clean_response = response.strip()
-        original_response = clean_response  # Keep original for Russian detection
         
-        logger.debug(f"[RUSSIAN_CLEAN] Original length: {len(original_response)}")
-        logger.debug(f"[RUSSIAN_CLEAN] Has Russian in original: {has_russian_expressions(original_response)}")
+        ru_marker_pattern = r'\[RU:\s*([^|]+)\|([^\]]+)\]'
+        matches = re.findall(ru_marker_pattern, clean_response, flags=re.IGNORECASE)
         
-        # Remove HTML blockquotes, code blocks, and markdown blockquotes
-        clean_response = re.sub(r'<blockquote>.*?</blockquote>', '', clean_response, flags=re.DOTALL | re.IGNORECASE)
-        clean_response = re.sub(r'```[\s\S]*?```', '', clean_response, flags=re.IGNORECASE)
-        lines = clean_response.split('\n')
-        lines = [l for l in lines if not l.strip().startswith('>')]
-        clean_response = '\n'.join(lines)
+        clean_response = re.sub(ru_marker_pattern, r'\1', clean_response, flags=re.IGNORECASE)
         
-        logger.debug(f"[RUSSIAN_CLEAN] After removal: {len(clean_response)}")
+        clean_response = re.sub(r'(?i)(💬\s*)?(?:Terjemahan|Translation)\s+Russian.*', '', clean_response)
         
-        # Remove translation headers
-        clean_response = re.sub(r'(?i)(💬\s*)?Terjemahan\s+Russian.*', '', clean_response)
-        clean_response = re.sub(r'(?i)(💬\s*)?Translation.*', '', clean_response)
         clean_response = re.sub(r'\n{3,}', '\n\n', clean_response.strip())
         
-        paragraphs = re.split(r'\n\s*\n', clean_response)
-        preserved_paragraphs = []
-        for para in paragraphs:
-            para = para.strip()
-            if para:
-                preserved_paragraphs.append(para)
-        
-        clean_response = '\n\n'.join(preserved_paragraphs)
-        
-        # Detect Russian from ORIGINAL response (before HTML/blockquote removal)
-        if has_russian_expressions(original_response):
-            russian_words = detect_russian_expressions(original_response)
-            logger.debug(f"[RUSSIAN] Detected words: {russian_words}")
-            if russian_words:
-                translation_lines = []
-                seen_translations = set()
-                
-                for word in sorted(set(russian_words)):
-                    word_lower = word.lower().strip()
-                    if word_lower in RUSSIAN_TRANSLATIONS:
-                        translation = RUSSIAN_TRANSLATIONS[word_lower]
-                        if translation not in seen_translations:
-                            translation_lines.append(f"{word} = {translation}")
-                            seen_translations.add(translation)
-                
-                if translation_lines:
-                    # Dynamic translation header based on user language
-                    translation_header = "💬 Terjemahan Russian:" if lang == "id" else "💬 Russian Translation:"
-                    translation_block = translation_header + "\n" + "\n".join(translation_lines)
-                    clean_response = f"{clean_response}\n\n{translation_block}"
-                    logger.debug(f"[RUSSIAN] Translation block appended (lang={lang})")
-                else:
-                    logger.debug(f"[RUSSIAN] Detected words but no translations found in dict")
-            else:
-                logger.debug(f"[RUSSIAN] has_russian returned True but detect returned empty")
-        else:
-            logger.debug(f"[RUSSIAN] No Russian expressions detected in response")
+        if matches:
+            translation_lines = []
+            seen = set()
+            
+            for word, translation in matches:
+                translation_key = f"{word.strip()}|{translation.strip()}"
+                if translation_key not in seen:
+                    translation_lines.append(f"{word.strip()} = {translation.strip()}")
+                    seen.add(translation_key)
+            
+            if translation_lines:
+                header = "💬 Terjemahan Russian:" if lang == "id" else "💬 Russian Translation:"
+                translation_block = header + "\n" + "\n".join(translation_lines)
+                clean_response = f"{clean_response}\n\n{translation_block}"
         
         return clean_response
 
