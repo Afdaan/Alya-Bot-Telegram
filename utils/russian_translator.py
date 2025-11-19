@@ -93,16 +93,19 @@ EMOTION_PRIORITY_EXPRESSIONS: set = {
 def detect_russian_expressions(text: str) -> List[str]:
     """Detect and extract Russian (Cyrillic) words from text.
     
-    Deduplicates variants, filters stopwords, and prioritizes emotional expressions.
+    Only returns actual Cyrillic words. Latin variants like "baka" are excluded
+    unless the response contains actual Cyrillic characters (indicating Russian mood).
     
     Args:
         text: Text to analyze
         
     Returns:
-        List of unique Russian words found (canonical forms only)
+        List of unique Russian (Cyrillic) words found
     """
     if not text:
         return []
+    
+    has_cyrillic = bool(re.search(r'[а-яёА-ЯЁ]', text))
     
     detected_set = set()
     
@@ -112,29 +115,29 @@ def detect_russian_expressions(text: str) -> List[str]:
     if cyrillic_matches:
         for match in cyrillic_matches:
             detected_set.add(match.lower())
-    
-    diacritic_pattern = r'\b[a-zA-Z]*[àáâãäåèéêëìíîïòóôõöùúûüýÿžžčščđ][a-zA-Z]*\b'
-    diacritic_matches = re.findall(diacritic_pattern, text, re.UNICODE)
-    
-    if diacritic_matches:
-        for match in diacritic_matches:
-            match_lower = match.lower()
-            normalized = normalize_russian_variant(match_lower)
-            
-            if normalized in RUSSIAN_LATIN_VARIANTS:
-                canonical = RUSSIAN_LATIN_VARIANTS[normalized].lower()
-                detected_set.add(canonical)
-            elif match_lower in RUSSIAN_LATIN_VARIANTS:
-                canonical = RUSSIAN_LATIN_VARIANTS[match_lower].lower()
-                detected_set.add(canonical)
-            else:
-                detected_set.add(normalized if normalized != match_lower else match_lower)
-    
-    text_lower = text.lower()
-    for variant, canonical in RUSSIAN_LATIN_VARIANTS.items():
-        pattern = rf'\b{re.escape(variant)}\b'
-        if re.search(pattern, text_lower):
-            detected_set.add(canonical.lower())
+
+    if has_cyrillic:
+        diacritic_pattern = r'\b[a-zA-Z]*[àáâãäåèéêëìíîïòóôõöùúûüýÿžžčščđ][a-zA-Z]*\b'
+        diacritic_matches = re.findall(diacritic_pattern, text, re.UNICODE)
+        
+        if diacritic_matches:
+            for match in diacritic_matches:
+                match_lower = match.lower()
+                normalized = normalize_russian_variant(match_lower)
+                
+                if normalized in RUSSIAN_LATIN_VARIANTS:
+                    canonical = RUSSIAN_LATIN_VARIANTS[normalized].lower()
+                    detected_set.add(canonical)
+                elif match_lower in RUSSIAN_LATIN_VARIANTS:
+                    canonical = RUSSIAN_LATIN_VARIANTS[match_lower].lower()
+                    detected_set.add(canonical)
+        
+        text_lower = text.lower()
+        for variant, canonical in RUSSIAN_LATIN_VARIANTS.items():
+            # Only check Latin variants if Cyrillic is present
+            pattern = rf'\b{re.escape(variant)}\b'
+            if re.search(pattern, text_lower):
+                detected_set.add(canonical.lower())
     
     filtered_words = [
         w for w in detected_set
