@@ -132,7 +132,8 @@ def detect_russian_expressions(text: str) -> List[str]:
     
     text_lower = text.lower()
     for variant, canonical in RUSSIAN_LATIN_VARIANTS.items():
-        if variant in text_lower:
+        pattern = rf'\b{re.escape(variant)}\b'
+        if re.search(pattern, text_lower):
             detected_set.add(canonical.lower())
     
     filtered_words = [
@@ -154,7 +155,7 @@ def has_russian_expressions(text: str) -> bool:
     """
     if not text:
         return False
-    
+
     if re.search(r'[а-яёА-ЯЁ]', text):
         return True
     
@@ -163,7 +164,8 @@ def has_russian_expressions(text: str) -> bool:
     
     text_lower = text.lower()
     for variant in RUSSIAN_LATIN_VARIANTS.keys():
-        if variant in text_lower:
+        pattern = rf'\b{re.escape(variant)}\b'
+        if re.search(pattern, text_lower):
             return True
     
     return False
