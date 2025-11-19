@@ -345,7 +345,9 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         if message_context:
             self._update_affection_from_context(user.id, message_context)
 
+        logger.debug(f"[RESPONSE_RAW] Before cleaning: {response[:200]}...")
         response = self._clean_and_append_russian_translation(response, lang)
+        logger.debug(f"[RESPONSE_AFTER] After cleaning: {response[:200]}...")
         formatted_response = format_persona_response(response, use_html=True)
         formatted_response = f"{formatted_response}\u200C"
 
@@ -362,12 +364,17 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         clean_response = response.strip()
         original_response = clean_response  # Keep original for Russian detection
         
+        logger.debug(f"[RUSSIAN_CLEAN] Original length: {len(original_response)}")
+        logger.debug(f"[RUSSIAN_CLEAN] Has Russian in original: {has_russian_expressions(original_response)}")
+        
         # Remove HTML blockquotes, code blocks, and markdown blockquotes
         clean_response = re.sub(r'<blockquote>.*?</blockquote>', '', clean_response, flags=re.DOTALL | re.IGNORECASE)
         clean_response = re.sub(r'```[\s\S]*?```', '', clean_response, flags=re.IGNORECASE)
         lines = clean_response.split('\n')
         lines = [l for l in lines if not l.strip().startswith('>')]
         clean_response = '\n'.join(lines)
+        
+        logger.debug(f"[RUSSIAN_CLEAN] After removal: {len(clean_response)}")
         
         # Remove translation headers
         clean_response = re.sub(r'(?i)(💬\s*)?Terjemahan\s+Russian.*', '', clean_response)
@@ -405,6 +412,10 @@ Respond naturally, empathetically, and reference prior conversation when relevan
                     translation_block = translation_header + "\n" + "\n".join(translation_lines)
                     clean_response = f"{clean_response}\n\n{translation_block}"
                     logger.debug(f"[RUSSIAN] Translation block appended (lang={lang})")
+                else:
+                    logger.debug(f"[RUSSIAN] Detected words but no translations found in dict")
+            else:
+                logger.debug(f"[RUSSIAN] has_russian returned True but detect returned empty")
         else:
             logger.debug(f"[RUSSIAN] No Russian expressions detected in response")
         
