@@ -358,27 +358,46 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             await self._send_error_response(update, user.first_name, lang)
     
     def _clean_and_append_russian_translation(self, response: str, lang: str = DEFAULT_LANGUAGE) -> str:
-        """Extract Russian markers from response and append translation block."""
+        """Extract and translate Russian expressions (both marked and unmarked)."""
+        from utils.russian_translator import (
+            detect_russian_expressions,
+            RUSSIAN_TRANSLATIONS
+        )
+        
         clean_response = response.strip()
+        translations_dict: Dict[str, str] = {}
         
+        # Step 1: Extract marked Russian [RU: word|translation]
         ru_marker_pattern = r'\[RU:\s*([^|]+)\|([^\]]+)\]'
-        matches = re.findall(ru_marker_pattern, clean_response, flags=re.IGNORECASE)
+        marked_matches = re.findall(ru_marker_pattern, clean_response, flags=re.IGNORECASE)
         
-        clean_response = re.sub(ru_marker_pattern, r'\1', clean_response, flags=re.IGNORECASE)
+        for word, translation in marked_matches:
+            word_clean = word.strip().lower()
+            translations_dict[word_clean] = translation.strip()
         
-        clean_response = re.sub(r'(?i)(💬\s*)?(?:Terjemahan|Translation)\s+Russian.*', '', clean_response)
+        # Step 2: REMOVE markers first, then detect remaining unmarked Russian
+        clean_response = re.sub(ru_marker_pattern, '', clean_response, flags=re.IGNORECASE)
         
+        # Step 3: Detect unmarked Russian and auto-translate (only if not already marked)
+        detected_russian = detect_russian_expressions(clean_response)
+        for word in detected_russian:
+            word_lower = word.lower()
+            if word_lower not in translations_dict and word_lower in RUSSIAN_TRANSLATIONS:
+                translations_dict[word_lower] = RUSSIAN_TRANSLATIONS[word_lower]
+        
+        # Step 4: Clean old translation blocks and excess newlines
+        clean_response = re.sub(
+            r'(?i)(💬\s*)?(?:Terjemahan|Translation)\s+Russian.*',
+            '',
+            clean_response
+        )
         clean_response = re.sub(r'\n{3,}', '\n\n', clean_response.strip())
         
-        if matches:
+        # Step 5: Append single translation block if translations exist
+        if translations_dict:
             translation_lines = []
-            seen = set()
-            
-            for word, translation in matches:
-                translation_key = f"{word.strip()}|{translation.strip()}"
-                if translation_key not in seen:
-                    translation_lines.append(f"{word.strip()} = {translation.strip()}")
-                    seen.add(translation_key)
+            for word_key, translation in sorted(translations_dict.items()):
+                translation_lines.append(f"{word_key} = {translation}")
             
             if translation_lines:
                 header = "💬 Terjemahan Russian:" if lang == "id" else "💬 Russian Translation:"
