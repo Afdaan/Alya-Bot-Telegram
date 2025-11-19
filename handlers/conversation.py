@@ -345,13 +345,13 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         if message_context:
             self._update_affection_from_context(user.id, message_context)
 
-        response = self._clean_and_append_russian_translation(response)
+        response = self._clean_and_append_russian_translation(response, lang)
         formatted_response = format_persona_response(response, max_paragraphs=-1, use_html=True)
         formatted_response = f"{formatted_response}\u200C"
 
         await update.message.reply_html(formatted_response)
     
-    def _clean_and_append_russian_translation(self, response: str) -> str:
+    def _clean_and_append_russian_translation(self, response: str, lang: str = DEFAULT_LANGUAGE) -> str:
         """Remove manual translation blocks and append clean translation block if Russian expressions exist."""
         from utils.russian_translator import (
             detect_russian_expressions,
@@ -373,6 +373,15 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         clean_response = re.sub(r'(?i)(💬\s*)?Translation.*', '', clean_response)
         clean_response = re.sub(r'\n{3,}', '\n\n', clean_response.strip())
         
+        paragraphs = re.split(r'\n\s*\n', clean_response)
+        preserved_paragraphs = []
+        for para in paragraphs:
+            para = para.strip()
+            if para:
+                preserved_paragraphs.append(para)
+        
+        clean_response = '\n\n'.join(preserved_paragraphs)
+        
         # Detect and append translation block
         if has_russian_expressions(clean_response):
             russian_words = detect_russian_expressions(clean_response)
@@ -389,7 +398,9 @@ Respond naturally, empathetically, and reference prior conversation when relevan
                             seen_translations.add(translation)
                 
                 if translation_lines:
-                    translation_block = "💬 Terjemahan Russian:\n" + "\n".join(translation_lines)
+                    # Dynamic translation header based on user language
+                    translation_header = "💬 Terjemahan Russian:" if lang == "id" else "💬 Russian Translation:"
+                    translation_block = translation_header + "\n" + "\n".join(translation_lines)
                     clean_response = f"{clean_response}\n\n{translation_block}"
         
         return clean_response
