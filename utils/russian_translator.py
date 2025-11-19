@@ -79,6 +79,7 @@ RUSSIAN_STOPWORDS: set = {
     "ну", "вот", "вдруг", "даже", "еще", "очень", "всё", "всё", "все",
     "она", "перед", "из", "под", "без", "кроме", "через", "над", "при",
     "очень", "более", "менее", "только", "всегда", "никогда", "иногда",
+    "мой", "моя", "мое", "мои",
 }
 
 EMOTION_PRIORITY_EXPRESSIONS: set = {
@@ -86,7 +87,7 @@ EMOTION_PRIORITY_EXPRESSIONS: set = {
     "бака", "милый", "милая", "красивый", "красивая", "умный", "умная",
     "глупый", "глупая", "хорошо", "плохо", "дешевый", "аи", "ах",
     "спасибо", "пожалуйста", "извини", "извините", "привет", "пока",
-    "да", "нет", "мой", "моя", "ладно", "ору", "орёшь", "орал",
+    "да", "нет", "ладно", "ору", "орёшь", "орал",
 }
 
 
@@ -141,7 +142,7 @@ def detect_russian_expressions(text: str) -> List[str]:
     
     filtered_words = [
         w for w in detected_set
-        if w not in RUSSIAN_STOPWORDS or w in EMOTION_PRIORITY_EXPRESSIONS or w in RUSSIAN_TRANSLATIONS
+        if w in EMOTION_PRIORITY_EXPRESSIONS or (w in RUSSIAN_TRANSLATIONS and w not in RUSSIAN_STOPWORDS)
     ]
     
     return sorted(list(filtered_words))
