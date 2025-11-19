@@ -186,8 +186,10 @@ class ConversationHandler:
                 media_context=None
             )
             if response:
+                logger.info(f"[RESPONSE_RECEIVED] Got response from Gemini, length={len(response)}")
                 await self._process_and_send_response(update, user, response, user_context["message_context"], lang)
             else:
+                logger.warning(f"[RESPONSE_RECEIVED] Response is empty or None")
                 await self._send_error_response(update, user.first_name, lang)
         except Exception as e:
             logger.error(f"Error in chat command: {e}", exc_info=True)
@@ -340,18 +342,22 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         lang: str
     ) -> None:
         """Clean, format, and send response to Telegram."""
-        self.db.save_message(user.id, "assistant", response)
-        self.memory.save_bot_response(user.id, response)
-        if message_context:
-            self._update_affection_from_context(user.id, message_context)
+        try:
+            self.db.save_message(user.id, "assistant", response)
+            self.memory.save_bot_response(user.id, response)
+            if message_context:
+                self._update_affection_from_context(user.id, message_context)
 
-        logger.debug(f"[RESPONSE_RAW] Before cleaning: {response[:200]}...")
-        response = self._clean_and_append_russian_translation(response, lang)
-        logger.debug(f"[RESPONSE_AFTER] After cleaning: {response[:200]}...")
-        formatted_response = format_persona_response(response, use_html=True)
-        formatted_response = f"{formatted_response}\u200C"
+            logger.debug(f"[RESPONSE_RAW] Before cleaning: {response[:200]}...")
+            response = self._clean_and_append_russian_translation(response, lang)
+            logger.debug(f"[RESPONSE_AFTER] After cleaning: {response[:200]}...")
+            formatted_response = format_persona_response(response, use_html=True)
+            formatted_response = f"{formatted_response}\u200C"
 
-        await update.message.reply_html(formatted_response)
+            await update.message.reply_html(formatted_response)
+        except Exception as e:
+            logger.error(f"[PROCESS_RESPONSE_ERROR] Error processing response: {e}", exc_info=True)
+            await self._send_error_response(update, user.first_name, lang)
     
     def _clean_and_append_russian_translation(self, response: str, lang: str = DEFAULT_LANGUAGE) -> str:
         """Remove manual translation blocks and append clean translation block if Russian expressions exist."""
