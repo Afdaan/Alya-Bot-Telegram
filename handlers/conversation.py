@@ -386,6 +386,7 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         # Detect Russian from ORIGINAL response (before HTML/blockquote removal)
         if has_russian_expressions(original_response):
             russian_words = detect_russian_expressions(original_response)
+            logger.debug(f"[RUSSIAN] Detected words: {russian_words}")
             if russian_words:
                 translation_lines = []
                 seen_translations = set()
@@ -403,6 +404,9 @@ Respond naturally, empathetically, and reference prior conversation when relevan
                     translation_header = "💬 Terjemahan Russian:" if lang == "id" else "💬 Russian Translation:"
                     translation_block = translation_header + "\n" + "\n".join(translation_lines)
                     clean_response = f"{clean_response}\n\n{translation_block}"
+                    logger.debug(f"[RUSSIAN] Translation block appended (lang={lang})")
+        else:
+            logger.debug(f"[RUSSIAN] No Russian expressions detected in response")
         
         return clean_response
 
