@@ -316,7 +316,7 @@ Keep it short and simple."""
                 context="",
                 relationship_level=0,
                 is_admin=False,
-                lang= str DEFAULT_LANGUAGE,
+                lang=DEFAULT_LANGUAGE,
                 retry_count=1,
                 is_media_analysis=False,
                 media_context=None
