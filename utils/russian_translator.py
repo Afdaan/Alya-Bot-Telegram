@@ -7,6 +7,7 @@ and provides translations to users.
 
 import logging
 import re
+from config.settings import DEFAULT_LANGUAGE
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -315,7 +316,7 @@ Keep it short and simple."""
                 context="",
                 relationship_level=0,
                 is_admin=False,
-                lang="en",
+                lang= str DEFAULT_LANGUAGE,
                 retry_count=1,
                 is_media_analysis=False,
                 media_context=None
