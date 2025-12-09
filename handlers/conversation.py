@@ -5,6 +5,7 @@ import logging
 import random
 from typing import Dict, List, Optional, Any
 import asyncio
+import re
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -25,6 +26,7 @@ from core.memory import MemoryManager
 from database.database_manager import db_manager, get_user_lang
 from core.nlp import NLPEngine, ContextManager
 from utils.formatters import format_response, format_error_response, format_paragraphs, format_persona_response
+
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +133,7 @@ class ConversationHandler:
                 prefix=COMMAND_PREFIX,
                 lang=lang  # Pass language parameter
             )
-            formatted_help = format_persona_response(help_message)
+            formatted_help = format_persona_response(help_message, use_html=True)
             await update.message.reply_html(formatted_help)
             return
         chat = update.effective_chat
@@ -184,8 +186,10 @@ class ConversationHandler:
                 media_context=None
             )
             if response:
+                logger.info(f"[RESPONSE_RECEIVED] Got response from Gemini, length={len(response)}")
                 await self._process_and_send_response(update, user, response, user_context["message_context"], lang)
             else:
+                logger.warning(f"[RESPONSE_RECEIVED] Response is empty or None")
                 await self._send_error_response(update, user.first_name, lang)
         except Exception as e:
             logger.error(f"Error in chat command: {e}", exc_info=True)
@@ -216,29 +220,17 @@ class ConversationHandler:
         lang: str, 
         message_context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Prepare full conversation context for response generation.
-        
-        Args:
-            user: Telegram user object
-            query: User's message text
-            lang: User's preferred language
-            message_context: Pre-analyzed message context from NLP engine
-            
-        Returns:
-            Dictionary containing all context needed for response generation
-        """
+        """Build conversation context with persona prompt, history, and relationship level."""
         user_task = asyncio.create_task(self._get_user_info(user))
         
-        # Fetch LATEST relationship level from database (after affection updates)
         user_info = self.db.get_user_relationship_info(user.id)
         relationship_level = user_info.get("relationship_level", 0)
         
         logger.info(
-            f"[Conversation] Preparing context for user {user.id} "
-            f"(current level: {relationship_level}, affection: {user_info.get('affection_points', 0)})"
+            f"[Conversation] User {user.id}: level={relationship_level}, "
+            f"affection={user_info.get('affection_points', 0)}"
         )
         
-        # Build persona prompt with correct relationship level
         persona_prompt = self.persona.get_chat_prompt(
             username=user.first_name,
             message=query,
@@ -256,13 +248,13 @@ class ConversationHandler:
             flow_analysis = self.nlp.analyze_conversation_flow(user.id, query)
             message_context["conversation_flow"] = flow_analysis
             if flow_analysis.get("is_continuation", False):
-                persona_prompt += "\n\nCONVERSATION CONTEXT: This seems to be a continuation of our previous topic. Please maintain context continuity and reference our previous discussion naturally."
+                persona_prompt += "\n\nCONVERSATION CONTEXT: Continuation of previous topic. Maintain context continuity."
             if flow_analysis.get("user_engagement_level") == "high":
-                persona_prompt += "\n\nUSER ENGAGEMENT: The user seems very engaged and interested. Match their energy level and be more expressive in your response."
+                persona_prompt += "\n\nUSER ENGAGEMENT: User is engaged. Match their energy and be expressive."
             elif flow_analysis.get("user_engagement_level") == "low":
-                persona_prompt += "\n\nUSER ENGAGEMENT: The user seems less engaged. Try to be more encouraging and ask questions to increase engagement."
+                persona_prompt += "\n\nUSER ENGAGEMENT: User seems less engaged. Be encouraging."
         
-        # Gather conversation history and context
+        # Gather conversation history
         history = self.context_manager.get_context_window(user.id)
         prev_messages = self.db.get_conversation_history(user.id, limit=5)
         prev_content = "\n".join([msg.get("content", "") for msg in prev_messages if msg.get("role") == "user"])
@@ -293,32 +285,17 @@ class ConversationHandler:
         }
 
     def _get_conversation_theme_context(self, conversation_context: Dict[str, Any]) -> str:
-        """Generate conversation theme context for more natural responses.
-        
-        Args:
-            conversation_context: Current conversation context
-        
-        Returns:
-            Conversation theme context string
-        """
+        """Build context-aware prompt from conversation topic and emotion."""
         topic = conversation_context.get("current_topic", "general conversation")
         emotion = conversation_context.get("user_emotion", "neutral")
+        summary = conversation_context.get("conversation_history_summary", "No recent history")
         
-        # Create more natural, context-aware prompt
-        context = f"""
-CONTEXT AWARENESS:
-- Current topic appears to be about: {topic}
-- User's detected emotion: {emotion}
-- Recent conversation history: {conversation_context.get("conversation_history_summary", "No recent history")}
+        return f"""CONTEXT AWARENESS:
+- Topic: {topic}
+- User emotion: {emotion}
+- Recent history: {summary}
 
-Based on this context:
-1. Respond naturally to the topic at hand
-2. Show appropriate emotional awareness and empathy
-3. Reference previous parts of the conversation when relevant
-4. Use roleplay that fits the mood and topic
-5. Show understanding of the conversational flow
-"""
-        return context
+Respond naturally, empathetically, and reference prior conversation when relevant."""
     
     def _call_method_safely(self, method, *args, **kwargs):
         if asyncio.iscoroutinefunction(method):
@@ -356,6 +333,104 @@ Based on this context:
                 logger.error(f"Translation step failed: {e}")
         return text
 
+    def _split_mixed_quote_paragraphs(self, response: str) -> str:
+        """
+        Aggressively split paragraphs that mix narration and quoted dialogue.
+        Handles dialogue tags, multiple quotes, emoji, and complex nested structures.
+        
+        Args:
+            response: Raw response text from Gemini
+            
+        Returns:
+            Response with quotes separated into their own paragraphs
+        """
+        if not response:
+            return response
+        
+        def extract_emoji(text: str) -> tuple[str, str]:
+            """Extract emoji from text using Unicode character categories."""
+            import unicodedata
+            
+            emoji_chars = []
+            clean_chars = []
+            
+            for char in text:
+                cat = unicodedata.category(char)
+                if (cat in ('So', 'Sk') or 
+                    char in ('\uFE0F', '\u200D') or
+                    ord(char) >= 0x1F000):
+                    emoji_chars.append(char)
+                else:
+                    clean_chars.append(char)
+            
+            return ''.join(clean_chars).strip(), ''.join(emoji_chars).strip()
+        
+        paragraphs = response.split('\n\n')
+        cleaned_paragraphs = []
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            
+            if '"' not in para:
+                cleaned_paragraphs.append(para)
+                continue
+            
+            if para.startswith('"') and para.endswith('"') and para.count('"') == 2:
+                cleaned_paragraphs.append(para)
+                continue
+            
+            parts = []
+            current_pos = 0
+            in_quote = False
+            quote_start = -1
+            
+            i = 0
+            while i < len(para):
+                if para[i] == '"':
+                    if not in_quote:
+                        if current_pos < i:
+                            narration = para[current_pos:i].strip().rstrip(',').strip()
+                            if narration:
+                                parts.append(('narration', narration))
+                        quote_start = i
+                        in_quote = True
+                    else:
+                        quote_text = para[quote_start+1:i].strip()
+                        if quote_text:
+                            parts.append(('quote', quote_text))
+                        current_pos = i + 1
+                        in_quote = False
+                i += 1
+            
+            if current_pos < len(para):
+                remaining = para[current_pos:].strip()
+                if remaining:
+                    remaining_no_emoji, emoji_str = extract_emoji(remaining)
+                    remaining_no_emoji = remaining_no_emoji.rstrip(',').strip()
+                    
+                    if remaining_no_emoji:
+                        parts.append(('narration', remaining_no_emoji))
+                    
+                    if emoji_str:
+                        if parts and parts[-1][0] == 'quote':
+                            last_quote = parts[-1][1]
+                            parts[-1] = ('quote', f"{last_quote} {emoji_str}")
+                        elif parts and parts[-1][0] == 'narration':
+                            last_narration = parts[-1][1]
+                            parts[-1] = ('narration', f"{last_narration} {emoji_str}")
+                        else:
+                            parts.append(('narration', emoji_str))
+            
+            for part_type, text in parts:
+                if part_type == 'quote':
+                    cleaned_paragraphs.append(f'"{text}"')
+                else:
+                    cleaned_paragraphs.append(text)
+        
+        return '\n\n'.join(cleaned_paragraphs)
+
     async def _process_and_send_response(
         self,
         update: Update,
@@ -364,78 +439,79 @@ Based on this context:
         message_context: Dict[str, Any],
         lang: str
     ) -> None:
-        """Process Alya's response: ensure language, format, and send to Telegram."""
-        self.db.save_message(user.id, "assistant", response)
-        self.memory.save_bot_response(user.id, response)
-        if message_context:
-            self._update_affection_from_context(user.id, message_context)
+        """Clean, format, and send response to Telegram."""
+        try:
+            self.db.save_message(user.id, "assistant", response)
+            self.memory.save_bot_response(user.id, response)
+            if message_context:
+                self._update_affection_from_context(user.id, message_context)
 
-        # --- Detect emotion, intent, topic ---
-        emotion = message_context.get("emotion", "neutral") if message_context else "neutral"
-        intent = message_context.get("intent", "") if message_context else ""
-        topic = message_context.get("topic", "any") if message_context else "any"
-
-        # --- DISABLED: Translation causing bilingual output ---
-        # response = await self._ensure_language(response, lang, user)
-        # NOTE: Gemini should already respond in Indonesian based on persona prompt
-
-        # --- Map emotion to mood/intensity ---
-        emotion_mood_mapping = {
-            "happy": ("excited", 0.8),
-            "excited": ("excited", 0.9),
-            "grateful": ("comfortable_tsundere", 0.6),
-            "sad": ("melancholic", 0.4),
-            "angry": ("defensive", 0.8),
-            "worried": ("nervous", 0.5),
-            "embarrassed": ("embarrassed", 0.7),
-            "surprised": ("surprised", 0.8),
-            "neutral": ("default", 0.5)
-        }
-        mood, intensity = emotion_mood_mapping.get(emotion, ("default", 0.5))
-
-        # --- Persona roleplay/action mapping ---
-        roleplay_mapping = self.persona.get_roleplay_mapping(
-            emotion=emotion,
-            intent=intent,
-            topic=topic,
-            mood=mood,
-            lang=lang
-        )
-        roleplay_action = roleplay_mapping.get("roleplay_action", "")
-        russian_expression = roleplay_mapping.get("russian_expression", "")
-
-        #--- Format response ---
-        #--- OLD: Neutral formatting (commented out) ---
-        # formatted_response = format_response(
-        #     response,
-        #     emotion=emotion,
-        #     mood=mood,
-        #     intensity=intensity,
-        #     username=user.first_name or "user",
-        #     roleplay_action=roleplay_action,
-        #     russian_expression=russian_expression
-        # )
-        # formatted_response = format_paragraphs(formatted_response, markdown=True, HTML=True)
-        # formatted_response = f"{formatted_response}\u200C"
-
-        # # --- NEW: Persona formatting ---
-        formatted_response = format_persona_response(response, use_html=True)
-        formatted_response = f"{formatted_response}\u200C"
-
-        # --- Ensure ALL output in user language (after formatting) ---
-        # formatted_response = await self._ensure_language(formatted_response, lang, user)
-
-        await update.message.reply_html(formatted_response)
-    
-    async def _get_user_info(self, user) -> Dict[str, Any]:
-        """Get user information including admin status and relationship level.
-        
-        Args:
-            user: Telegram user object
+            # Step 1: Split mixed quote-narration paragraphs
+            response = self._split_mixed_quote_paragraphs(response)
             
-        Returns:
-            Dictionary with is_admin and relationship_level
-        """
+            # Step 2: Clean and append Russian translation
+            response = self._clean_and_append_russian_translation(response, lang)
+            
+            # Step 3: Format for Telegram
+            formatted_response = format_persona_response(response, use_html=True)
+            formatted_response = f"{formatted_response}\u200C"
+
+            await update.message.reply_html(formatted_response)
+        except Exception as e:
+            logger.error(f"Error processing response: {e}", exc_info=True)
+            await self._send_error_response(update, user.first_name, lang)
+    
+    def _clean_and_append_russian_translation(self, response: str, lang: str = DEFAULT_LANGUAGE) -> str:
+        """Extract and translate Russian expressions (both marked and unmarked)."""
+        from utils.russian_translator import (
+            detect_russian_expressions,
+            RUSSIAN_TRANSLATIONS
+        )
+        
+        clean_response = response.strip()
+        translations_dict: Dict[str, str] = {}
+        
+        ru_marker_pattern = r'\[RU:\s*([^|]+)\|([^\]]+)\]'
+        marked_matches = re.findall(ru_marker_pattern, clean_response, flags=re.IGNORECASE)
+        
+        for word, translation in marked_matches:
+            word_clean = word.strip().lower()
+            translations_dict[word_clean] = translation.strip()
+        
+        clean_response = re.sub(
+            ru_marker_pattern,
+            lambda m: m.group(1).strip(),
+            clean_response,
+            flags=re.IGNORECASE
+        )
+        
+        detected_russian = detect_russian_expressions(clean_response)
+        for word in detected_russian:
+            word_lower = word.lower()
+            if word_lower not in translations_dict and word_lower in RUSSIAN_TRANSLATIONS:
+                translations_dict[word_lower] = RUSSIAN_TRANSLATIONS[word_lower]
+        
+        clean_response = re.sub(
+            r'(?i)(💬\s*)?(?:Terjemahan|Translation)\s+Russian.*',
+            '',
+            clean_response
+        )
+        clean_response = re.sub(r'\n{3,}', '\n\n', clean_response.strip())
+        
+        if translations_dict:
+            translation_lines = []
+            for word_key, translation in sorted(translations_dict.items()):
+                translation_lines.append(f"{word_key} = {translation}")
+            
+            if translation_lines:
+                header = "💬 Terjemahan Russian:" if lang == "id" else "💬 Russian Translation:"
+                translation_block = header + "\n" + "\n".join(translation_lines)
+                clean_response = f"{clean_response}\n\n{translation_block}"
+        
+        return clean_response
+
+    async def _get_user_info(self, user) -> Dict[str, Any]:
+        """Get user admin status and relationship level."""
         is_admin = user.id in ADMIN_IDS or (self.db and self.db.is_admin(user.id))
         if self.db:
             self._create_or_update_user(user)
@@ -443,16 +519,11 @@ Based on this context:
             relationship_level = user_info.get("relationship_level", 0)
         else:
             relationship_level = 0
-        return {
-            'is_admin': is_admin,
-            'relationship_level': relationship_level
-        }
+        return {'is_admin': is_admin, 'relationship_level': relationship_level}
 
     def _get_relationship_context(self, user: Any, relationship_level: int, is_admin: bool, lang: str = DEFAULT_LANGUAGE) -> str:
-        """Get relationship context in the specified language."""
+        """Get relationship context based on level."""
         first_name = getattr(user, 'first_name', None) or "user"
-        
-        # Get relationship context from persona manager instead of hardcoding
         return self.persona.get_relationship_context(
             username=first_name,
             relationship_level=relationship_level,
@@ -461,77 +532,61 @@ Based on this context:
         )
 
     def _update_affection_from_context(self, user_id: int, message_context: Dict[str, Any]) -> None:
-        """
-        Update Alya's affection points towards user based on how user treats Alya.
-        
-        Logic: 
-        - User treats Alya nicely → Alya's affection increases
-        - User treats Alya badly → Alya's affection decreases
-        
-        Args:
-            user_id: The user's telegram ID
-            message_context: NLP analysis results from user's message
-        """
+        """Update Alya's affection based on user's emotion, intent, and relationship signals."""
         if not message_context:
-            # Base affection for normal conversation (if no analysis available)
-            # Note: update_affection() automatically recalculates relationship level
             self.db.update_affection(user_id, AFFECTION_POINTS.get("conversation", 1))
             return
 
         affection_delta = 0
 
-        # === USER'S POSITIVE EMOTIONS/BEHAVIORS TOWARDS ALYA ===
-        # When user shows positive emotions, Alya feels appreciated
+        # User's emotions towards Alya
         emotion = message_context.get("emotion", "")
         if emotion in ["happy", "excited", "grateful", "joy", "love", "admiration"]:
             affection_delta += AFFECTION_POINTS.get("positive_emotion", 2)
             logger.debug(f"User {user_id} shows positive emotion '{emotion}': +{AFFECTION_POINTS.get('positive_emotion', 2)}")
         elif emotion in ["sad", "worried", "disappointed"]:
-            # User sharing vulnerable emotions with Alya shows trust
             affection_delta += AFFECTION_POINTS.get("mild_positive_emotion", 1)
             logger.debug(f"User {user_id} shows vulnerable emotion '{emotion}': +{AFFECTION_POINTS.get('mild_positive_emotion', 1)}")
         elif emotion in ["angry", "frustrated", "annoyed"] and not message_context.get("directed_at_alya", False):
-            # User is angry but not at Alya (venting to Alya as friend)
             affection_delta += AFFECTION_POINTS.get("mild_positive_emotion", 1)
         elif emotion in ["angry", "frustrated", "annoyed"] and message_context.get("directed_at_alya", True):
-            # User is angry AT Alya
             affection_delta += AFFECTION_POINTS.get("anger", -3)
             logger.debug(f"User {user_id} is angry at Alya: {AFFECTION_POINTS.get('anger', -3)}")
 
-        # === USER'S INTENTIONS TOWARDS ALYA ===
+        # User's intentions towards Alya
         intent = message_context.get("intent", "")
         if intent == "gratitude":
             affection_delta += AFFECTION_POINTS.get("gratitude", 5)
         elif intent == "apology":
             affection_delta += AFFECTION_POINTS.get("apology", 2)
-        elif intent == "affection":  # User expressing love/care to Alya
+        elif intent == "affection":
             affection_delta += AFFECTION_POINTS.get("affection", 5)
         elif intent == "greeting":
             affection_delta += AFFECTION_POINTS.get("greeting", 2)
-        elif intent == "compliment":  # User complimenting Alya
+        elif intent == "compliment":
             affection_delta += AFFECTION_POINTS.get("compliment", 10)
         elif intent == "question":
             affection_delta += AFFECTION_POINTS.get("question", 1)
         elif intent == "meaningful_conversation":
             affection_delta += AFFECTION_POINTS.get("meaningful_conversation", 8)
-        elif intent == "asking_about_alya":  # User showing interest in Alya
+        elif intent == "asking_about_alya":
             affection_delta += AFFECTION_POINTS.get("asking_about_alya", 7)
-        elif intent == "remembering_details":  # User remembering things about Alya
+        elif intent == "remembering_details":
             affection_delta += AFFECTION_POINTS.get("remembering_details", 15)
-        elif intent in ["insult", "abuse"]:  # User insulting Alya
+        elif intent in ["insult", "abuse"]:
             affection_delta += AFFECTION_POINTS.get("insult", -10)
-        elif intent in ["toxic", "toxic_behavior", "bullying"]:  # User being toxic to Alya
+        elif intent in ["toxic", "toxic_behavior", "bullying"]:
             affection_delta += AFFECTION_POINTS.get("toxic_behavior", -10)
-        elif intent == "rudeness":  # User being rude to Alya
+        elif intent == "rudeness":
             affection_delta += AFFECTION_POINTS.get("rudeness", -10)
-        elif intent == "ignoring":  # User ignoring Alya
+        elif intent == "ignoring":
             affection_delta += AFFECTION_POINTS.get("ignoring", -5)
-        elif intent == "inappropriate":  # User being inappropriate to Alya
+        elif intent == "inappropriate":
             affection_delta += AFFECTION_POINTS.get("inappropriate", -20)
         elif intent in ["command", "departure"]:
             affection_delta += AFFECTION_POINTS.get("command", -1)
 
-        # === RELATIONSHIP SIGNALS ===
+        # Relationship signals
         relationship_signals = message_context.get("relationship_signals", {})
         signal_delta = 0
         signal_delta += relationship_signals.get("friendliness", 0) * AFFECTION_POINTS.get("friendliness", 6)
@@ -539,36 +594,19 @@ Based on this context:
         signal_delta += relationship_signals.get("conflict", 0) * AFFECTION_POINTS.get("conflict", -3)
         
         if signal_delta != 0:
-            logger.debug(
-                f"[AFFECTION] User {user_id} signal bonuses: "
-                f"friendliness={relationship_signals.get('friendliness', 0):.1f}*6={relationship_signals.get('friendliness', 0) * 6:.1f}, "
-                f"romantic={relationship_signals.get('romantic_interest', 0):.1f}*10={relationship_signals.get('romantic_interest', 0) * 10:.1f}, "
-                f"conflict={relationship_signals.get('conflict', 0):.1f}*(-3)={relationship_signals.get('conflict', 0) * -3:.1f}"
-            )
+            logger.debug(f"[AFFECTION] User {user_id} signal bonuses: friendliness={relationship_signals.get('friendliness', 0) * 6:.1f}, romantic={relationship_signals.get('romantic_interest', 0) * 10:.1f}, conflict={relationship_signals.get('conflict', 0) * -3:.1f}")
         
         affection_delta += signal_delta
-
-        # Apply minimum penalty limit
         min_penalty = AFFECTION_POINTS.get("min_penalty", -4)
         if affection_delta < 0:
             affection_delta = max(affection_delta, min_penalty)
 
-        # Base affection for normal conversation (if no significant change detected)
         if affection_delta == 0:
             affection_delta = AFFECTION_POINTS.get("conversation", 1)
 
-        # Apply affection change if significant enough
         if abs(affection_delta) >= 1:
             affection_delta = round(affection_delta)
-            logger.info(
-                f"[AFFECTION] User {user_id}: {affection_delta:+d} points | "
-                f"Breakdown: emotion={emotion}, intent={intent}, "
-                f"signals={relationship_signals}"
-            )
-            # Note: update_affection() automatically recalculates relationship level using max(affection_level, interaction_level)
+            logger.info(f"[AFFECTION] User {user_id}: {affection_delta:+d} | emotion={emotion}, intent={intent}")
             self.db.update_affection(user_id, affection_delta)
         else:
-            logger.debug(
-                f"[AFFECTION] User {user_id}: no significant change "
-                f"(delta={affection_delta:.1f})"
-            )
+            logger.debug(f"[AFFECTION] User {user_id}: no change (delta={affection_delta:.1f})")

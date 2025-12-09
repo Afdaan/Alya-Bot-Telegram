@@ -197,13 +197,15 @@ def format_response(
 
 def format_persona_response(
     message: str,
-    max_paragraphs: int = 4,
+    max_paragraphs: Optional[int] = 10,
     use_html: bool = True,
     lang: str = DEFAULT_LANGUAGE,
 ) -> str:
     """Render persona response paragraphs with formatting rules."""
     if not message:
         return ""
+    
+    message = message.replace("\\n", "\n")
     
     message = re.sub(r'[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]', '', message)
 
