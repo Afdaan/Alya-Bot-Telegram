@@ -47,7 +47,7 @@ ADMIN_IDS = {int(id_str.strip()) for id_str in admin_id_str.split(',') if id_str
 GEMINI_API_KEYS: List[str] = [
     key.strip() for key in os.getenv("GEMINI_API_KEYS", "").split(",") if key.strip()
 ]
-GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash")  # Gemini 2.5 Flash model name format
 MAX_OUTPUT_TOKENS: int = int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "8192"))
 TEMPERATURE: float = float(os.getenv("GEMINI_TEMPERATURE", "0.7"))
 TOP_K: int = int(os.getenv("GEMINI_TOP_K", "40"))
