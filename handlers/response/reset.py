@@ -17,32 +17,36 @@ def get_reset_response(lang: str = DEFAULT_LANGUAGE, success: bool = False) -> s
     if success:
         text = {
             "id": (
-                "Riwayat percakapanmu telah diatur ulang. "
-                "A-aku tidak akan mengingat apa pun tentang percakapan kita sebelumnya... "
-                "B-bukan berarti aku peduli sih... 😳"
+                "✅ <b>Reset Berhasil!</b>\n\n"
+                "Riwayat percakapan sudah direset~ "
+                "Sekarang kita bisa mulai fresh lagi! 💫\n\n"
+                "Hai lagi! Kenalan lagi yuk~ 😊"
             ),
             "en": (
-                "Your conversation history has been reset. "
-                "I-I won't remember anything about our previous conversations... "
-                "N-not that I cared anyway... 😳"
+                "✅ <b>Reset Successful!</b>\n\n"
+                "Conversation history has been reset~ "
+                "Now we can start fresh again! 💫\n\n"
+                "Hello again! Let's get to know each other again~ 😊"
             ),
         }
     else:
         text = {
             "id": (
-                "Gagal mengatur ulang riwayat percakapan. "
-                "Sistem memoriku sedang tidak mau bekerja sama... Coba lagi nanti ya."
+                "❌ <b>Reset Gagal</b>\n\n"
+                "Ada masalah saat reset riwayat percakapan. "
+                "Coba lagi nanti ya~ 😅"
             ),
             "en": (
-                "Failed to reset conversation history. "
-                "My memory system isn't cooperating... Please try again later."
+                "❌ <b>Reset Failed</b>\n\n"
+                "There was a problem resetting conversation history. "
+                "Please try again later~ 😅"
             ),
         }
     return text.get(lang, text[DEFAULT_LANGUAGE])
 
 def get_reset_confirmation_response(lang: str = DEFAULT_LANGUAGE) -> str:
     """
-    Generates a confirmation message for the reset command.
+    Generates a confirmation message for the reset command with buttons.
 
     Args:
         lang: The language for the response ('id' or 'en').
@@ -52,17 +56,40 @@ def get_reset_confirmation_response(lang: str = DEFAULT_LANGUAGE) -> str:
     """
     text = {
         "id": (
-            "Hah?! Kamu serius mau reset semua percakapan kita? "
-            "Semua obrolan kita yang sudah keren itu bakal hilang begitu saja... "
-            "Kalau kamu yakin banget, kirim <code>/reset confirm</code>, ya. "
-            "Tapi, jangan salah, aku juga nggak peduli kok... bukan berarti aku akan kangen atau apa gitu!"
-
+            "💭 <b>Konfirmasi Reset</b>\n\n"
+            "Kamu yakin mau reset semua riwayat percakapan kita? "
+            "Semua kenangan dan konteks percakapan akan hilang lho~ 😳\n\n"
+            "Pilih salah satu tombol di bawah:"
         ),
         "en": (
-            "Wh-what?! You really want to reset all our conversations? "
-            "All our awesome chats will be gone forever... "
-            "If you're absolutely sure, just send <code>/reset confirm</code>. "
-            "Not that I care or anything... It's not like I’ll miss our talks or whatever!"
+            "💭 <b>Reset Confirmation</b>\n\n"
+            "Are you sure you want to reset all our conversation history? "
+            "All memories and conversation context will be lost~ 😳\n\n"
+            "Choose one of the buttons below:"
+        )
+    }
+    return text.get(lang, text[DEFAULT_LANGUAGE])
+
+def get_reset_cancel_response(lang: str = DEFAULT_LANGUAGE) -> str:
+    """
+    Generates a cancellation message for the reset command.
+
+    Args:
+        lang: The language for the response ('id' or 'en').
+
+    Returns:
+        The cancellation message.
+    """
+    text = {
+        "id": (
+            "😌 <b>Reset Dibatalkan</b>\n\n"
+            "Oke, riwayat percakapan kita tetap aman~ "
+            "Alya masih ingat semua obrolan kita kok! ✨"
         ),
+        "en": (
+            "😌 <b>Reset Cancelled</b>\n\n"
+            "Okay, our conversation history is safe~ "
+            "Alya still remembers all our chats! ✨"
+        )
     }
     return text.get(lang, text[DEFAULT_LANGUAGE])

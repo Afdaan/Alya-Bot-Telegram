@@ -3,9 +3,9 @@ import os
 import tempfile
 import time
 
-from telegram import Update, BotCommand
+from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
-from telegram.ext import ContextTypes, MessageHandler, filters, CommandHandler
+from telegram.ext import ContextTypes, MessageHandler, filters, CommandHandler, CallbackQueryHandler
 
 from config.settings import SAUCENAO_PREFIX, COMMAND_PREFIX, DEFAULT_LANGUAGE
 from database.database_manager import db_manager, get_user_lang
@@ -55,6 +55,11 @@ class CommandsHandler:
             for handler in self.roast_handler.get_handlers():
                 self.application.add_handler(handler)
             logger.info("Registered roast handlers successfully")
+
+        # Reset callback handler for buttons
+        self.application.add_handler(
+            CallbackQueryHandler(self.handle_reset_callback, pattern="^reset_")
+        )
 
         self.application.add_handler(
             MessageHandler(
@@ -263,6 +268,38 @@ class CommandsHandler:
         except Exception as e:
             logger.warning(f"Failed to send chat action: {e}")
 
+    async def handle_reset_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle reset confirmation buttons."""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = update.effective_user.id
+        lang = get_user_lang(user_id)
+        
+        if not db_manager:
+            logger.error("Database manager not found for reset callback.")
+            await query.edit_message_text(get_system_error_response(lang), parse_mode="HTML")
+            return
+
+        if query.data == "reset_yes":
+            try:
+                success = db_manager.reset_user_conversation(user_id)
+                response = get_reset_response(lang=lang, success=success)
+                if success:
+                    logger.info(f"Successfully reset conversation history for user {user_id}")
+                else:
+                    logger.warning(f"Reset conversation history failed for user {user_id}")
+            except Exception as e:
+                logger.error(f"Error resetting conversation history for user {user_id}: {e}")
+                response = get_reset_response(lang=lang, success=False)
+            
+            await query.edit_message_text(response, parse_mode="HTML")
+            
+        elif query.data == "reset_no":
+            from handlers.response.reset import get_reset_cancel_response
+            cancel_response = get_reset_cancel_response(lang=lang)
+            await query.edit_message_text(cancel_response, parse_mode="HTML")
+
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /ping command to check bot latency."""
     start_time = time.time()
@@ -300,7 +337,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.error(f"Failed to set bot commands on /help: {e}")
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles the /reset command to clear user's conversation history."""
+    """Handles the /reset command with Yes/No confirmation buttons."""
     user_id = update.effective_user.id
     lang = get_user_lang(user_id)
     
@@ -309,22 +346,24 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_html(get_system_error_response(lang))
         return
 
-    if context.args and context.args[0].lower() == 'confirm':
-        try:
-            success = db_manager.reset_user_conversation(user_id)
-            response = get_reset_response(lang=lang, success=success)
-            if success:
-                logger.info(f"Successfully reset conversation history for user {user_id}")
-            else:
-                logger.warning(f"Reset conversation history failed for user {user_id}, db returned false")
-        except Exception as e:
-            logger.error(f"Error resetting conversation history for user {user_id}: {e}")
-            response = get_reset_response(lang=lang, success=False)
-        
-        await update.message.reply_html(response)
-    else:
-        response = get_reset_confirmation_response(lang=lang)
-        await update.message.reply_html(response)
+    # Create inline keyboard for Yes/No confirmation
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "✅ Ya, reset!" if lang == "id" else "✅ Yes, reset!", 
+                callback_data="reset_yes"
+            ),
+            InlineKeyboardButton(
+                "❌ Batal" if lang == "id" else "❌ Cancel", 
+                callback_data="reset_no"
+            )
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Get confirmation message
+    response = get_reset_confirmation_response(lang=lang)
+    await update.message.reply_html(response, reply_markup=reply_markup)
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
