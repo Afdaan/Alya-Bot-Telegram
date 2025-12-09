@@ -333,6 +333,87 @@ Respond naturally, empathetically, and reference prior conversation when relevan
                 logger.error(f"Translation step failed: {e}")
         return text
 
+    def _split_mixed_quote_paragraphs(self, response: str) -> str:
+        """Split paragraphs that mix narration with quoted dialogue.
+        
+        Detects paragraphs containing both quoted text and narration,
+        then splits them into separate paragraphs for proper blockquote formatting.
+        
+        Handles multiple quotes per paragraph and complex mixed scenarios.
+        
+        Args:
+            response: Raw response text from Gemini
+            
+        Returns:
+            Response with quotes separated into their own paragraphs
+        """
+        if not response:
+            return response
+        
+        # Split into paragraphs
+        paragraphs = response.split('\n\n')
+        cleaned_paragraphs = []
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            
+            # Check if paragraph contains any quotes
+            if '"' not in para:
+                # No quotes, keep as-is
+                cleaned_paragraphs.append(para)
+                continue
+            
+            # Check if paragraph is ONLY a quote (starts and ends with quotes, no text outside)
+            if para.startswith('"') and para.endswith('"') and para.count('"') == 2:
+                # Pure quote paragraph, keep as-is
+                cleaned_paragraphs.append(para)
+                continue
+            
+            # Mixed paragraph detected - split it
+            # Strategy: tokenize into [text, "quote", text, "quote", ...]
+            parts = []
+            current_pos = 0
+            in_quote = False
+            quote_start = -1
+            
+            i = 0
+            while i < len(para):
+                if para[i] == '"':
+                    if not in_quote:
+                        # Quote starts
+                        # Save any narration before this quote
+                        if current_pos < i:
+                            narration = para[current_pos:i].strip()
+                            if narration:
+                                parts.append(('narration', narration))
+                        quote_start = i
+                        in_quote = True
+                    else:
+                        # Quote ends
+                        quote_text = para[quote_start+1:i].strip()
+                        if quote_text:
+                            parts.append(('quote', quote_text))
+                        current_pos = i + 1
+                        in_quote = False
+                i += 1
+            
+            # Handle any remaining text after last quote
+            if current_pos < len(para):
+                remaining = para[current_pos:].strip()
+                if remaining:
+                    parts.append(('narration', remaining))
+            
+            # Rebuild as separate paragraphs
+            for part_type, text in parts:
+                if part_type == 'quote':
+                    cleaned_paragraphs.append(f'"{text}"')
+                else:
+                    cleaned_paragraphs.append(text)
+        
+        return '\n\n'.join(cleaned_paragraphs)
+
     async def _process_and_send_response(
         self,
         update: Update,
@@ -348,7 +429,13 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             if message_context:
                 self._update_affection_from_context(user.id, message_context)
 
+            # Step 1: Split mixed quote-narration paragraphs
+            response = self._split_mixed_quote_paragraphs(response)
+            
+            # Step 2: Clean and append Russian translation
             response = self._clean_and_append_russian_translation(response, lang)
+            
+            # Step 3: Format for Telegram
             formatted_response = format_persona_response(response, use_html=True)
             formatted_response = f"{formatted_response}\u200C"
 
