@@ -250,18 +250,15 @@ class GeminiClient:
         if not self.client:
             raise RuntimeError("Gemini client not initialized")
 
-        # SDK v2 uses simpler configuration
-        config_dict = {
-            "temperature": temperature or TEMPERATURE,
-            "max_output_tokens": MAX_OUTPUT_TOKENS,
-            "top_p": TOP_P,
-            "top_k": TOP_K,
-        }
-
         response = self.client.models.generate_content(
             model=self.model,
             contents=prompt,
-            config=config_dict,
+            config={
+                "temperature": temperature or TEMPERATURE,
+                "max_output_tokens": MAX_OUTPUT_TOKENS,
+                "top_p": TOP_P,
+                "top_k": TOP_K,
+            },
         )
 
         return response.text
