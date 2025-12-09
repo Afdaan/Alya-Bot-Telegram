@@ -334,12 +334,9 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         return text
 
     def _split_mixed_quote_paragraphs(self, response: str) -> str:
-        """Split paragraphs that mix narration with quoted dialogue.
-        
-        Detects paragraphs containing both quoted text and narration,
-        then splits them into separate paragraphs for proper blockquote formatting.
-        
-        Handles multiple quotes per paragraph and complex mixed scenarios.
+        """
+        Aggressively split paragraphs that mix narration and quoted dialogue.
+        Handles dialogue tags, multiple quotes, emoji, and complex nested structures.
         
         Args:
             response: Raw response text from Gemini
@@ -350,7 +347,24 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         if not response:
             return response
         
-        # Split into paragraphs
+        def extract_emoji(text: str) -> tuple[str, str]:
+            """Extract emoji from text using Unicode character categories."""
+            import unicodedata
+            
+            emoji_chars = []
+            clean_chars = []
+            
+            for char in text:
+                cat = unicodedata.category(char)
+                if (cat in ('So', 'Sk') or 
+                    char in ('\uFE0F', '\u200D') or
+                    ord(char) >= 0x1F000):
+                    emoji_chars.append(char)
+                else:
+                    clean_chars.append(char)
+            
+            return ''.join(clean_chars).strip(), ''.join(emoji_chars).strip()
+        
         paragraphs = response.split('\n\n')
         cleaned_paragraphs = []
         
@@ -359,20 +373,14 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             if not para:
                 continue
             
-            # Check if paragraph contains any quotes
             if '"' not in para:
-                # No quotes, keep as-is
                 cleaned_paragraphs.append(para)
                 continue
             
-            # Check if paragraph is ONLY a quote (starts and ends with quotes, no text outside)
             if para.startswith('"') and para.endswith('"') and para.count('"') == 2:
-                # Pure quote paragraph, keep as-is
                 cleaned_paragraphs.append(para)
                 continue
             
-            # Mixed paragraph detected - split it
-            # Strategy: tokenize into [text, "quote", text, "quote", ...]
             parts = []
             current_pos = 0
             in_quote = False
@@ -382,16 +390,13 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             while i < len(para):
                 if para[i] == '"':
                     if not in_quote:
-                        # Quote starts
-                        # Save any narration before this quote
                         if current_pos < i:
-                            narration = para[current_pos:i].strip()
+                            narration = para[current_pos:i].strip().rstrip(',').strip()
                             if narration:
                                 parts.append(('narration', narration))
                         quote_start = i
                         in_quote = True
                     else:
-                        # Quote ends
                         quote_text = para[quote_start+1:i].strip()
                         if quote_text:
                             parts.append(('quote', quote_text))
@@ -399,13 +404,25 @@ Respond naturally, empathetically, and reference prior conversation when relevan
                         in_quote = False
                 i += 1
             
-            # Handle any remaining text after last quote
             if current_pos < len(para):
                 remaining = para[current_pos:].strip()
                 if remaining:
-                    parts.append(('narration', remaining))
+                    remaining_no_emoji, emoji_str = extract_emoji(remaining)
+                    remaining_no_emoji = remaining_no_emoji.rstrip(',').strip()
+                    
+                    if remaining_no_emoji:
+                        parts.append(('narration', remaining_no_emoji))
+                    
+                    if emoji_str:
+                        if parts and parts[-1][0] == 'quote':
+                            last_quote = parts[-1][1]
+                            parts[-1] = ('quote', f"{last_quote} {emoji_str}")
+                        elif parts and parts[-1][0] == 'narration':
+                            last_narration = parts[-1][1]
+                            parts[-1] = ('narration', f"{last_narration} {emoji_str}")
+                        else:
+                            parts.append(('narration', emoji_str))
             
-            # Rebuild as separate paragraphs
             for part_type, text in parts:
                 if part_type == 'quote':
                     cleaned_paragraphs.append(f'"{text}"')
