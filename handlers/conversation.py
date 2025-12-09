@@ -471,7 +471,6 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         clean_response = response.strip()
         translations_dict: Dict[str, str] = {}
         
-        # Step 1: Extract marked Russian [RU: word|translation]
         ru_marker_pattern = r'\[RU:\s*([^|]+)\|([^\]]+)\]'
         marked_matches = re.findall(ru_marker_pattern, clean_response, flags=re.IGNORECASE)
         
@@ -479,17 +478,19 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             word_clean = word.strip().lower()
             translations_dict[word_clean] = translation.strip()
         
-        # Step 2: REMOVE markers first, then detect remaining unmarked Russian
-        clean_response = re.sub(ru_marker_pattern, '', clean_response, flags=re.IGNORECASE)
+        clean_response = re.sub(
+            ru_marker_pattern,
+            lambda m: m.group(1).strip(),
+            clean_response,
+            flags=re.IGNORECASE
+        )
         
-        # Step 3: Detect unmarked Russian and auto-translate (only if not already marked)
         detected_russian = detect_russian_expressions(clean_response)
         for word in detected_russian:
             word_lower = word.lower()
             if word_lower not in translations_dict and word_lower in RUSSIAN_TRANSLATIONS:
                 translations_dict[word_lower] = RUSSIAN_TRANSLATIONS[word_lower]
         
-        # Step 4: Clean old translation blocks and excess newlines
         clean_response = re.sub(
             r'(?i)(💬\s*)?(?:Terjemahan|Translation)\s+Russian.*',
             '',
@@ -497,7 +498,6 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         )
         clean_response = re.sub(r'\n{3,}', '\n\n', clean_response.strip())
         
-        # Step 5: Append single translation block if translations exist
         if translations_dict:
             translation_lines = []
             for word_key, translation in sorted(translations_dict.items()):
