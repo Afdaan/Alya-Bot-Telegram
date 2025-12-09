@@ -475,36 +475,20 @@ def _format_single_paragraph(para: str, use_html: bool, lang: str = DEFAULT_LANG
     if para.startswith(">"):
         return _format_blockquote(para, use_html)
 
-    # Check for quoted speech - can be full paragraph or at end
+    # Check for quoted speech (dialogue)
     stripped = para.strip()
-    has_opening_quote = stripped.startswith('"') or stripped.startswith("'")
-    has_closing_quote = '"' in stripped[1:] or "'" in stripped[1:]
     
-    # Full quote paragraph
-    if has_opening_quote and has_closing_quote:
-        content = _strip_stray_asterisks(para)
+    # Pattern 1: Full paragraph is a quote from start to end
+    if stripped.startswith('"') and stripped.endswith('"'):
+        content = stripped[1:-1].strip()  # Remove quotes
+        content = _strip_stray_asterisks(content)
         return f"<blockquote>{escape_html(content)}</blockquote>" if use_html else f"> {content}"
     
-    # Quote at the end of paragraph (e.g., 'Aku melirik. "Kenapa?" tanya saya.')
-    # Detect if paragraph ends with quoted text
-    quote_pattern = r'(["\'])([^"\']+)\1(?:\s+[^"\']*)?$'
-    match = re.search(quote_pattern, stripped)
-    if match:
-        # Extract the quote and everything before it
-        quote_start = match.start(1)
-        prefix = stripped[:quote_start].rstrip()
-        quote_text = match.group(2)
-        
-        if use_html:
-            if prefix:
-                # Format: normal text + blockquote on same line
-                escaped_prefix = escape_html(prefix)
-                escaped_quote = escape_html(quote_text)
-                return f"{escaped_prefix} <blockquote>{escaped_quote}</blockquote>"
-            else:
-                return f"<blockquote>{escape_html(quote_text)}</blockquote>"
-        else:
-            return f"{prefix} > {quote_text}" if prefix else f"> {quote_text}"
+    # Pattern 2: Single quotes
+    if stripped.startswith("'") and stripped.endswith("'"):
+        content = stripped[1:-1].strip()
+        content = _strip_stray_asterisks(content)
+        return f"<blockquote>{escape_html(content)}</blockquote>" if use_html else f"> {content}"
 
     return _format_normal_text(para, use_html)
 
