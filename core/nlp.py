@@ -236,10 +236,13 @@ class NLPEngine:
             try:
                 result = self.sentiment_classifier(text)
                 if result and len(result) > 0:
-                    sentiment_label = result[0]["label"].lower()
-                    confidence = result[0]["score"]
+                    first_result = result[0]
+                    if isinstance(first_result, list):
+                        first_result = first_result[0]
                     
-                    # Map sentiment to intent (high confidence only)
+                    sentiment_label = first_result["label"].lower()
+                    confidence = first_result["score"]
+                    
                     if confidence >= INTENT_CONFIDENCE_THRESHOLD:
                         intent = self._map_sentiment_to_intent(sentiment_label, text_lower, lang)
                         logger.debug(
@@ -251,7 +254,7 @@ class NLPEngine:
                         logger.debug(f"Low confidence sentiment, defaulting to normal")
                         
             except Exception as e:
-                logger.error(f"Error in sentiment-based intent detection: {e}")
+                logger.error(f"Error in sentiment-based intent detection: {e}", exc_info=True)
                 intent = "normal"
         
         # Cache result
