@@ -161,7 +161,6 @@ class GeminiClient:
 
         for attempt in range(retry_count):
             try:
-                # Construct the prompt using the persona manager
                 if is_media_analysis:
                     prompt = self.persona_manager.get_media_analysis_prompt(
                         username=username,
@@ -170,14 +169,7 @@ class GeminiClient:
                         lang=lang
                     )
                 else:
-                    prompt = self.persona_manager.get_chat_prompt(
-                        username=username,
-                        message=message,
-                        context=context,
-                        relationship_level=relationship_level,
-                        is_admin=is_admin,
-                        lang=lang
-                    )
+                    prompt = f"{context}\n\nUser: {message}"
 
                 generation_config = GenerationConfig(
                     max_output_tokens=MAX_OUTPUT_TOKENS,
