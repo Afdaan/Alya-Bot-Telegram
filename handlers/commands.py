@@ -116,7 +116,10 @@ class CommandsHandler:
             photo_to_process = message.photo[-1]
 
         if not photo_to_process:
-            await message.reply_html(sauce_texts["usage"])
+            await message.reply_html(
+                sauce_texts["usage"],
+                reply_to_message_id=update.message.message_id
+            )
             return
 
         status_message = await message.reply_text(sauce_texts["searching"])
@@ -195,7 +198,10 @@ class CommandsHandler:
                 lang = get_user_lang(update.effective_user.id)
                 from handlers.response.analyze import analyze_response
                 response = analyze_response(lang=lang)
-                await message.reply_html(response)
+                await message.reply_html(
+                    response,
+                    reply_to_message_id=update.message.message_id
+                )
                 return
             
             logger.info(f"[!ask TEXT] Processing query: {text[:50]}...")
@@ -243,7 +249,10 @@ class CommandsHandler:
             lang = get_user_lang(update.effective_user.id)
             from handlers.response.analyze import analyze_response
             response = analyze_response(lang=lang)
-            await message.reply_html(response)
+            await message.reply_html(
+                response,
+                reply_to_message_id=update.message.message_id
+            )
             return
             
         logger.info(f"[!ask TEXT] Processing query from {update.effective_user.id}: {text[:50]}...")
@@ -363,7 +372,11 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     
     # Get confirmation message
     response = get_reset_confirmation_response(lang=lang)
-    await update.message.reply_html(response, reply_markup=reply_markup)
+    await update.message.reply_html(
+        response,
+        reply_markup=reply_markup,
+        reply_to_message_id=update.message.message_id
+    )
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -375,7 +388,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception as e:
         logger.error(f"Error fetching stats: {e}")
         response = get_system_error_response(lang)
-    await update.message.reply_html(response)
+    await update.message.reply_html(
+        response,
+        reply_to_message_id=update.message.message_id
+    )
 
 async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /lang command to change user language preference."""
@@ -385,29 +401,44 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     if not db_manager:
         logger.error("Database manager not found for lang_command")
-        await update.message.reply_html(get_system_error_response(current_lang))
+        await update.message.reply_html(
+            get_system_error_response(current_lang),
+            reply_to_message_id=update.message.message_id
+        )
         return
     
     if not context.args or len(context.args) == 0:
         response = get_lang_response(lang=current_lang)
-        await update.message.reply_html(response)
+        await update.message.reply_html(
+            response,
+            reply_to_message_id=update.message.message_id
+        )
         return
     
     new_lang = context.args[0].lower().strip()
     
     if new_lang not in ['en', 'id']:
         response = get_lang_response(lang=current_lang)
-        await update.message.reply_html(response)
+        await update.message.reply_html(
+            response,
+            reply_to_message_id=update.message.message_id
+        )
         return
     
     try:
         db_manager.update_user_settings(user_id, {'language': new_lang})
         logger.info(f"User {user_id} changed language from {current_lang} to {new_lang}")
         response = get_lang_response(lang=new_lang, new_lang=new_lang)
-        await update.message.reply_html(response)
+        await update.message.reply_html(
+            response,
+            reply_to_message_id=update.message.message_id
+        )
     except Exception as e:
         logger.error(f"Failed to update language for user {user_id}: {e}", exc_info=True)
-        await update.message.reply_html(get_system_error_response(current_lang))
+        await update.message.reply_html(
+            get_system_error_response(current_lang),
+            reply_to_message_id=update.message.message_id
+        )
 
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -432,7 +463,10 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     query = " ".join(args) if args else ""
     if not query:
         usage_text = search_usage_response(lang=lang)
-        await update.message.reply_html(usage_text)
+        await update.message.reply_html(
+            usage_text,
+            reply_to_message_id=update.message.message_id
+        )
         return
 
     await update.message.chat.send_action(ChatAction.TYPING)
@@ -454,12 +488,19 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             show_username_tip=show_username_tip
         )
         
-        await update.message.reply_html(response_text, disable_web_page_preview=True)
+        await update.message.reply_html(
+            response_text,
+            disable_web_page_preview=True,
+            reply_to_message_id=update.message.message_id
+        )
 
     except Exception as e:
         logger.error(f"Search error for query '{query}': {e}")
         error_text = search_error_response(lang=lang, error_message=str(e))
-        await update.message.reply_html(error_text)
+        await update.message.reply_html(
+            error_text,
+            reply_to_message_id=update.message.message_id
+        )
 
 async def set_bot_commands(application, lang='en') -> None:
     """Sets the bot commands based on user language."""

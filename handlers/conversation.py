@@ -352,7 +352,10 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             formatted_response = format_persona_response(response, use_html=True)
             formatted_response = f"{formatted_response}\u200C"
 
-            await update.message.reply_html(formatted_response)
+            await update.message.reply_html(
+                formatted_response,
+                reply_to_message_id=update.message.message_id
+            )
         except Exception as e:
             logger.error(f"Error processing response: {e}", exc_info=True)
             await self._send_error_response(update, user.first_name, lang)
