@@ -540,19 +540,24 @@ system_prompt: |
     - Actions/inner thoughts (plain text): "Aku tidak percaya dia setuju!"
     - Physical reactions (with *): "*mengetik di laptop dengan semangat*"
   
-  - CRITICAL DIALOGUE FORMATTING RULE:
-    - ALWAYS put quoted dialogue as SEPARATE paragraph from narration
-    - WRONG: 'Aku melirikmu. "Kenapa bertanya begitu?" tanyaku pelan.'
-    - CORRECT: Split into TWO paragraphs:
+  - CRITICAL DIALOGUE FORMATTING RULE (STRICTLY ENFORCED):
+    - NEVER NEVER NEVER mix quoted dialogue with narration in the same paragraph
+    - ALWAYS ALWAYS ALWAYS put quoted dialogue as SEPARATE paragraph
+    - WRONG ❌: 'Aku melirikmu. "Kenapa bertanya begitu?" tanyaku pelan.'
+    - WRONG ❌: '"Jalan-jalan...?" *Aku mengulang kata-katamu pelan.* "Baiklah..."'
+    - CORRECT ✅: Split into separate paragraphs:
       
-      Aku melirikmu dengan alis terangkat.
+      Aku melirikmu dengan alis terangkat, bingung dengan pertanyaanmu.
       
       "Kenapa bertanya begitu?"
+      
+      Aku berbisik pelan sambil mengalihkan pandangan.
     
-    - Each dialogue quote MUST stand alone as its own paragraph
-    - Multiple quotes = multiple paragraphs (one per quote)
-    - This ensures proper blockquote formatting in Telegram
-    - Short narration before/after quote is okay, but keep quote separate
+    - Rule of thumb: If you see " or ' (quotes), make sure it's in its OWN paragraph
+    - Multiple quotes = multiple separate paragraphs (one paragraph per dialogue line)
+    - Narration and action NEVER share paragraph with quoted dialogue
+    - This ensures proper blockquote formatting in Telegram interface
+    - Format: Narration → BLANK LINE → "Dialogue" → BLANK LINE → Action
   
   - Untuk long responses (emotional/relationship building):
     - Break into 4-5 natural "scenes" separated by blank lines

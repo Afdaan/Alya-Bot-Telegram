@@ -209,6 +209,16 @@ def format_persona_response(
     
     message = re.sub(r'[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]', '', message)
 
+    # Extract Russian translation block if exists (should not be counted in max_paragraphs)
+    translation_block = ""
+    translation_pattern = r'(💬\s*(?:Terjemahan|Translation)\s+Russian:.*?)(?=\n\n|$)'
+    translation_match = re.search(translation_pattern, message, re.DOTALL | re.IGNORECASE)
+    if translation_match:
+        translation_block = translation_match.group(1).strip()
+        # Remove translation block from message before paragraph processing
+        message = message[:translation_match.start()] + message[translation_match.end():]
+        message = message.strip()
+
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", message.strip()) if p.strip()]
     if max_paragraphs and max_paragraphs > 0:
         paragraphs = paragraphs[: max_paragraphs]
@@ -225,6 +235,13 @@ def format_persona_response(
     
     if use_html:
         final_text = re.sub(r'(?<![<>/])\*+(?![<>/])', '', final_text)
+    
+    # Re-append Russian translation block if it existed
+    if translation_block:
+        # Format translation block as blockquote
+        if use_html:
+            translation_block = f"<blockquote>{escape_html(translation_block)}</blockquote>"
+        final_text = f"{final_text}\n\n{translation_block}"
     
     return final_text.strip()
 
