@@ -197,7 +197,7 @@ def format_response(
 
 def format_persona_response(
     message: str,
-    max_paragraphs: int = 4,
+    max_paragraphs: Optional[int] = 10,
     use_html: bool = True,
     lang: str = DEFAULT_LANGUAGE,
 ) -> str:
