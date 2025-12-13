@@ -243,9 +243,15 @@ class GeminiClient:
                     success = self._rotate_key()
                     if not success:
                         logger.critical("All API keys exhausted. Unable to generate content.")
+                        if lang == "en":
+                            return "Sorry, I'm having some internal issues right now. Please try again later. 😓"
                         return "Maaf, sepertinya Alya lagi ada masalah internal. Coba lagi nanti ya. 😓"
                 else:
                     logger.critical(f"Failed to generate content after trying all API keys: {e}")
+                    if lang == "en":
+                        return "I'm so sorry, all my connections to the data center are failing. Maybe try again in a few moments? 😥"
                     return "Aduh, maaf banget, semua koneksi Alya ke pusat data lagi gagal. Mungkin bisa coba beberapa saat lagi? 😥"
-                    
+        
+        if lang == "en":
+            return "I tried multiple times but it still failed. Something's not right. Please try again later. 😔"
         return "Duh, Alya coba berkali-kali tapi tetep gagal. Kayaknya ada yang gak beres. Coba lagi nanti ya. 😔"
