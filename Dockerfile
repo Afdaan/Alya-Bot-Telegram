@@ -1,4 +1,4 @@
-FROM python:3.12-alpine
+FROM python:3.12-slim
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -8,19 +8,16 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install essential system dependencies (Alpine apk)
-RUN apk add --no-cache \
+# Install essential system dependencies (minimal Debian packages)
+RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        libjpeg \
-        libffi-dev \
-        build-base \
-        gcc \
-        musl-dev \
-    && rm -rf /tmp/* /var/tmp/*
+        libjpeg62-turbo \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Create non-root user for security
-RUN addgroup -S alya && adduser -S alya -G alya -h /app -s /sbin/nologin
+RUN groupadd -r alya && useradd -r -g alya -d /app -s /usr/sbin/nologin alya
 
 # Copy and install Python dependencies
 COPY requirements.txt .
@@ -30,9 +27,8 @@ RUN pip install --upgrade pip setuptools wheel && \
 # Copy application code
 COPY --chown=alya:alya . .
 
-# Create necessary directories and set permissions
+# Create necessary directories with proper permissions
 RUN mkdir -p /app/data /app/logs /app/cache && \
-    chown -R alya:alya /app && \
     chmod 755 /app/data /app/logs /app/cache
 
 # Switch to non-root user
