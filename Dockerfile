@@ -20,7 +20,7 @@ RUN apk add --no-cache \
     && rm -rf /tmp/* /var/tmp/*
 
 # Create non-root user for security
-RUN groupadd -r alya && useradd -r -g alya -d /app -s /bin/bash alya
+RUN addgroup -S alya && adduser -S alya -G alya -h /app -s /sbin/nologin
 
 # Copy and install Python dependencies
 COPY requirements.txt .
