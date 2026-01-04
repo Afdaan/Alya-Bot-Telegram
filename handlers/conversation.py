@@ -607,7 +607,7 @@ Respond naturally, empathetically, and reference prior conversation when relevan
 
         # User's emotions towards Alya
         emotion = message_context.get("emotion", "")
-        if emotion in ["happy", "excited", "grateful", "joy", "love", "admiration"]:
+        if emotion in ["happy", "excited", "grateful", "joy", "love", "admiration", "amusement", "optimism", "relief", "pride", "caring", "approval"]:
             affection_delta += AFFECTION_POINTS.get("positive_emotion", 2)
             logger.debug(f"User {user_id} shows positive emotion '{emotion}': +{AFFECTION_POINTS.get('positive_emotion', 2)}")
         elif emotion in ["sad", "worried", "disappointed"]:

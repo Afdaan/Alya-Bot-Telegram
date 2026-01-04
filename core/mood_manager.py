@@ -155,6 +155,12 @@ class MoodManager:
                 new_intensity = min(70, current_intensity + 10)
                 trigger = "good_interaction"
         
+        # New block: Handle lighter positive emotions (amusement, optimism, etc.) even with low affection delta
+        elif affection_delta > 0 and emotion in ["amusement", "optimism", "relief", "pride", "caring", "approval", "happy", "joy"]:
+             new_mood = "happy"
+             new_intensity = min(65, current_intensity + 5)
+             trigger = f"positive_emotion_{emotion}"
+        
         elif affection_delta <= -8:
             if intent in ["insult", "toxic_behavior", "rudeness"]:
                 new_mood = "annoyed"
