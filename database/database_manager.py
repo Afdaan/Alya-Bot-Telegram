@@ -1084,5 +1084,92 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error in get_rag_texts for user {user_id}: {e}", exc_info=True)
             return []
+    
+    # ========================================================================
+    # MOOD SYSTEM METHODS
+    # ========================================================================
+    
+    def update_user_mood(
+        self, 
+        user_id: int, 
+        mood: str, 
+        intensity: int,
+        mood_history: List[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        Update user's current mood state.
+        
+        Args:
+            user_id: Telegram user ID
+            mood: New mood state (happy, tsundere, affectionate, neutral, annoyed, sad)
+            intensity: Mood intensity (0-100)
+            mood_history: Optional updated mood history
+            
+        Returns:
+            bool: True if updated successfully
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    logger.warning(f"Cannot update mood for non-existent user {user_id}")
+                    return False
+                
+                old_mood = user.current_mood
+                user.current_mood = mood
+                user.mood_intensity = intensity
+                user.last_mood_change = datetime.now()
+                
+                if mood_history is not None:
+                    user.mood_history = mood_history
+                
+                session.commit()
+                
+                logger.info(
+                    f"Updated mood for user {user_id}: {old_mood} → {mood} "
+                    f"(intensity: {intensity})"
+                )
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating mood for user {user_id}: {e}", exc_info=True)
+            return False
+    
+    def get_user_mood(self, user_id: int) -> Dict[str, Any]:
+        """
+        Get user's current mood state.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            Dict with mood, intensity, last_change, and history
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    return {
+                        "mood": "neutral",
+                        "intensity": 50,
+                        "last_change": datetime.now(),
+                        "history": []
+                    }
+                
+                return {
+                    "mood": user.current_mood or "neutral",
+                    "intensity": user.mood_intensity or 50,
+                    "last_change": user.last_mood_change or datetime.now(),
+                    "history": user.mood_history or []
+                }
+                
+        except Exception as e:
+            logger.error(f"Error getting mood for user {user_id}: {e}", exc_info=True)
+            return {
+                "mood": "neutral",
+                "intensity": 50,
+                "last_change": datetime.now(),
+                "history": []
+            }
 
 db_manager = DatabaseManager()
