@@ -509,7 +509,9 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             self.db.save_message(user.id, "assistant", response)
             self.memory.save_bot_response(user.id, response)
             if message_context:
-                self._update_affection_from_context(user.id, message_context)
+                # self._update_affection_from_context(user.id, message_context)
+                # Affection update handled in chat_command before response generation
+                pass
 
             # Step 1: Split mixed quote-narration paragraphs
             response = self._split_mixed_quote_paragraphs(response)
@@ -596,11 +598,10 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             lang=lang
         )
 
-    def _update_affection_from_context(self, user_id: int, message_context: Dict[str, Any]) -> None:
-        """Update Alya's affection based on user's emotion, intent, and relationship signals."""
+    def _calculate_affection_delta(self, user_id: int, message_context: Dict[str, Any]) -> int:
+        """Calculate affection delta based on user's emotion, intent, and relationship signals."""
         if not message_context:
-            self.db.update_affection(user_id, AFFECTION_POINTS.get("conversation", 1))
-            return
+            return AFFECTION_POINTS.get("conversation", 1)
 
         affection_delta = 0
 
@@ -672,6 +673,7 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         if abs(affection_delta) >= 1:
             affection_delta = round(affection_delta)
             logger.info(f"[AFFECTION] User {user_id}: {affection_delta:+d} | emotion={emotion}, intent={intent}")
-            self.db.update_affection(user_id, affection_delta)
+            return affection_delta
         else:
             logger.debug(f"[AFFECTION] User {user_id}: no change (delta={affection_delta:.1f})")
+            return 0
