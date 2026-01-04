@@ -163,15 +163,63 @@ class ConversationHandler:
                 message_context = self.nlp.get_message_context(query, user.id)
                 logger.debug(f"Message context for user {user.id}: {message_context}")
             
-            # === STEP 2: Update affection based on analysis ===
+            # === STEP 2: Calculate affection delta (before applying) ===
+            affection_delta = 0
             if message_context:
-                self._update_affection_from_context(user.id, message_context)
+                affection_delta = self._calculate_affection_delta(user.id, message_context)
             
-            # === STEP 3: Increment interaction count (will recalculate level) ===
+            # === STEP 3: Get current mood and calculate new mood ===
+            from core.mood_manager import MoodManager
+            mood_manager = MoodManager()
+            
+            current_mood_data = self.db.get_user_mood(user.id)
+            user_info = self.db.get_user_relationship_info(user.id)
+            
+            new_mood_state = mood_manager.calculate_mood(
+                current_mood=current_mood_data["mood"],
+                current_intensity=current_mood_data["intensity"],
+                affection_delta=affection_delta,
+                emotion_context=message_context,
+                relationship_level=user_info["relationship_level"],
+                last_mood_change=current_mood_data["last_change"]
+            )
+            
+            # === STEP 4: Apply mood modifier to affection delta ===
+            mood_modifier = mood_manager.get_affection_modifier(
+                new_mood_state.mood, 
+                affection_delta
+            )
+            modified_affection_delta = int(affection_delta * mood_modifier)
+            
+            logger.info(
+                f"[MOOD] User {user.id}: {current_mood_data['mood']} → {new_mood_state.mood} "
+                f"(intensity: {new_mood_state.intensity}) | "
+                f"Affection: {affection_delta} → {modified_affection_delta} (×{mood_modifier:.1f})"
+            )
+            
+            # === STEP 5: Update affection with mood-modified delta ===
+            if modified_affection_delta != 0:
+                self.db.update_affection(user.id, modified_affection_delta)
+            
+            # === STEP 6: Update mood in database ===
+            updated_history = mood_manager.add_to_mood_history(
+                current_mood_data["history"],
+                new_mood_state
+            )
+            self.db.update_user_mood(
+                user.id,
+                new_mood_state.mood,
+                new_mood_state.intensity,
+                updated_history
+            )
+            
+            # === STEP 7: Increment interaction count (will recalculate level) ===
             self.db.increment_interaction_count(user.id)
             
-            # === STEP 4: Prepare context with LATEST relationship level ===
-            user_context = await self._prepare_conversation_context(user, query, lang, message_context)
+            # === STEP 8: Prepare context with LATEST relationship level and MOOD ===
+            user_context = await self._prepare_conversation_context(
+                user, query, lang, message_context, new_mood_state, mood_manager
+            )
             history = self.context_manager.get_context_window(user.id)
             response = await self.gemini.generate_response(
                 user_id=user.id,
@@ -218,9 +266,11 @@ class ConversationHandler:
         user, 
         query: str, 
         lang: str, 
-        message_context: Dict[str, Any]
+        message_context: Dict[str, Any],
+        mood_state = None,
+        mood_manager = None
     ) -> Dict[str, Any]:
-        """Build conversation context with persona prompt, history, and relationship level."""
+        """Build conversation context with persona prompt, history, relationship level, and mood."""
         user_task = asyncio.create_task(self._get_user_info(user))
         
         user_info = self.db.get_user_relationship_info(user.id)
@@ -239,6 +289,21 @@ class ConversationHandler:
             is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
             lang=lang
         )
+        
+        # Add mood-specific personality modifier
+        if mood_state and mood_manager:
+            mood_prompt = mood_manager.get_mood_prompt_modifier(
+                mood_state.mood,
+                mood_state.intensity,
+                lang
+            )
+            persona_prompt += mood_prompt
+            
+            # Add mood-appropriate Russian expressions hint
+            mood_expressions = mood_manager.get_mood_russian_expressions(mood_state.mood)
+            if mood_expressions:
+                expressions_hint = f"\n\nSuggested Russian expressions for current mood: {', '.join(mood_expressions[:4])}"
+                persona_prompt += expressions_hint
         
         # Extract semantic topics from provided message_context
         semantic_topics = message_context.get("semantic_topics", []) if message_context else []
@@ -444,7 +509,9 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             self.db.save_message(user.id, "assistant", response)
             self.memory.save_bot_response(user.id, response)
             if message_context:
-                self._update_affection_from_context(user.id, message_context)
+                # self._update_affection_from_context(user.id, message_context)
+                # Affection update handled in chat_command before response generation
+                pass
 
             # Step 1: Split mixed quote-narration paragraphs
             response = self._split_mixed_quote_paragraphs(response)
@@ -531,17 +598,16 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             lang=lang
         )
 
-    def _update_affection_from_context(self, user_id: int, message_context: Dict[str, Any]) -> None:
-        """Update Alya's affection based on user's emotion, intent, and relationship signals."""
+    def _calculate_affection_delta(self, user_id: int, message_context: Dict[str, Any]) -> int:
+        """Calculate affection delta based on user's emotion, intent, and relationship signals."""
         if not message_context:
-            self.db.update_affection(user_id, AFFECTION_POINTS.get("conversation", 1))
-            return
+            return AFFECTION_POINTS.get("conversation", 1)
 
         affection_delta = 0
 
         # User's emotions towards Alya
         emotion = message_context.get("emotion", "")
-        if emotion in ["happy", "excited", "grateful", "joy", "love", "admiration"]:
+        if emotion in ["happy", "excited", "grateful", "joy", "love", "admiration", "amusement", "optimism", "relief", "pride", "caring", "approval"]:
             affection_delta += AFFECTION_POINTS.get("positive_emotion", 2)
             logger.debug(f"User {user_id} shows positive emotion '{emotion}': +{AFFECTION_POINTS.get('positive_emotion', 2)}")
         elif emotion in ["sad", "worried", "disappointed"]:
@@ -607,6 +673,7 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         if abs(affection_delta) >= 1:
             affection_delta = round(affection_delta)
             logger.info(f"[AFFECTION] User {user_id}: {affection_delta:+d} | emotion={emotion}, intent={intent}")
-            self.db.update_affection(user_id, affection_delta)
+            return affection_delta
         else:
             logger.debug(f"[AFFECTION] User {user_id}: no change (delta={affection_delta:.1f})")
+            return 0

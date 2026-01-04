@@ -42,6 +42,12 @@ class User(Base):
     interaction_count = Column(Integer, default=0, index=True)
     topics_discussed = Column(JSON, default=lambda: [])
     
+    # Mood System - tracks Alya's current emotional state
+    current_mood = Column(String(20), default='neutral', index=True)
+    mood_intensity = Column(SmallInteger, default=50)  # 0-100 scale
+    last_mood_change = Column(DateTime, default=datetime.now)
+    mood_history = Column(JSON, default=lambda: [])  # Recent mood transitions
+    
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     summaries = relationship("ConversationSummary", back_populates="user", cascade="all, delete-orphan")
     
@@ -49,6 +55,7 @@ class User(Base):
         Index('idx_user_active_interaction', 'is_active', 'last_interaction'),
         Index('idx_user_relationship_level', 'relationship_level', 'affection_points'),
         Index('idx_user_stats', 'interaction_count', 'relationship_level'),
+        Index('idx_user_mood', 'current_mood', 'mood_intensity'),
         {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci'}
     )
     
