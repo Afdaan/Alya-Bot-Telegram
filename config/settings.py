@@ -215,3 +215,5 @@ LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 PTB_DEFAULTS = {
     'parse_mode': 'HTML',
 }
+
+RAG_MAX_RESULT = 25
