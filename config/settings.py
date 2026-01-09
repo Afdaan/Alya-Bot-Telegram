@@ -216,4 +216,4 @@ PTB_DEFAULTS = {
     'parse_mode': 'HTML',
 }
 
-RAG_MAX_RESULT = 25
+RAG_MAX_RESULTS = 25
