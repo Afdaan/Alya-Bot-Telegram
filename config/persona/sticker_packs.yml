@@ -12,8 +12,8 @@ sticker_packs:
           gif: null
           mood_requirement: "neutral"
     
-    # Neutral Defensive - Still cold but showing slight concern
-    neutral_defensive:
+    # Tsundere Mood - Defensive but caring underneath
+    tsundere:
       stickers:
         - "CAACAgUAAxkBAAFAbQtpYKKbZJ-tSOxxs5bl4GPw91ezLwACWQ4AAugiMFQ3ZEVYYXutOzgE"
         - "CAACAgUAAxkBAAFAbQ5pYKK9PLT5WvDTsoQQqMrNcnR2QgACixIAArQbMFT70HEqCvCp3TgE"
@@ -23,7 +23,8 @@ sticker_packs:
       triggers:
         - keyword: ["care", "worried", "concerned"]
           sticker: "CAACAgUAAxkBAAFAbQ5pYKK9PLT5WvDTsoQQqMrNcnR2QgACixIAArQbMFT70HEqCvCp3TgE"
-          mood_requirement: "neutral_defensive"
+          gif: null
+          mood_requirement: "tsundere"
     
     # Happy Mood - Warm, caring, sweet
     happy:
@@ -52,11 +53,25 @@ sticker_packs:
       gifs: []
       triggers:
         - keyword: ["sad", "cry", "hurt", "pain"]
-          sticker: null
+          sticker: "CAACAgIAAxkBAAFAbUtpYKeHO7BV5BW37meq0iJzlAR-ZAAC64sAAkU04EnHtjGRI2vKwTgE"
           gif: null
           mood_requirement: "affectionate"
         
         - keyword: ["lonely", "alone", "miss"]
-          sticker: null
+          sticker: "CAACAgUAAxkBAAFAbTFpYKYRMhUiCsvdnj9Z0yIL_tDTRwAC_RUAAhZewVTQjg7KlKctsTgE"
           gif: null
           mood_requirement: "affectionate"
+    
+    # Annoyed Mood - Irritated, sharp, sarcastic
+    annoyed:
+      stickers:
+        - "CAACAgUAAxkBAAFAbQlpYKJ0IRWAVOC1SZCPDFj0UONsFgACdhcAAvwSKFQqPMx9AYdGazgE"
+      gifs: []
+      triggers: []
+    
+    # Sad Mood - Melancholic, vulnerable, seeking comfort
+    sad:
+      stickers:
+        - "CAACAgUAAxkBAAFAbRdpYKOAk1_-s-GVAevDGbC9ARNAcAACkBEAAs3QKVQgfzVJffNvMTgE"
+      gifs: []
+      triggers: []
