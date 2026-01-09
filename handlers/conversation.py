@@ -571,6 +571,12 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             sticker_mgr = StickerManager()
             mood = mood_state.mood if mood_state else "neutral"
             
+            logger.info(
+                f"[STICKER] Starting sticker logic: user={user_id}, "
+                f"mood={mood}, mood_state={mood_state}, "
+                f"relationship_level={relationship_level}"
+            )
+            
             # === CHECK STICKER UNLOCK LEVEL ===
             min_sticker_level = STICKER_GIF_SETTINGS.get("min_relationship_level_for_sticker", 3)
             allow_sticker_override = STICKER_GIF_SETTINGS.get("allow_sticker_before_relationship", False)
@@ -582,6 +588,10 @@ Respond naturally, empathetically, and reference prior conversation when relevan
                     user_message=message_text,
                     relationship_level=relationship_level
                 )
+                logger.info(
+                    f"[STICKER] get_sticker_for_mood returned: {sticker_id} "
+                    f"(mood={mood}, message_text={message_text})"
+                )
             else:
                 logger.debug(
                     f"[STICKER] User {user_id} level {relationship_level} < "
@@ -592,7 +602,7 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             if sticker_id:
                 try:
                     await update.message.reply_sticker(sticker=sticker_id)
-                    logger.debug(f"[STICKER] Sent sticker for mood '{mood}' to user {user_id}")
+                    logger.info(f"[STICKER] Sent sticker for mood '{mood}' to user {user_id}")
                 except Exception as e:
                     logger.warning(f"Failed to send sticker: {e}")
                     

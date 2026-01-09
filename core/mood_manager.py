@@ -12,7 +12,7 @@ VALID_MOODS = ["happy", "tsundere", "affectionate", "neutral", "annoyed", "sad"]
 MOOD_DECAY_RATES = {
     "happy": 0.15,
     "tsundere": 0.10,
-    "affectective": 0.08,
+    "affectionate": 0.08,
     "neutral": 0.0,
     "annoyed": 0.20,
     "sad": 0.12
