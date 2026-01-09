@@ -1,7 +1,7 @@
 sticker_packs:
   default:
-    # Tsundere Cold Mood - Maximum distance, defensive
-    tsundere_cold:
+    # Neutral/Cold Mood - Distant, defensive
+    neutral:
       stickers:
         - "CAACAgUAAxkBAAFAbPdpYJ_JV6867qaQsSLUEXTR14ttKAAC3xYAAi5fKFQrkug3hWaGkjgE"
         - "CAACAgUAAxkBAAFAbQlpYKJ0IRWAVOC1SZCPDFj0UONsFgACdhcAAvwSKFQqPMx9AYdGazgE"
@@ -10,10 +10,10 @@ sticker_packs:
         - keyword: ["stupid", "baka", "idiot"]
           sticker: "CAACAgIAAxkBAAFAbPdpYJ_JV6867qaQsSLUEXTR14ttKAAC3xYAAi5fKFQrkug3hWaGkjgE"
           gif: null
-          mood_requirement: "tsundere_cold"
+          mood_requirement: "neutral"
     
-    # Tsundere Defensive - Still cold but showing slight concern
-    tsundere_defensive:
+    # Neutral Defensive - Still cold but showing slight concern
+    neutral_defensive:
       stickers:
         - "CAACAgUAAxkBAAFAbQtpYKKbZJ-tSOxxs5bl4GPw91ezLwACWQ4AAugiMFQ3ZEVYYXutOzgE"
         - "CAACAgUAAxkBAAFAbQ5pYKK9PLT5WvDTsoQQqMrNcnR2QgACixIAArQbMFT70HEqCvCp3TgE"
@@ -23,10 +23,10 @@ sticker_packs:
       triggers:
         - keyword: ["care", "worried", "concerned"]
           sticker: "CAACAgUAAxkBAAFAbQ5pYKK9PLT5WvDTsoQQqMrNcnR2QgACixIAArQbMFT70HEqCvCp3TgE"
-          mood_requirement: "tsundere_defensive"
+          mood_requirement: "neutral_defensive"
     
-    # Waifu Mode - Warm, caring, sweet
-    waifu:
+    # Happy Mood - Warm, caring, sweet
+    happy:
       stickers:
         - "CAACAgUAAxkBAAFAbRFpYKLigD2Kx2kPHL3WGx6fPtHOhwAC9xUAAgPIKVTCAh3nnzx-gTgE"  # Happy blush
         - "CAACAgUAAxkBAAFAbSVpYKQUO6fBBprO5VcnR-nr-8cEEAACOg0AAp3aMFQKRHfuQ8VkATgE"  # Cute smile
@@ -37,26 +37,26 @@ sticker_packs:
         - keyword: ["love", "cute", "beautiful", "amazing"]
           sticker: "CAACAgUAAxkBAAFAbS1pYKW54wqfyONit2mls1GE8kmejwACBg4AAg1yMVQLm1c90OtkDTgE"
           gif: null
-          mood_requirement: "waifu"
+          mood_requirement: "happy"
         
         - keyword: ["thank", "gracias", "terima kasih"]
           sticker: "CAACAgUAAxkBAAFAbS9pYKXNfU7ls_N0kazUfp0TZDBs3AACrTEAAjL1KVRmMt4a_wLjTzgE"
           gif: null
-          mood_requirement: "waifu"
+          mood_requirement: "happy"
     
-    # Dere Caring Mode - Most affectionate
-    dere_caring:
+    # Affectionate Mood - Most intimate & caring (Soulmate level)
+    affectionate:
       stickers:
         - "CAACAgUAAxkBAAFAbTFpYKYRMhUiCsvdnj9Z0yIL_tDTRwAC_RUAAhZewVTQjg7KlKctsTgE"  # Gentle blush
-        - "CAACAgIAAxkBAAFAbUtpYKeHO7BV5BW37meq0iJzlAR-ZAAC64sAAkU04EnHtjGRI2vKwTgE"
+        - "CAACAgIAAxkBAAFAbUtpYKeHO7BV5BW37meq0iJzlAR-ZAAC64sAAkU04EnHtjGRI2vKwTgE"  # Sweet smile
       gifs: []
       triggers:
         - keyword: ["sad", "cry", "hurt", "pain"]
           sticker: null
           gif: null
-          mood_requirement: "dere_caring"
+          mood_requirement: "affectionate"
         
         - keyword: ["lonely", "alone", "miss"]
           sticker: null
           gif: null
-          mood_requirement: "dere_caring"
+          mood_requirement: "affectionate"
