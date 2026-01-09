@@ -194,10 +194,17 @@ RUSSIAN_EXPRESSIONS: Dict[str, Dict[str, List[str]]] = {
     }
 }
 
-# RAG Settings
-RAG_MAX_RESULTS: int = 25
+# Sticker & GIF Settings
+STICKER_GIF_SETTINGS: Dict[str, Any] = {
+    "enabled": True,  # Master toggle for sticker/GIF feature
+    "min_relationship_level_for_sticker": 3,  # Minimum relationship level to send stickers (0-4)
+    "min_relationship_level_for_gif": 3,  # Minimum relationship level to send GIFs (0-4)
+    "gif_send_probability": 0.3,  # Probability to send GIF after response (0.0-1.0)
+    "sticker_pack": "default",  # Which sticker pack to use from YAML
+    "allow_sticker_before_relationship": False,  # Send stickers even if level < min? (debug/override)
+}
 
-# Security
+# Relationship Levels - Configurable thresholds
 MAX_MESSAGE_LENGTH: int = 4096  # Telegram limit
 
 # Logging Settings

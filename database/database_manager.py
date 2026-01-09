@@ -161,6 +161,30 @@ class DatabaseManager:
             logger.error(f"Error getting user settings for {user_id}: {e}", exc_info=True)
             return {'language': DEFAULT_LANGUAGE}
 
+    def update_user_preferences(self, user_id: int, preferences: Dict[str, Any]) -> None:
+        """Update user preferences in the database (JSON field).
+        
+        Args:
+            user_id: The user's Telegram ID.
+            preferences: Dictionary of preference settings (merged with existing).
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter_by(id=user_id).first()
+                
+                if user:
+                    # Merge with existing preferences
+                    if user.preferences:
+                        user.preferences.update(preferences)
+                    else:
+                        user.preferences = preferences
+                    session.commit()
+                    logger.info(f"Updated preferences for user {user_id}: {preferences}")
+                else:
+                    logger.warning(f"User {user_id} not found when trying to update preferences.")
+        except Exception as e:
+            logger.error(f"Failed to update user preferences for {user_id}: {e}", exc_info=True)
+
     def reset_user_conversation(self, user_id: int) -> bool:
         """
         Deletes all conversation history for a specific user.

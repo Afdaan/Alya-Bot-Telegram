@@ -100,6 +100,8 @@ class CommandsHandler:
         self.application.add_handler(CommandHandler("search_profile", search_profile_command))
         self.application.add_handler(CommandHandler("search_news", search_news_command))
         self.application.add_handler(CommandHandler("search_image", search_image_command))
+        self.application.add_handler(CommandHandler("sticker_on", sticker_on_command))
+        self.application.add_handler(CommandHandler("sticker_off", sticker_off_command))
         logger.info("Registered sauce and utility commands successfully")
 
     async def handle_sauce_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -506,6 +508,68 @@ async def search_image_command(update: Update, context: ContextTypes.DEFAULT_TYP
     args = context.args if context.args else []
     context.args = ["-i"] + args
     await search_command(update, context)
+
+async def sticker_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Enable sticker and GIF feature for current user."""
+    user = update.effective_user
+    lang = get_user_lang(user.id)
+    
+    try:
+        # Get user preferences
+        user_data = db_manager.get_user(user.id)
+        if not user_data:
+            await update.message.reply_text("❌ User not found. Please /start first.")
+            return
+        
+        # Update preferences
+        preferences = user_data.get("preferences", {})
+        preferences["sticker_enabled"] = True
+        db_manager.update_user_preferences(user.id, preferences)
+        
+        # Response based on language
+        if lang == "id":
+            response = "✨ Fitur sticker dan GIF Alya sudah diaktifkan! Nikmati ekspresi Alya yang lebih hidup~ 💫"
+        else:
+            response = "✨ Alya's sticker and GIF feature is now enabled! Enjoy her lively expressions~ 💫"
+        
+        await update.message.reply_text(response)
+        logger.info(f"[STICKER] User {user.id} enabled sticker feature")
+        
+    except Exception as e:
+        logger.error(f"Error in sticker_on_command: {e}")
+        error_response = "😅 Ada error saat mengubah preferensi..." if lang == "id" else "😅 Error changing preferences..."
+        await update.message.reply_text(error_response)
+
+async def sticker_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Disable sticker and GIF feature for current user."""
+    user = update.effective_user
+    lang = get_user_lang(user.id)
+    
+    try:
+        # Get user preferences
+        user_data = db_manager.get_user(user.id)
+        if not user_data:
+            await update.message.reply_text("❌ User not found. Please /start first.")
+            return
+        
+        # Update preferences
+        preferences = user_data.get("preferences", {})
+        preferences["sticker_enabled"] = False
+        db_manager.update_user_preferences(user.id, preferences)
+        
+        # Response based on language
+        if lang == "id":
+            response = "🤐 Fitur sticker dan GIF Alya sudah dinonaktifkan. Kamu hanya akan menerima pesan teks saja."
+        else:
+            response = "🤐 Alya's sticker and GIF feature is now disabled. You'll only receive text messages."
+        
+        await update.message.reply_text(response)
+        logger.info(f"[STICKER] User {user.id} disabled sticker feature")
+        
+    except Exception as e:
+        logger.error(f"Error in sticker_off_command: {e}")
+        error_response = "😅 Ada error saat mengubah preferensi..." if lang == "id" else "😅 Error changing preferences..."
+        await update.message.reply_text(error_response)
 
 def register_commands(application) -> None:
     """Registers all command handlers for the bot."""
