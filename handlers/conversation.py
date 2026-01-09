@@ -1,76 +1,82 @@
-"""
-Conversation for Alya Bot.
-"""
+"""Conversation handler for Alya Bot."""
+
+import asyncio
 import logging
 import random
-from typing import Dict, List, Optional, Any
-import asyncio
 import re
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes, MessageHandler, filters
 
 from config.settings import (
-    COMMAND_PREFIX,
-    FEATURES,
     ADMIN_IDS,
     AFFECTION_POINTS,
+    COMMAND_PREFIX,
+    DEFAULT_LANGUAGE,
+    FEATURES,
     RELATIONSHIP_LEVELS,
     RELATIONSHIP_THRESHOLDS,
-    DEFAULT_LANGUAGE
 )
 from core.gemini_client import GeminiClient
-from core.persona import PersonaManager
 from core.memory import MemoryManager
-from database.database_manager import db_manager, get_user_lang
-from core.nlp import NLPEngine, ContextManager
-from utils.formatters import format_response, format_error_response, format_paragraphs, format_persona_response
+from core.nlp import ContextManager, NLPEngine
+from core.persona import PersonaManager
 from core.sticker_manager import StickerManager
+from database.database_manager import db_manager, get_user_lang
+from utils.formatters import (
+    format_error_response,
+    format_paragraphs,
+    format_persona_response,
+    format_response,
+)
 
 
 logger = logging.getLogger(__name__)
 
+
 class ConversationHandler:
-    """Handler for conversation functionality with Alya."""
-    
+    """Handle conversation interactions with Alya."""
+
     def __init__(
         self,
         gemini_client: GeminiClient,
-        persona_manager: PersonaManager, 
+        persona_manager: PersonaManager,
         memory_manager: MemoryManager,
-        nlp_engine: Optional[NLPEngine] = None
+        nlp_engine: Optional[NLPEngine] = None,
     ) -> None:
         self.gemini = gemini_client
         self.persona = persona_manager
         self.memory = memory_manager
         self.db = db_manager
-        self.context_manager = ContextManager(self.db)  # <-- DB-backed context manager
+        self.context_manager = ContextManager(self.db)
         self.nlp = nlp_engine or NLPEngine()
-    
+        self.last_sticker_sent: Dict[int, datetime] = {}
+
     def get_handlers(self) -> List:
         handlers = [
             MessageHandler(
-                filters.TEXT 
-                & filters.ChatType.PRIVATE 
-                & ~filters.COMMAND 
-                & ~filters.Regex(r"^!(?!ai)"),  # Ignore ! commands except !ai
-                self.chat_command
+                filters.TEXT
+                & filters.ChatType.PRIVATE
+                & ~filters.COMMAND
+                & ~filters.Regex(r"^!(?!ai)"),
+                self.chat_command,
             ),
             MessageHandler(
                 (
-                    filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND &
-                    ~filters.Regex(r"^!(?!ai)") &  # Ignore ! commands except !ai (same as private)
-                    (
-                        filters.Regex(f"^{COMMAND_PREFIX}") |
-                        filters.REPLY
-                    )
+                    filters.TEXT
+                    & filters.ChatType.GROUPS
+                    & ~filters.COMMAND
+                    & ~filters.Regex(r"^!(?!ai)")
+                    & (filters.Regex(f"^{COMMAND_PREFIX}") | filters.REPLY)
                 ),
-                self.chat_command
+                self.chat_command,
             ),
         ]
         return handlers
-    
+
     def _create_or_update_user(self, user) -> bool:
         is_admin = user.id in ADMIN_IDS or self.db.is_admin(user.id)
         self.db.get_or_create_user(
@@ -541,101 +547,96 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         formatted_response: str,
         user_id: int,
         message_text: str,
-        mood_state = None,
-        message_context: Dict[str, Any] = None
+        mood_state=None,
+        message_context: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Send response with sticker and GIF based on mood and relationship level."""
+        """Send response with optional sticker and GIF."""
         try:
             from config.settings import STICKER_GIF_SETTINGS
-            
-            # Check if feature is enabled globally
+
             if not STICKER_GIF_SETTINGS.get("enabled", True):
                 await update.message.reply_html(formatted_response)
                 return
-            
-            # Get user preferences (check if user disabled feature)
+
             user_data = self.db.get_user(user_id)
             user_preferences = user_data.get("preferences", {}) if user_data else {}
-            sticker_enabled_for_user = user_preferences.get("sticker_enabled", True)
-            
-            # Check if user disabled sticker feature
-            if not sticker_enabled_for_user:
-                logger.debug(f"[STICKER] User {user_id} disabled sticker feature")
+            if not user_preferences.get("sticker_enabled", True):
                 await update.message.reply_html(formatted_response)
                 return
-            
-            # Get relationship level
+
             user_relationship = self.db.get_user_relationship_info(user_id)
             relationship_level = user_relationship.get("relationship_level", 0)
-            
+
             sticker_mgr = StickerManager()
             mood = mood_state.mood if mood_state else "neutral"
-            
-            logger.info(
-                f"[STICKER] Starting sticker logic: user={user_id}, "
-                f"mood={mood}, mood_state={mood_state}, "
-                f"relationship_level={relationship_level}"
-            )
-            
-            # === CHECK STICKER UNLOCK LEVEL ===
+
+            sticker_id: Optional[str] = None
+            is_trigger_match = False
+
             min_sticker_level = STICKER_GIF_SETTINGS.get("min_relationship_level_for_sticker", 3)
-            allow_sticker_override = STICKER_GIF_SETTINGS.get("allow_sticker_before_relationship", False)
-            
-            sticker_id = None
+            allow_sticker_override = STICKER_GIF_SETTINGS.get(
+                "allow_sticker_before_relationship", False
+            )
+
             if relationship_level >= min_sticker_level or allow_sticker_override:
+                cooldown_seconds = STICKER_GIF_SETTINGS.get("sticker_cooldown_seconds", 120)
+                last_sent = self.last_sticker_sent.get(user_id)
+                if last_sent:
+                    time_since_last = (datetime.now() - last_sent).total_seconds()
+                    if time_since_last < cooldown_seconds:
+                        await update.message.reply_html(formatted_response)
+                        return
+
                 sticker_id = sticker_mgr.get_sticker_for_mood(
                     mood=mood,
                     user_message=message_text,
-                    relationship_level=relationship_level
+                    relationship_level=relationship_level,
                 )
-                logger.info(
-                    f"[STICKER] get_sticker_for_mood returned: {sticker_id} "
-                    f"(mood={mood}, message_text={message_text})"
-                )
-            else:
-                logger.debug(
-                    f"[STICKER] User {user_id} level {relationship_level} < "
-                    f"required {min_sticker_level}, sticker locked"
-                )
-            
-            # Send sticker if available and unlocked
+
+                if sticker_id and message_text:
+                    message_lower = message_text.lower()
+                    pack = (
+                        sticker_mgr.config.get("sticker_packs", {})
+                        .get("default", {})
+                        .get(mood)
+                    )
+                    triggers = pack.get("triggers", []) if isinstance(pack, dict) else []
+                    for trigger in triggers:
+                        keywords = trigger.get("keyword", []) if isinstance(trigger, dict) else []
+                        if any(kw in message_lower for kw in keywords):
+                            is_trigger_match = True
+                            break
+
+                if sticker_id:
+                    trigger_always = STICKER_GIF_SETTINGS.get("trigger_sticker_always", True)
+                    probability = STICKER_GIF_SETTINGS.get("sticker_send_probability", 0.25)
+                    if not (is_trigger_match and trigger_always) and random.random() > probability:
+                        sticker_id = None
+
             if sticker_id:
                 try:
                     await update.message.reply_sticker(sticker=sticker_id)
-                    logger.info(f"[STICKER] Sent sticker for mood '{mood}' to user {user_id}")
+                    self.last_sticker_sent[user_id] = datetime.now()
                 except Exception as e:
-                    logger.warning(f"Failed to send sticker: {e}")
-                    
-            # Send main text response
+                    logger.warning("Failed to send sticker: %s", e)
+
             await update.message.reply_html(formatted_response)
-            logger.info(f"[RESPONSE] Sent text response to user {user_id}")
-            
-            # CHECK GIF UNLOCK LEVEL
+
             min_gif_level = STICKER_GIF_SETTINGS.get("min_relationship_level_for_gif", 3)
             gif_probability = STICKER_GIF_SETTINGS.get("gif_send_probability", 0.3)
-            
-            # Only send GIF if relationship level is high enough
+
             if relationship_level >= min_gif_level and random.random() < gif_probability:
-                gif_url = sticker_mgr.get_gif_url_for_mood(
-                    mood=mood,
-                    user_message=message_text
-                )
+                gif_url = sticker_mgr.get_gif_url_for_mood(mood=mood, user_message=message_text)
                 if gif_url:
                     try:
                         await update.message.reply_animation(gif_url)
-                        logger.debug(f"[GIF] Sent GIF for mood '{mood}' to user {user_id}")
                     except Exception as e:
-                        logger.warning(f"Failed to send GIF: {e}")
-            elif relationship_level < min_gif_level:
-                logger.debug(
-                    f"[GIF] User {user_id} level {relationship_level} < "
-                    f"required {min_gif_level}, GIF locked"
-                )
-                        
+                        logger.warning("Failed to send GIF: %s", e)
+
         except Exception as e:
-            logger.error(f"Error sending response with sticker and GIF: {e}", exc_info=True)
+            logger.error("Error sending response with sticker and GIF: %s", e, exc_info=True)
             await update.message.reply_html(formatted_response)
-    
+
     def _clean_and_append_russian_translation(self, response: str, lang: str = DEFAULT_LANGUAGE) -> str:
         """Extract and translate Russian expressions (both marked and unmarked)."""
         from utils.russian_translator import (
@@ -785,4 +786,3 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         else:
             logger.debug(f"[AFFECTION] User {user_id}: no change (delta={affection_delta:.1f})")
             return 0
-        

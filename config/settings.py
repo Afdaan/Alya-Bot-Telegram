@@ -199,9 +199,12 @@ STICKER_GIF_SETTINGS: Dict[str, Any] = {
     "enabled": True,  # Master toggle for sticker/GIF feature
     "min_relationship_level_for_sticker": 3,  # Minimum relationship level to send stickers (0-4)
     "min_relationship_level_for_gif": 3,  # Minimum relationship level to send GIFs (0-4)
+    "sticker_send_probability": 0.35,  # Probability to send sticker (0.0-1.0) - 25% chance
     "gif_send_probability": 0.3,  # Probability to send GIF after response (0.0-1.0)
+    "sticker_cooldown_seconds": 15,  # Minimum seconds between stickers (2 minutes)
     "sticker_pack": "default",  # Which sticker pack to use from YAML
     "allow_sticker_before_relationship": False,  # Send stickers even if level < min? (debug/override)
+    "trigger_sticker_always": True,  # Always send sticker if keyword trigger matches (ignore probability)
 }
 
 # Relationship Levels - Configurable thresholds
