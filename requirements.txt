@@ -8,8 +8,8 @@ PyYAML>=6.0
 # AI & NLP
 google-generativeai>=0.3.0
 transformers>=4.35.0
-torch>=2.0.0,<3.0 ; sys_platform != "win32"
-numpy>=1.24.0
+torch>=2.0.0,<2.6  # Compatible with rvc-python 0.1.5 (avoid weights_only issue)
+numpy<=1.23.5  # Required by rvc-python 0.1.5
 
 # Database (MySQL)
 sqlalchemy>=2.0.41
@@ -26,6 +26,23 @@ psutil>=5.9.0
 pillow>=10.0.0
 qrcode>=7.4.2
 langdetect>=1.0.9
+
+# Voice Processing
+SpeechRecognition>=3.10.0  # Speech-to-text
+edge-tts>=6.1.0  # Microsoft Edge TTS (better quality than gTTS)
+gTTS>=2.5.0  # Google Text-to-Speech (fallback)
+pydub>=0.25.1  # Audio file manipulation
+torchaudio>=2.0.0  # Audio processing
+
+# RVC Dependencies (Pinning version 0.1.5 for stability)
+rvc-python==0.1.5  # Stable RVC Inference wrapper
+torchvision>=0.15.0  # Vision utilities
+librosa>=0.10.0  # Audio feature extraction
+soundfile>=0.12.1  # Audio I/O
+praat-parselmouth>=0.4.0  # Speech analysis
+pyworld>=0.3.0  # Vocoder
+numpy<=1.23.5
+tensorboard>=2.6.4
 
 # # Development & Testing
 # pytest>=7.4.0

@@ -142,12 +142,33 @@ def register_handlers(
         if isinstance(handler, MessageHandler):
             logger.info(f"  ✓ Conversation handler: {handler.filters}")
     
+    if FEATURES.get("voice", False):
+        logger.info("[1.5/5] Registering VoiceHandler (Priority: HIGH)")
+        try:
+            from handlers.voice import VoiceHandler
+            voice_handler = VoiceHandler(
+                gemini_client,
+                persona_manager,
+                memory_manager,
+                db_manager,
+                nlp_engine
+            )
+            for handler in voice_handler.get_handlers():
+                application.add_handler(handler)
+                if isinstance(handler, MessageHandler):
+                    logger.info(f"  ✓ Voice handler: {handler.filters}")
+        except Exception as e:
+            logger.warning(f"  ⚠ Voice handler initialization failed: {e}")
+            logger.warning("  Voice features will be disabled")
+    else:
+        logger.info("[1.5/5] Voice handler DISABLED (set VOICE_ENABLED=true to enable)")
+    
     # PRIORITY 2: Utility Commands (!ask, !sauce, search, etc.)
-    logger.info("[2/4] Registering CommandsHandler (Priority: HIGH)")
+    logger.info("[2/5] Registering CommandsHandler (Priority: HIGH)")
     CommandsHandler(application)
     
     # PRIORITY 3: Roast Handler (!roast, !gitroast)
-    logger.info("[3/4] Registering RoastHandler (Priority: MEDIUM)")
+    logger.info("[3/5] Registering RoastHandler (Priority: MEDIUM)")
     roast_handler = RoastHandler(gemini_client, persona_manager, db_manager)
     for handler in roast_handler.get_handlers():
         application.add_handler(handler)
@@ -155,7 +176,7 @@ def register_handlers(
             logger.info(f"  ✓ Roast handler: {handler.filters}")
     
     # PRIORITY 4: Admin & System Commands
-    logger.info("[4/4] Registering Admin & System Handlers (Priority: LOW)")
+    logger.info("[4/5] Registering Admin & System Handlers (Priority: LOW)")
     admin_handler = AdminHandler(db_manager, persona_manager)
     for handler in admin_handler.get_handlers():
         application.add_handler(handler)

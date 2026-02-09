@@ -1010,6 +1010,76 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting user {user_id}: {e}", exc_info=True)
             return None
+    
+    def get_user_object(self, user_id: int) -> Optional[User]:
+        """
+        Get User object (not dict) from database.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            User object or None if not found
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    # Detach from session to avoid lazy loading issues
+                    session.expunge(user)
+                return user
+        except Exception as e:
+            logger.error(f"Error getting user object {user_id}: {e}", exc_info=True)
+            return None
+    
+    def update_user_voice_access(self, user_id: int, enabled: bool) -> bool:
+        """
+        Update user's voice feature access.
+        
+        Args:
+            user_id: Telegram user ID
+            enabled: True to grant access, False to revoke
+            
+        Returns:
+            bool: True if updated successfully
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    logger.warning(f"Cannot update voice access for non-existent user {user_id}")
+                    return False
+                
+                old_status = user.voice_enabled
+                user.voice_enabled = enabled
+                session.commit()
+                
+                logger.info(
+                    f"Updated voice access for user {user_id}: {old_status} → {enabled}"
+                )
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating voice access for user {user_id}: {e}", exc_info=True)
+            return False
+    
+    def get_voice_enabled_users(self) -> List[User]:
+        """
+        Get all users with voice feature enabled.
+        
+        Returns:
+            List of User objects with voice_enabled=True
+        """
+        try:
+            with db_session_context() as session:
+                users = session.query(User).filter(User.voice_enabled == True).all()
+                # Detach from session to avoid lazy loading issues
+                session.expunge_all()
+                return users
+                
+        except Exception as e:
+            logger.error(f"Error getting voice-enabled users: {e}", exc_info=True)
+            return []
 
     def save_conversation_summary(self, user_id: int, summary: Dict[str, Any]) -> bool:
         """

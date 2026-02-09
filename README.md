@@ -34,8 +34,11 @@
 - **🎭 Multi-mood Responses** - Various response styles based on context
 - **🔍 Media Analysis** - Vision capabilities for images and documents
 - **🎯 Smart Web Search** - Advanced search capabilities with multiple modes
+- **🎤 Voice Messages** - Send and receive voice messages with speech recognition and TTS (whitelist-controlled)
 
-For a complete list of commands and features, see [COMMANDS.md](COMMANDS.md).
+For a complete list of commands and features, see [COMMANDS.md](COMMANDS.md).  
+For voice feature details, see [VOICE_FEATURE.md](VOICE_FEATURE.md).  
+For voice whitelist setup, see [VOICE_WHITELIST_QUICKSTART.md](VOICE_WHITELIST_QUICKSTART.md).
 
 ## 🛠️ Technology Stack
 

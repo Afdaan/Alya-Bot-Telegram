@@ -47,6 +47,7 @@ logs/
 *.sqlite3
 *.log
 *.tmp
+/tmp/
 .cache/
 
 # Testing artifacts
@@ -78,9 +79,15 @@ google_credentials.json
 
 # Model files
 *.pt
+*.pth
 *.bin
 *.model
 *.onnx
+*.index
+
+# Voice models (Large files - download separately)
+alya_voice/
+/alya_voice/
 
 # Keep data and logs dirs but not contents
 !data/.gitkeep
@@ -90,6 +97,7 @@ google_credentials.json
 /temp_images/
 /downloads/
 /uploads/
+/tmp/  # Temporary voice files
 
 # Ignore specific files
 .github/copilot-instructions.md

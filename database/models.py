@@ -42,6 +42,8 @@ class User(Base):
     interaction_count = Column(Integer, default=0, index=True)
     topics_discussed = Column(JSON, default=lambda: [])
     
+    voice_enabled = Column(Boolean, default=False, index=True)  # Admin-controlled whitelist
+    
     # Mood System - tracks Alya's current emotional state
     current_mood = Column(String(20), default='neutral', index=True)
     mood_intensity = Column(SmallInteger, default=50)  # 0-100 scale

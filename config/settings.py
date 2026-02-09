@@ -165,8 +165,29 @@ FEATURES: Dict[str, bool] = {
     "roleplay": True,
     "russian_expressions": True,
     "relationship_levels": True,
-    "use_huggingface_models": os.getenv("USE_HUGGINGFACE_MODELS", "true").lower() == "true"  # Toggle between HF models and custom NLP
+    "use_huggingface_models": os.getenv("USE_HUGGINGFACE_MODELS", "true").lower() == "true",  # Toggle between HF models and custom NLP
+    "voice": os.getenv("VOICE_ENABLED", "true").lower() == "true"  # Voice message support
 }
+
+# Voice Settings
+VOICE_ENABLED: bool = os.getenv("VOICE_ENABLED", "true").lower() == "true"
+VOICE_MODEL_DIR: str = "alya_voice"
+VOICE_MODEL_PATH: str = os.path.join(VOICE_MODEL_DIR, "alya.pth")
+VOICE_INDEX_PATH: str = os.path.join(VOICE_MODEL_DIR, "added_IVF777_Flat_nprobe_1_alya_v2.index")
+
+# RVC Voice Conversion Settings
+# CPU-optimized settings for 4-core servers
+RVC_ENABLED: bool = os.getenv("RVC_ENABLED", "true").lower() == "true"
+RVC_DEVICE: str = os.getenv("RVC_DEVICE", "cpu")  # "cpu" or "cuda" (if GPU available)
+RVC_CPU_THREADS: int = int(os.getenv("RVC_CPU_THREADS", "3"))  # Leave 1 thread for OS on 4-core
+RVC_IS_HALF: bool = False  # Full precision for CPU stability (half precision needs GPU)
+RVC_PITCH_CHANGE: int = 0  # No pitch shift for TTS conversations
+RVC_F0_METHOD: str = "rmvpe"  # Best quality pitch extraction
+RVC_INDEX_RATE: float = float(os.getenv("RVC_INDEX_RATE", "0.75"))  # 0.0-1.0, balance between original and converted
+RVC_VOLUME_ENVELOPE: float = 1.0  # Preserve volume levels
+RVC_PROTECT: float = 0.33  # Protect consonants clarity
+RVC_RESAMPLE_SR: int = 0  # 0 = no resampling
+RVC_QUEUE_SIZE: int = int(os.getenv("RVC_QUEUE_SIZE", "2"))  # Max concurrent conversions
 
 # Response Formatting
 FORMAT_ROLEPLAY: bool = True
