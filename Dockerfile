@@ -21,7 +21,7 @@ RUN groupadd -r alya && useradd -r -g alya -d /app -s /usr/sbin/nologin alya
 
 # Copy and install Python dependencies
 COPY requirements.txt .
-RUN pip install --upgrade pip setuptools wheel && \
+RUN pip install --upgrade "pip<24.1" setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
