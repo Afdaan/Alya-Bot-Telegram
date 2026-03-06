@@ -24,7 +24,7 @@ SpeechRecognition>=3.10.0
 edge-tts>=6.1.0
 gTTS>=2.5.0
 pydub>=0.25.1
-torchaudio>=2.10.0
+torchaudio>=2.6.0
 
 # RVC Voice Conversion
 rvc-python==0.1.5
