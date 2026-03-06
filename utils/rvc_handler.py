@@ -31,9 +31,18 @@ class RVCHandler:
                 return
             
             import sys
-            libs_path = str(Path(__file__).parent.parent / "libs")
+            # Absolute path to libs
+            base_dir = Path(__file__).parent.parent.absolute()
+            libs_path = str(base_dir / "libs")
+            
             if libs_path not in sys.path:
                 sys.path.insert(0, libs_path)
+            
+            # Force reload if it was already loaded from site-packages
+            if 'rvc_python' in sys.modules:
+                for mod in list(sys.modules.keys()):
+                    if mod.startswith('rvc_python'):
+                        del sys.modules[mod]
             
             from rvc_python.infer import RVCInference
             import torch
