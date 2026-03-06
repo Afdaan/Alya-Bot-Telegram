@@ -163,9 +163,13 @@ class PersonaManager:
         # Fallback for old personas
         if not prompt_parts:
             persona_lang = persona.get(lang, persona.get(DEFAULT_LANGUAGE, {}))
+            traits = persona_lang.get('personality_traits', [])
+            traits_str = '\n- '.join(traits)
+            rel_instructions = self._get_relationship_instructions(persona_lang, relationship_level)
+            
             prompt_parts.append(f"{persona_lang.get('base_instructions', '')}\n\n"
-                              f"**Personality:**\n- {'\n- '.join(persona_lang.get('personality_traits', []))}\n\n"
-                              f"**Relationship:**\n{self._get_relationship_instructions(persona_lang, relationship_level)}")
+                              f"**Personality:**\n- {traits_str}\n\n"
+                              f"**Relationship:**\n{rel_instructions}")
         
         # Combine
         lang_name = "Bahasa Indonesia" if lang == "id" else "English"
