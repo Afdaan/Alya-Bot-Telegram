@@ -1,6 +1,15 @@
 import os
+import torch
+import fairseq.data.dictionary
 
 from fairseq import checkpoint_utils
+
+# Fix for PyTorch 2.6+ unpickling error
+try:
+    if hasattr(torch.serialization, 'add_safe_globals'):
+        torch.serialization.add_safe_globals([fairseq.data.dictionary.Dictionary])
+except Exception:
+    pass
 
 def get_index_path_from_model(sid):
     return next(

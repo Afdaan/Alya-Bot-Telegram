@@ -29,7 +29,7 @@ async def handle_voice_lang_callback(update: Update, context: ContextTypes.DEFAU
     lang_name = {"en": "English", "id": "Indonesia", "ja": "Japanese"}.get(lang_code, "English")
     
     # Update DB if available
-    from main import db_manager
+    from database.database_manager import db_manager
     if db_manager:
         db_manager.update_user_voice_language(query.from_user.id, lang_code)
     

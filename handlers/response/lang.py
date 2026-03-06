@@ -31,9 +31,9 @@ async def handle_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     lang_name = {"en": "English", "id": "Indonesia", "ru": "Russian", "ja": "Japanese"}.get(lang_code, "English")
     
     # Update DB if available
-    from main import db_manager
+    from database.database_manager import db_manager
     if db_manager:
-        db_manager.update_user_language(query.from_user.id, lang_code)
+        db_manager.update_user_settings(query.from_user.id, {'language': lang_code})
     
     await query.edit_message_text(
         text=f"✅ Language set to <b>{lang_name}</b>!",
