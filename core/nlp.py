@@ -6,8 +6,19 @@ import time
 import hashlib
 import logging
 from typing import Dict, List, Optional, Tuple, Any
-from transformers import pipeline, Pipeline
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# Try to import transformers, but allow graceful degradation
+try:
+    from transformers import pipeline, Pipeline
+    TRANSFORMERS_AVAILABLE = True
+except Exception as e:
+    logger.warning(f"⚠️ transformers not available: {e}")
+    logger.warning("💡 Emotion detection will be disabled")
+    TRANSFORMERS_AVAILABLE = False
+    Pipeline = None
 
 from config.settings import (
     EMOTION_CONFIDENCE_THRESHOLD,
@@ -20,8 +31,6 @@ from config.settings import (
     DEFAULT_LANGUAGE
 )
 from database.database_manager import db_manager, DatabaseManager
-
-logger = logging.getLogger(__name__)
 
 class NLPEngine:
     """NLP engine for emotion detection and context-aware features."""
@@ -52,43 +61,33 @@ class NLPEngine:
                 cache_dict.pop(key, None)
 
     def _initialize_models(self) -> None:
+        """Initialize NLP models with error handling and compatibility checks."""
+        if not TRANSFORMERS_AVAILABLE:
+            return
+            
         try:
-            # Load Indonesian emotion classifier from config
-            logger.info(f"Loading EmoSense-ID (Indonesian emotion classifier): {EMOTION_MODEL_ID}")
-            self.emotion_classifier_id = pipeline(
-                task="text-classification",
-                model=EMOTION_MODEL_ID,
-                top_k=1
-            )
-            logger.info("EmoSense-ID loaded.")
+            import torch
+            major, minor = map(int, torch.__version__.split('.')[:2])
+            if major < 2 or (major == 2 and minor < 6):
+                logger.warning("⏭️ torch version < 2.6 - Skipping NLP initialization")
+                return
+        except Exception:
+            pass
             
-            # Load English/multilingual emotion classifier from config
-            logger.info(f"Loading multilingual_go_emotions (English emotion classifier): {EMOTION_MODEL_EN}")
-            self.emotion_classifier_en = pipeline(
-                task="text-classification",
-                model=EMOTION_MODEL_EN,
-                top_k=3
-            )
-            logger.info("multilingual_go_emotions loaded.")
+        try:
+            # Load Indonesian emotion classifier
+            self.emotion_classifier_id = pipeline(task="text-classification", model=EMOTION_MODEL_ID, top_k=1)
             
-            # Load lightweight sentiment classifier for hybrid intent detection
+            # Load multilingual emotion classifier
+            self.emotion_classifier_en = pipeline(task="text-classification", model=EMOTION_MODEL_EN, top_k=3)
+            
+            # Load sentiment classifier for hybrid intent
             if USE_HYBRID_INTENT:
-                logger.info(f"Loading sentiment classifier for intent: {INTENT_SENTIMENT_MODEL}")
-                self.sentiment_classifier = pipeline(
-                    task="text-classification",
-                    model=INTENT_SENTIMENT_MODEL,
-                    top_k=1
-                )
-                logger.info("Sentiment classifier loaded for hybrid intent detection.")
-            else:
-                logger.info("Hybrid intent detection disabled, using rule-based only")
-                self.sentiment_classifier = None
-                
+                self.sentiment_classifier = pipeline(task="text-classification", model=INTENT_SENTIMENT_MODEL, top_k=1)
+            
+            logger.info("✅ NLP models initialized successfully")
         except Exception as e:
-            logger.error(f"Error initializing NLP models: {str(e)}")
-            self.emotion_classifier_id = None
-            self.emotion_classifier_en = None
-            self.sentiment_classifier = None
+            logger.error(f"❌ NLP initialization failed: {e}")
 
     def detect_emotion(self, text: str, user_id: int = None) -> Optional[str]:
         """

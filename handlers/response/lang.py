@@ -1,59 +1,41 @@
 """
-Bilingual response generator for the /lang command.
-
-Provides language preference settings and confirmation responses with
-support for Indonesian (id) and English (en) languages.
+Language response generator for Alya Bot.
 """
-from typing import Optional
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ContextTypes
 from config.settings import DEFAULT_LANGUAGE
 
+async def get_lang_keyboard():
+    """Build language selection keyboard."""
+    keyboard = [
+        [InlineKeyboardButton("English 🇺🇸", callback_data="setlang_en")],
+        [InlineKeyboardButton("Indonesia 🇮🇩", callback_data="setlang_id")],
+        [InlineKeyboardButton("Русский 🇷🇺", callback_data="setlang_ru")],
+        [InlineKeyboardButton("日本語 🎌", callback_data="setlang_ja")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-def get_lang_response(
-    lang: str = DEFAULT_LANGUAGE,
-    new_lang: Optional[str] = None
-) -> str:
-    """Generate response for /lang command with language preference settings.
+async def handle_lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /lang command."""
+    await update.message.reply_html(
+        "🌐 <b>Language Settings</b>\nSelect your preferred interface language:",
+        reply_markup=await get_lang_keyboard()
+    )
 
-    Args:
-        lang: Current language for the response message ('id' or 'en')
-        new_lang: The language code if successfully changed ('id' or 'en')
-
-    Returns:
-        str: Formatted HTML response with language settings or confirmation
-    """
-    if new_lang:
-        # Language was successfully changed
-        if new_lang == 'id':
-            return (
-                "✨ <b>Bahasa berhasil diubah!</b>\n\n"
-                "Pengaturan bahasa sekarang adalah: <code>Bahasa Indonesia</code>\n\n"
-                "Semua respons dari Alya akan dalam Bahasa Indonesia. "
-                "Kamu bisa mengubah kembali dengan <code>/lang en</code> 💫"
-            )
-        else:
-            return (
-                "✨ <b>Language changed successfully!</b>\n\n"
-                "Current language setting: <code>English</code>\n\n"
-                "All responses from Alya will be in English. "
-                "You can change back with <code>/lang id</code> 💫"
-            )
-    else:
-        # Show current language setting (no change)
-        if lang == 'id':
-            return (
-                "<b>⚙️ Pengaturan Bahasa</b>\n\n"
-                "Bahasa saat ini: <code>Bahasa Indonesia</code> 🇮🇩\n\n"
-                "<b>Untuk mengubah bahasa:</b>\n"
-                "• <code>/lang en</code> - Ubah ke English 🇬🇧\n"
-                "• <code>/lang id</code> - Tetap Bahasa Indonesia 🇮🇩\n\n"
-                "Alya akan merespons dalam bahasa pilihan mu ✨"
-            )
-        else:
-            return (
-                "<b>⚙️ Language Settings</b>\n\n"
-                "Current language: <code>English</code> 🇬🇧\n\n"
-                "<b>To change language:</b>\n"
-                "• <code>/lang en</code> - Keep English 🇬🇧\n"
-                "• <code>/lang id</code> - Switch to Bahasa Indonesia 🇮🇩\n\n"
-                "Alya will respond in your preferred language ✨"
-            )
+async def handle_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle language selection callback."""
+    query = update.callback_query
+    await query.answer()
+    
+    lang_code = query.data.split("_")[1]
+    lang_name = {"en": "English", "id": "Indonesia", "ru": "Russian", "ja": "Japanese"}.get(lang_code, "English")
+    
+    # Update DB if available
+    from main import db_manager
+    if db_manager:
+        db_manager.update_user_language(query.from_user.id, lang_code)
+    
+    await query.edit_message_text(
+        text=f"✅ Language set to <b>{lang_name}</b>!",
+        parse_mode='HTML'
+    )

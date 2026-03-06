@@ -22,6 +22,7 @@ class User(Base):
     first_name = Column(String(64), nullable=True)
     last_name = Column(String(64), nullable=True)
     language_code = Column(String(10), default=DEFAULT_LANGUAGE, index=True)
+    voice_language = Column(String(10), default=DEFAULT_LANGUAGE, index=True)
     
     created_at = Column(DateTime, default=datetime.now, index=True)
     last_interaction = Column(DateTime, default=datetime.now, index=True)

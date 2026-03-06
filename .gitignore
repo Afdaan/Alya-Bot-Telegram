@@ -70,6 +70,8 @@ tests/
 *~
 \#*\#
 .\#*
+.agent/*
+.agent/
 
 # Secrets and credentials
 *.pem
@@ -88,6 +90,7 @@ google_credentials.json
 # Voice models (Large files - download separately)
 alya_voice/
 /alya_voice/
+libs/**/base_model/
 
 # Keep data and logs dirs but not contents
 !data/.gitkeep

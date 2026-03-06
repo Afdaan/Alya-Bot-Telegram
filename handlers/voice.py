@@ -18,6 +18,7 @@ from core.memory import MemoryManager
 from core.nlp import NLPEngine
 from database.database_manager import DatabaseManager
 from utils.voice_processor import VoiceProcessor
+from utils.language_translator import translate_response_for_voice
 from config.settings import VOICE_ENABLED, DEFAULT_LANGUAGE, ADMIN_IDS
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ class VoiceHandler:
         persona_manager: PersonaManager,
         memory_manager: MemoryManager,
         db_manager: DatabaseManager,
-        nlp_engine: Optional[NLPEngine] = None
+        nlp_engine: Optional[NLPEngine] = None,
+        voice_processor: Optional[VoiceProcessor] = None
     ):
         """
         Initialize voice handler.
@@ -43,6 +45,7 @@ class VoiceHandler:
             memory_manager: Memory management
             db_manager: Database manager
             nlp_engine: NLP engine for emotion/intent detection
+            voice_processor: Shared voice processor
         """
         self.gemini_client = gemini_client
         self.persona_manager = persona_manager
@@ -50,13 +53,17 @@ class VoiceHandler:
         self.db_manager = db_manager
         self.nlp_engine = nlp_engine
         
-        # Initialize voice processor
-        try:
-            self.voice_processor = VoiceProcessor()
-            logger.info("✅ Voice processor initialized successfully")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize voice processor: {e}")
-            self.voice_processor = None
+        # Use shared voice processor
+        if voice_processor:
+            self.voice_processor = voice_processor
+            logger.info("✅ Using shared VoiceProcessor")
+        else:
+            try:
+                self.voice_processor = VoiceProcessor()
+                logger.info("✅ Voice processor initialized successfully")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize voice processor: {e}")
+                self.voice_processor = None
     
     def get_handlers(self):
         """Return list of voice message handlers."""
@@ -72,191 +79,93 @@ class VoiceHandler:
         ]
     
     async def handle_voice_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle incoming voice messages.
-        
-        Args:
-            update: Telegram update object
-            context: Telegram context
-        """
+        """Handle incoming voice messages with transcription and AI response."""
         if not self.voice_processor:
-            await update.message.reply_text(
-                "❌ Voice feature is currently unavailable. Please try text messages."
-            )
+            await update.message.reply_text("❌ Voice feature is currently unavailable.")
             return
         
         user = update.effective_user
         chat = update.effective_chat
-        voice = update.message.voice
-        
-        logger.info(f"🎤 Voice message received from {user.username} ({user.id})")
-        
-        # Send typing action
-        await context.bot.send_chat_action(
-            chat_id=chat.id,
-            action=ChatAction.TYPING
-        )
         
         try:
-            # Get or create user in database (returns dict)
+            # 1. Access Check
             db_user_dict = self._create_or_update_user(user)
-            lang = db_user_dict.get('language_code', DEFAULT_LANGUAGE) if db_user_dict else DEFAULT_LANGUAGE
-            
-            # Get User object for voice_enabled check
             db_user = self.db_manager.get_user_object(user.id) if self.db_manager else None
-            
-            # Check if user has voice access (whitelist)
             is_admin = user.id in ADMIN_IDS
             
             if not is_admin and (not db_user or not db_user.voice_enabled):
-                await update.message.reply_text(
-                    "🔒 <b>Voice Feature Access Required</b>\n\n"
-                    "Sorry, you don't have access to the voice feature yet. "
-                    "Voice/TTS is currently limited to whitelisted users.\n\n"
-                    "💡 <i>Contact an admin to request access!</i>",
-                    parse_mode='HTML'
-                )
-                logger.info(f"⛔ Voice access denied for user {user.id} (not whitelisted)")
-                return
-            
-            # Download voice file
-            voice_file = await voice.get_file()
-            
-            with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as temp_voice:
-                temp_voice_path = temp_voice.name
-                await voice_file.download_to_drive(temp_voice_path)
-            
-            logger.info(f"📥 Voice file downloaded: {temp_voice_path}")
-            
-            # Transcribe voice to text
-            await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
-            transcribed_text = await self.voice_processor.transcribe_audio(temp_voice_path, lang)
-            
-            if not transcribed_text:
-                await update.message.reply_text(
-                    "❌ Sorry, I couldn't understand the voice message. Please try again or use text."
+                await update.message.reply_html(
+                    "🔒 <b>Voice Access Required</b>\n\nContact an admin to request access!"
                 )
                 return
-            
-            logger.info(f"📝 Transcribed text: {transcribed_text}")
-            
-            # Show transcription to user
-            await update.message.reply_text(
-                f"🎤 <i>You said: {transcribed_text}</i>",
-                parse_mode='HTML'
-            )
-            
-            # Process the transcribed text like a normal message
+
             await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
             
-            # Get NLP analysis
-            message_context = {}
-            if self.nlp_engine:
-                message_context = self.nlp_engine.get_message_context(
-                    transcribed_text,
-                    user_id=user.id
-                )
+            # 2. Download and Transcribe
+            voice_file = await update.message.voice.get_file()
+            with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as tmp:
+                await voice_file.download_to_drive(tmp.name)
+                transcription = await self.voice_processor.transcribe_audio(tmp.name, db_user_dict.get('language_code', DEFAULT_LANGUAGE))
+                os.unlink(tmp.name)
             
-            # Get user relationship info
-            relationship_level = db_user_dict.get('relationship_level', 0) if db_user_dict else 0
+            if not transcription:
+                await update.message.reply_text("❌ I couldn't understand that. Try again!")
+                return
             
-            # Build conversation context
-            conversation_context = self._prepare_conversation_context(
-                user,
-                transcribed_text,
-                lang,
-                message_context,
-                relationship_level
+            text, detected_lang = transcription
+            lang_flag = {"en": "🇺🇸", "id": "🇮🇩", "ja": "🎌"}.get(detected_lang, "🌐")
+            await update.message.reply_html(f"🎤 <i>({lang_flag} {detected_lang.upper()}): {text}</i>")
+            
+            # 3. AI Processing
+            msg_context = self.nlp_engine.get_message_context(text, user.id) if self.nlp_engine else {}
+            rel_level = db_user_dict.get('relationship_level', 0)
+            
+            prompt = self.persona_manager.get_chat_prompt(
+                user.first_name, text, "", rel_level, is_admin, db_user_dict.get('language_code', DEFAULT_LANGUAGE)
             )
             
-            # Generate response using Gemini
             response = await self.gemini_client.generate_response(
-                user_id=user.id,
-                username=user.first_name or "user",
-                message=transcribed_text,
-                context=conversation_context["system_prompt"],
-                relationship_level=relationship_level,
-                is_admin=user.id in ADMIN_IDS,
-                lang=lang,
-                retry_count=3,
-                is_media_analysis=False,
-                media_context=None
+                user.id, user.first_name, text, prompt, rel_level, is_admin, db_user_dict.get('language_code', DEFAULT_LANGUAGE)
             )
             
             if not response:
-                await update.message.reply_text(
-                    "❌ Sorry, I couldn't generate a response. Please try again."
-                )
+                await update.message.reply_text("❌ Failed to generate response.")
                 return
+
+            # 4. Responses (Text + Voice)
+            from utils.formatters import format_persona_response
+            ui_text = format_persona_response(response, use_html=True) + "\u200C"
+            await update.message.reply_html(ui_text)
             
-            # Clean response
-            cleaned_response = self._clean_response(response)
-            
-            # Send text response first
-            await update.message.reply_text(
-                cleaned_response,
-                parse_mode='HTML'
-            )
-            
-            # Generate and send voice response
             await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.RECORD_VOICE)
+            voice_lang = self.db_manager.get_user_voice_language(user.id) if self.db_manager else "en"
             
-            voice_response_path = await self.voice_processor.text_to_speech(
-                cleaned_response,
-                lang=lang
-            )
+            voice_text = response
+            if voice_lang != db_user_dict.get('language_code'):
+                translated = await translate_response_for_voice(response, db_user_dict.get('language_code'), voice_lang)
+                voice_text = translated or response
             
-            if voice_response_path and os.path.exists(voice_response_path):
-                await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.UPLOAD_VOICE)
-                
-                with open(voice_response_path, 'rb') as voice_file:
-                    await update.message.reply_voice(
-                        voice=voice_file,
-                        caption="🎙️ Alya's voice response"
-                    )
-                
-                logger.info(f"🎙️ Voice response sent to {user.username}")
-                
-                # Clean up voice response file
-                try:
-                    os.unlink(voice_response_path)
-                except Exception as e:
-                    logger.warning(f"Failed to delete voice response file: {e}")
-            
-            # Save conversation to memory
+            voice_path = await self.voice_processor.text_to_speech(voice_text, voice_lang)
+            if voice_path and os.path.exists(voice_path):
+                caption = f"🎙️ Alya's voice ({voice_lang.upper()})"
+                with open(voice_path, 'rb') as vf:
+                    await update.message.reply_voice(vf, caption=caption)
+                os.unlink(voice_path)
+
+            # 5. Metadata Update
             if self.memory_manager:
-                self.memory_manager.save_user_message(
-                    user_id=user.id,
-                    message=transcribed_text
-                )
-                self.memory_manager.save_bot_response(
-                    user_id=user.id,
-                    response=cleaned_response
-                )
+                self.memory_manager.save_user_message(user.id, text)
+                self.memory_manager.save_bot_response(user.id, response)
             
-            # Update user stats
             if db_user:
                 self.db_manager.increment_interaction_count(user.id)
-                
-                # Calculate affection delta
-                if message_context:
-                    affection_delta = self._calculate_affection_delta(user.id, message_context)
-                    if affection_delta != 0:
-                        self.db_manager.update_affection(user.id, affection_delta)
-            
+                if msg_context:
+                    delta = self._calculate_affection_delta(user.id, msg_context)
+                    if delta: self.db_manager.update_affection(user.id, delta)
+
         except Exception as e:
-            logger.error(f"❌ Error processing voice message: {e}", exc_info=True)
-            await update.message.reply_text(
-                "❌ An error occurred while processing your voice message. Please try again."
-            )
-        
-        finally:
-            # Clean up temporary voice file
-            try:
-                if 'temp_voice_path' in locals():
-                    os.unlink(temp_voice_path)
-            except Exception as e:
-                logger.warning(f"Failed to delete temporary voice file: {e}")
+            logger.error(f"❌ Voice processing error: {e}")
+            await update.message.reply_text("❌ Error processing voice message.")
     
     def _create_or_update_user(self, user):
         """Create or update user in database."""
@@ -297,23 +206,6 @@ class VoiceHandler:
             "relationship_level": relationship_level,
             "language": lang
         }
-    
-    def _clean_response(self, response: str) -> str:
-        """Clean response text for voice output."""
-        # Remove markdown formatting
-        response = response.replace('*', '').replace('_', '').replace('`', '')
-        
-        # Remove HTML tags
-        response = response.replace('<b>', '').replace('</b>', '')
-        response = response.replace('<i>', '').replace('</i>', '')
-        response = response.replace('<code>', '').replace('</code>', '')
-        
-        # Limit length for voice
-        max_length = 500
-        if len(response) > max_length:
-            response = response[:max_length] + "..."
-        
-        return response.strip()
     
     def _calculate_affection_delta(self, user_id: int, message_context: dict) -> int:
         """Calculate affection points change based on message context."""

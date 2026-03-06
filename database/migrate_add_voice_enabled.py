@@ -3,9 +3,18 @@ Database migration: Add voice_enabled column to users table.
 
 This migration adds the voice_enabled column to track which users
 have access to the voice/TTS feature.
+
+Run this from the project root directory:
+python database/migrate_add_voice_enabled.py
 """
+import sys
+import os
 import logging
-from sqlalchemy import Boolean, Column
+
+# Add project root to Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from sqlalchemy import Boolean, Column, text
 from database.session import db_session_context, engine
 from database.models import User
 
@@ -29,10 +38,10 @@ def migrate_add_voice_enabled():
         # Add column using raw SQL
         with engine.connect() as conn:
             conn.execute(
-                "ALTER TABLE users ADD COLUMN voice_enabled BOOLEAN DEFAULT FALSE"
+                text("ALTER TABLE users ADD COLUMN voice_enabled BOOLEAN DEFAULT FALSE")
             )
             conn.execute(
-                "CREATE INDEX idx_users_voice_enabled ON users(voice_enabled)"
+                text("CREATE INDEX idx_users_voice_enabled ON users(voice_enabled)")
             )
             conn.commit()
         

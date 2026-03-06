@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 class ConversationHandler:
     """Handler for conversation functionality with Alya."""
-    
     def __init__(
         self,
         gemini_client: GeminiClient,
@@ -44,7 +43,7 @@ class ConversationHandler:
         self.persona = persona_manager
         self.memory = memory_manager
         self.db = db_manager
-        self.context_manager = ContextManager(self.db)  # <-- DB-backed context manager
+        self.context_manager = ContextManager(self.db)
         self.nlp = nlp_engine or NLPEngine()
     
     def get_handlers(self) -> List:

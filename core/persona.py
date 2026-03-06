@@ -138,142 +138,45 @@ class PersonaManager:
         lang: str = DEFAULT_LANGUAGE,
         extra_sections: Optional[List[str]] = None
     ) -> str:
-        """Construct a detailed chat prompt for Gemini, using multiple persona sections if needed.
-
-        Args:
-            username: User's name
-            message: User's message
-            context: Conversation context
-            relationship_level: User's relationship level with Alya
-            is_admin: Whether the user is an admin
-            lang: The user's preferred language
-            extra_sections: List of section names to include in prompt (besides system_prompt)
-        Returns:
-            The full prompt for Gemini
-        """
-        persona = self.get_persona()  # Use default persona for chat
-        
-        # Initialize prompt construction
+        """Construct a detailed chat prompt for Gemini."""
+        persona = self.get_persona()
         prompt_parts = []
         
-        logger.debug(
-            f"[Persona] Constructing chat prompt for user '{username}' "
-            f"(level {relationship_level}, admin={is_admin}, lang={lang})"
-        )
-        
-        # Always start with system_prompt if available
+        # System Prompt
         system_prompt = persona.get("system_prompt", "").strip()
         if system_prompt:
-            prompt_parts.append(system_prompt)
-            logger.debug(f"[Persona] Added system_prompt ({len(system_prompt)} chars)")
-        else:
-            logger.warning("[Persona] No system_prompt found in persona YAML")
+            prompt_parts.append(system_prompt.replace("{username}", username))
         
-        # Inject connection_dynamics based on relationship level
-        connection_dynamics = persona.get("connection_dynamics", {})
-        if connection_dynamics:
-            logger.debug(
-                f"[Persona] Found connection_dynamics with "
-                f"{len(connection_dynamics)} phases in YAML"
-            )
-            
-            level_behavior = self._get_level_behavior(connection_dynamics, relationship_level)
-            
-            if level_behavior:
-                # Serialize behavior config to YAML format for structured injection
+        # Connection Dynamics
+        if connection_dynamics := persona.get("connection_dynamics"):
+            if level_behavior := self._get_level_behavior(connection_dynamics, relationship_level):
                 behavior_yaml = yaml.dump(level_behavior, allow_unicode=True, default_flow_style=False)
-                prompt_parts.append(
-                    f"\n# Current Relationship Level Behavior\n{behavior_yaml}"
-                )
-                logger.info(
-                    f"[Persona] Successfully injected connection_dynamics for level {relationship_level}"
-                )
-            else:
-                logger.warning(
-                    f"[Persona] Failed to extract level behavior for level {relationship_level}. "
-                    f"Gemini will use generic persona without level-specific guidance."
-                )
-        else:
-            logger.warning(
-                "[Persona] No connection_dynamics found in persona YAML. "
-                "Level-based behavior adaptation is disabled."
-            )
+                prompt_parts.append(f"\n# Relationship Behavior\n{behavior_yaml.replace('{username}', username)}")
         
-        # Optionally add extra sections (e.g. emotional_processing, smart_alya_enhancement, etc)
+        # Extra Sections
         if extra_sections:
-            logger.debug(f"[Persona] Processing {len(extra_sections)} extra sections")
             for section in extra_sections:
-                section_data = persona.get(section)
-                if section_data:
+                if section_data := persona.get(section):
                     section_yaml = yaml.dump(section_data, allow_unicode=True, default_flow_style=False)
-                    prompt_parts.append(
-                        f"\n# {section.replace('_', ' ').title()}\n{section_yaml}"
-                    )
-                    logger.debug(f"[Persona] Added extra section: {section}")
-                else:
-                    logger.debug(f"[Persona] Extra section '{section}' not found in YAML")
+                    prompt_parts.append(f"\n# {section.replace('_', ' ').title()}\n{section_yaml}")
         
-        # Fallback to old logic if system_prompt not found
+        # Fallback for old personas
         if not prompt_parts:
-            logger.warning(
-                "[Persona] No prompt_parts constructed from YAML. "
-                "Falling back to legacy persona construction logic."
-            )
-            
             persona_lang = persona.get(lang, persona.get(DEFAULT_LANGUAGE, {}))
-            base_instructions = persona_lang.get("base_instructions", "")
-            personality_traits = "\n- ".join(persona_lang.get("personality_traits", []))
-            relationship_instructions = self._get_relationship_instructions(persona_lang, relationship_level)
-            response_format = persona_lang.get("response_format", "")
-            russian_phrases = "\n- ".join([f"`{p}`: {d}" for p, d in persona_lang.get("russian_phrases", {}).items()])
-            admin_note = persona_lang.get("admin_note", "") if is_admin else ""
-            
-            prompt_parts.append(f"""{base_instructions}
-
-**Your Core Personality:**
-- {personality_traits}
-
-**Your Relationship with {username}:**
-{relationship_instructions}
-{admin_note}
-
-**Russian Phrases You Can Use (sparingly, for emotional emphasis):**
-- {russian_phrases}
-""")
-            logger.debug("[Persona] Constructed prompt using legacy fallback logic")
+            prompt_parts.append(f"{persona_lang.get('base_instructions', '')}\n\n"
+                              f"**Personality:**\n- {'\n- '.join(persona_lang.get('personality_traits', []))}\n\n"
+                              f"**Relationship:**\n{self._get_relationship_instructions(persona_lang, relationship_level)}")
         
-        # Combine all prompt parts
-        prompt = "\n\n".join(prompt_parts)
-        
-        logger.debug(f"[Persona] Total prompt length: {len(prompt)} characters")
-        
-        # Convert language code to clear language name
+        # Combine
         lang_name = "Bahasa Indonesia" if lang == "id" else "English"
+        language_instr = f"\n\n**CRITICAL:** Respond ENTIRELY in {lang_name}. No English mixing."
         
-        # Ultra-strict language instruction
-        language_instruction = f"""
-**CRITICAL LANGUAGE REQUIREMENT:**
-- You MUST respond ENTIRELY in {lang_name}
-- DO NOT use English in your response
-- DO NOT mix languages
-- ALL text, actions, and roleplay descriptions must be in {lang_name}
-- If you accidentally write in English, immediately rewrite it in {lang_name}
-"""
-        
-        prompt += f"\n\n**Conversation Context (Recent History):**\n---\n{context or 'This is the beginning of your conversation.'}\n---\n\n**User's Message:**\n> {message}\n\n{language_instruction}\n\n**Your Task:**\nRespond to {username} naturally as Alya, following ALL instructions above."
-        
-        logger.info(
-            f"[Persona] Chat prompt constructed successfully: "
-            f"{len(prompt)} total chars, "
-            f"{len(prompt_parts)} sections, "
-            f"level {relationship_level} behavior injected"
-        )
-        
-        # Debug: Log full prompt if debug level enabled (useful for troubleshooting)
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"[Persona] Full prompt preview (first 500 chars):\n{prompt[:500]}...")
-        
-        return prompt.strip()
+        main_prompt = "\n\n".join(prompt_parts)
+        return (f"{main_prompt}\n\n"
+                f"**History:**\n{context or 'Start of conversation.'}\n\n"
+                f"**User:** {message}\n"
+                f"{language_instr}\n\n"
+                f"Respond as Alya.").strip()
 
     def get_media_analysis_prompt(
         self,
