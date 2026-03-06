@@ -242,6 +242,15 @@ class DatabaseManager:
                 logger.warning("Database health check failed - connection may be unstable")
             self._last_health_check = now
     
+    def get_user_object(self, user_id: int) -> Optional[User]:
+        """Get raw user model instance from database."""
+        try:
+            with db_session_context() as session:
+                return session.query(User).filter(User.id == user_id).first()
+        except Exception as e:
+            logger.error(f"Error in get_user_object: {e}")
+            return None
+    
     def get_or_create_user(self, user_id: int, username: str = "", first_name: str = "", 
                            last_name: str = "", is_admin: bool = False) -> Dict[str, Any]:
         """Get or create user data from database."""
@@ -549,7 +558,9 @@ class DatabaseManager:
                         "interaction_count": 0,
                         "role_name": get_role_by_relationship_level(0),
                         "topics_discussed": [],
-                        "persona": "waifu"
+                        "persona": "waifu",
+                        "voice_enabled": False,
+                        "voice_language": DEFAULT_LANGUAGE
                     }
                 return {
                     "relationship_level": user.relationship_level,
@@ -557,7 +568,9 @@ class DatabaseManager:
                     "interaction_count": user.interaction_count,
                     "role_name": get_role_by_relationship_level(user.relationship_level, user_id in ADMIN_IDS),
                     "topics_discussed": user.topics_discussed or [],
-                    "persona": user.preferences.get("persona", "waifu") if user.preferences else "waifu"
+                    "persona": user.preferences.get("persona", "waifu") if user.preferences else "waifu",
+                    "voice_enabled": user.voice_enabled,
+                    "voice_language": user.voice_language or DEFAULT_LANGUAGE
                 }
         except Exception as e:
             logger.error(f"Error getting user relationship info for {user_id}: {e}", exc_info=True)

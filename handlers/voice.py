@@ -15,11 +15,14 @@ from telegram.constants import ChatAction
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from core.memory import MemoryManager
+from core.mood_manager import MoodManager
 from core.nlp import NLPEngine
-from database.database_manager import DatabaseManager
+from database.database_manager import DatabaseManager, db_manager, get_user_lang
 from utils.voice_processor import VoiceProcessor
 from utils.language_translator import translate_response_for_voice
-from config.settings import VOICE_ENABLED, DEFAULT_LANGUAGE, ADMIN_IDS
+from utils.telegram_helpers import ChatActionSender
+from utils.formatters import format_persona_response
+from config.settings import VOICE_ENABLED, DEFAULT_LANGUAGE, ADMIN_IDS, AFFECTION_POINTS
 
 logger = logging.getLogger(__name__)
 
@@ -98,59 +101,77 @@ class VoiceHandler:
                     "🔒 <b>Voice Access Required</b>\n\nContact an admin to request access!"
                 )
                 return
+            
+            async with ChatActionSender(context, chat.id, ChatAction.TYPING):
+                # 1. Download and Transcribe
+                voice = update.message.voice
+                file = await context.bot.get_file(voice.file_id)
+                
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    ogg_path = os.path.join(tmp_dir, f"voice_{voice.file_id}.ogg")
+                    await file.download_to_drive(ogg_path)
+                    
+                    transcription_data = await self.voice_processor.transcribe_audio(ogg_path, lang=db_user_dict.get('language_code', 'id'))
+                    if not transcription_data:
+                        await update.message.reply_html("❌ Gagal mengenali suara kamu...")
+                        return
+                    
+                    user_text, detected_lang = transcription_data
+                    logger.info(f"🎙️ Voice transcribed (lang={detected_lang}): {user_text}")
+                
+                lang_flag = {"en": "🇺🇸", "id": "🇮🇩", "ja": "🎌"}.get(detected_lang, "🌐")
+                await update.message.reply_html(f"🎤 <i>({lang_flag} {detected_lang.upper()}): {user_text}</i>")
 
-            await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
-            
-            # 2. Download and Transcribe
-            voice_file = await update.message.voice.get_file()
-            with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as tmp:
-                await voice_file.download_to_drive(tmp.name)
-                transcription = await self.voice_processor.transcribe_audio(tmp.name, db_user_dict.get('language_code', DEFAULT_LANGUAGE))
-                os.unlink(tmp.name)
-            
-            if not transcription:
-                await update.message.reply_text("❌ I couldn't understand that. Try again!")
-                return
-            
-            text, detected_lang = transcription
-            lang_flag = {"en": "🇺🇸", "id": "🇮🇩", "ja": "🎌"}.get(detected_lang, "🌐")
-            await update.message.reply_html(f"🎤 <i>({lang_flag} {detected_lang.upper()}): {text}</i>")
-            
-            # 3. AI Processing
-            msg_context = self.nlp_engine.get_message_context(text, user.id) if self.nlp_engine else {}
-            rel_level = db_user_dict.get('relationship_level', 0)
-            
-            prompt = self.persona_manager.get_chat_prompt(
-                user.first_name, text, "", rel_level, is_admin, db_user_dict.get('language_code', DEFAULT_LANGUAGE)
-            )
-            
-            response = await self.gemini_client.generate_response(
-                user.id, user.first_name, text, prompt, rel_level, is_admin, db_user_dict.get('language_code', DEFAULT_LANGUAGE)
-            )
-            
-            if not response:
-                await update.message.reply_text("❌ Failed to generate response.")
-                return
+                # 2. Memory & Relationship Updates
+                self.db_manager.save_message(user.id, "user", user_text)
+                if self.memory_manager:
+                    self.memory_manager.save_user_message(user.id, user_text)
+                
+                message_context = {}
+                if self.nlp_engine:
+                    message_context = self.nlp_engine.get_message_context(user_text, user.id)
+                    mood_manager = MoodManager()
+                    
+                    current_mood = self.db_manager.get_user_mood(user.id)
+                    rel_info = self.db_manager.get_user_relationship_info(user.id)
+
+                # 3. Generate AI Response
+                rel_level = db_user_dict.get('relationship_level', 0)
+                # history = self.memory_manager.get_conversation_context(user.id) if self.memory_manager else []
+                # (Existing response generation logic)
+                response = await self.gemini_client.generate_response(
+                    user_id=user.id,
+                    username=user.first_name or "user",
+                    message=user_text,
+                    context=self.persona_manager.get_chat_prompt(user.first_name, user_text, lang=db_user_dict.get('language_code', 'id')),
+                    relationship_level=rel_level,
+                    is_admin=is_admin,
+                    lang=db_user_dict.get('language_code', 'id')
+                )
+                
+                if not response:
+                    await update.message.reply_html("❌ Gagal mendapatkan respon dari Alya...")
+                    return
 
             # 4. Responses (Text + Voice)
-            from utils.formatters import format_persona_response
             ui_text = format_persona_response(response, use_html=True) + "\u200C"
             await update.message.reply_html(ui_text)
             
-            await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.RECORD_VOICE)
-            voice_lang = self.db_manager.get_user_voice_language(user.id) if self.db_manager else "en"
-            
-            voice_text = response
-            if voice_lang != db_user_dict.get('language_code'):
-                translated = await translate_response_for_voice(response, db_user_dict.get('language_code'), voice_lang)
-                voice_text = translated or response
-            
-            voice_path = await self.voice_processor.text_to_speech(voice_text, voice_lang)
-            if voice_path and os.path.exists(voice_path):
-                caption = f"🎙️ Alya's voice ({voice_lang.upper()})"
-                with open(voice_path, 'rb') as vf:
-                    await update.message.reply_voice(vf, caption=caption)
-                os.unlink(voice_path)
+            # 🎙️ Added: Persistent "Recording Voice" status
+            async with ChatActionSender(context, chat.id, ChatAction.RECORD_VOICE):
+                voice_lang = self.db_manager.get_user_voice_language(user.id) if self.db_manager else "en"
+                
+                voice_text = response
+                if voice_lang != db_user_dict.get('language_code'):
+                    translated = await translate_response_for_voice(response, db_user_dict.get('language_code'), voice_lang)
+                    voice_text = translated or response
+                
+                voice_path = await self.voice_processor.text_to_speech(voice_text, voice_lang)
+                if voice_path and os.path.exists(voice_path):
+                    caption = f"🎙️ Alya's voice ({voice_lang.upper()})"
+                    with open(voice_path, 'rb') as vf:
+                        await update.message.reply_voice(vf, caption=caption)
+                    os.unlink(voice_path)
 
             # 5. Metadata Update
             if self.memory_manager:

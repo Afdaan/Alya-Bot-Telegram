@@ -114,7 +114,7 @@ def register_handlers(
     
     register_commands(application)
     
-    conversation_handler = ConversationHandler(gemini_client, persona_manager, memory_manager, nlp_engine)
+    conversation_handler = ConversationHandler(gemini_client, persona_manager, memory_manager, nlp_engine, voice_processor, db_manager)
     for handler in conversation_handler.get_handlers():
         application.add_handler(handler)
     

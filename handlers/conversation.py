@@ -6,6 +6,7 @@ import random
 from typing import Dict, List, Optional, Any
 import asyncio
 import re
+import os
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -23,9 +24,12 @@ from config.settings import (
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from core.memory import MemoryManager
-from database.database_manager import db_manager, get_user_lang
+from core.mood_manager import MoodManager
+from database.database_manager import DatabaseManager, db_manager, get_user_lang
+from utils.language_translator import translate_response_for_voice
 from core.nlp import NLPEngine, ContextManager
 from utils.formatters import format_response, format_error_response, format_paragraphs, format_persona_response
+from utils.telegram_helpers import ChatActionSender
 
 
 logger = logging.getLogger(__name__)
@@ -37,7 +41,9 @@ class ConversationHandler:
         gemini_client: GeminiClient,
         persona_manager: PersonaManager, 
         memory_manager: MemoryManager,
-        nlp_engine: Optional[NLPEngine] = None
+        nlp_engine: Optional[NLPEngine] = None,
+        voice_processor: Optional[Any] = None,
+        db_manager: Optional[DatabaseManager] = None
     ) -> None:
         self.gemini = gemini_client
         self.persona = persona_manager
@@ -45,6 +51,7 @@ class ConversationHandler:
         self.db = db_manager
         self.context_manager = ContextManager(self.db)
         self.nlp = nlp_engine or NLPEngine()
+        self.voice_processor = voice_processor
     
     def get_handlers(self) -> List:
         handlers = [
@@ -137,107 +144,92 @@ class ConversationHandler:
             return
         chat = update.effective_chat
         try:
-            if hasattr(update.message, "message_thread_id") and update.message.message_thread_id:
-                await context.bot.send_chat_action(
-                    chat_id=chat.id,
-                    action=ChatAction.TYPING,
-                    message_thread_id=update.message.message_thread_id
+            async with ChatActionSender(context, chat.id, ChatAction.TYPING):
+                self._create_or_update_user(user)
+                self.db.save_message(user.id, "user", query)
+                self.memory.save_user_message(user.id, query)
+                self.context_manager.apply_sliding_window(user.id)
+                
+                message_context = {}
+                if FEATURES.get("emotion_detection", False) and self.nlp:
+                    message_context = self.nlp.get_message_context(query, user.id)
+                    logger.debug(f"Message context for user {user.id}: {message_context}")
+                
+                affection_delta = 0
+                if message_context:
+                    affection_delta = self._calculate_affection_delta(user.id, message_context)
+                
+                # === STEP 3: Get current mood and calculate new mood ===
+                mood_manager = MoodManager()
+                
+                current_mood_data = self.db.get_user_mood(user.id)
+                user_info = self.db.get_user_relationship_info(user.id)
+                
+                new_mood_state = mood_manager.calculate_mood(
+                    current_mood=current_mood_data["mood"],
+                    current_intensity=current_mood_data["intensity"],
+                    affection_delta=affection_delta,
+                    emotion_context=message_context,
+                    relationship_level=user_info["relationship_level"],
+                    last_mood_change=current_mood_data["last_change"]
                 )
-            else:
-                await context.bot.send_chat_action(
-                    chat_id=chat.id,
-                    action=ChatAction.TYPING
+                
+                # === STEP 4: Apply mood modifier to affection delta ===
+                mood_modifier = mood_manager.get_affection_modifier(
+                    new_mood_state.mood, 
+                    affection_delta
                 )
-        except Exception as e:
-            logger.warning(f"Failed to send typing action: {e}")
-        try:
-            self._create_or_update_user(user)
-            self.db.save_message(user.id, "user", query)
-            self.memory.save_user_message(user.id, query)
-            self.context_manager.apply_sliding_window(user.id)
-            
-            # === STEP 1: Analyze message context FIRST (for affection calculation) ===
-            message_context = {}
-            if FEATURES.get("emotion_detection", False) and self.nlp:
-                message_context = self.nlp.get_message_context(query, user.id)
-                logger.debug(f"Message context for user {user.id}: {message_context}")
-            
-            # === STEP 2: Calculate affection delta (before applying) ===
-            affection_delta = 0
-            if message_context:
-                affection_delta = self._calculate_affection_delta(user.id, message_context)
-            
-            # === STEP 3: Get current mood and calculate new mood ===
-            from core.mood_manager import MoodManager
-            mood_manager = MoodManager()
-            
-            current_mood_data = self.db.get_user_mood(user.id)
-            user_info = self.db.get_user_relationship_info(user.id)
-            
-            new_mood_state = mood_manager.calculate_mood(
-                current_mood=current_mood_data["mood"],
-                current_intensity=current_mood_data["intensity"],
-                affection_delta=affection_delta,
-                emotion_context=message_context,
-                relationship_level=user_info["relationship_level"],
-                last_mood_change=current_mood_data["last_change"]
-            )
-            
-            # === STEP 4: Apply mood modifier to affection delta ===
-            mood_modifier = mood_manager.get_affection_modifier(
-                new_mood_state.mood, 
-                affection_delta
-            )
-            modified_affection_delta = int(affection_delta * mood_modifier)
-            
-            logger.info(
-                f"[MOOD] User {user.id}: {current_mood_data['mood']} → {new_mood_state.mood} "
-                f"(intensity: {new_mood_state.intensity}) | "
-                f"Affection: {affection_delta} → {modified_affection_delta} (×{mood_modifier:.1f})"
-            )
-            
-            # === STEP 5: Update affection with mood-modified delta ===
-            if modified_affection_delta != 0:
-                self.db.update_affection(user.id, modified_affection_delta)
-            
-            # === STEP 6: Update mood in database ===
-            updated_history = mood_manager.add_to_mood_history(
-                current_mood_data["history"],
-                new_mood_state
-            )
-            self.db.update_user_mood(
-                user.id,
-                new_mood_state.mood,
-                new_mood_state.intensity,
-                updated_history
-            )
-            
-            # === STEP 7: Increment interaction count (will recalculate level) ===
-            self.db.increment_interaction_count(user.id)
-            
-            # === STEP 8: Prepare context with LATEST relationship level and MOOD ===
-            user_context = await self._prepare_conversation_context(
-                user, query, lang, message_context, new_mood_state, mood_manager
-            )
-            history = self.context_manager.get_context_window(user.id)
-            response = await self.gemini.generate_response(
-                user_id=user.id,
-                username=user.first_name or "user",
-                message=user_context["enhanced_query"],
-                context=user_context["system_prompt"],
-                relationship_level=user_context["relationship_level"],
-                is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
-                lang=lang,
-                retry_count=3,
-                is_media_analysis=False,
-                media_context=None
-            )
-            if response:
-                logger.info(f"[RESPONSE_RECEIVED] Got response from Gemini, length={len(response)}")
-                await self._process_and_send_response(update, user, response, user_context["message_context"], lang)
-            else:
-                logger.warning(f"[RESPONSE_RECEIVED] Response is empty or None")
-                await self._send_error_response(update, user.first_name, lang)
+                modified_affection_delta = int(affection_delta * mood_modifier)
+                
+                logger.info(
+                    f"[MOOD] User {user.id}: {current_mood_data['mood']} → {new_mood_state.mood} "
+                    f"(intensity: {new_mood_state.intensity}) | "
+                    f"Affection: {affection_delta} → {modified_affection_delta} (×{mood_modifier:.1f})"
+                )
+                
+                # === STEP 5: Update affection with mood-modified delta ===
+                if modified_affection_delta != 0:
+                    self.db.update_affection(user.id, modified_affection_delta)
+                
+                # === STEP 6: Update mood in database ===
+                updated_history = mood_manager.add_to_mood_history(
+                    current_mood_data["history"],
+                    new_mood_state
+                )
+                self.db.update_user_mood(
+                    user.id,
+                    new_mood_state.mood,
+                    new_mood_state.intensity,
+                    updated_history
+                )
+                
+                # === STEP 7: Increment interaction count (will recalculate level) ===
+                self.db.increment_interaction_count(user.id)
+                
+                # === STEP 8: Prepare context with LATEST relationship level and MOOD ===
+                user_context = await self._prepare_conversation_context(
+                    user, query, lang, message_context, new_mood_state, mood_manager
+                )
+                # history = self.context_manager.get_context_window(user.id)
+                response = await self.gemini.generate_response(
+                    user_id=user.id,
+                    username=user.first_name or "user",
+                    message=user_context["enhanced_query"],
+                    context=user_context["system_prompt"],
+                    relationship_level=user_context["relationship_level"],
+                    is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
+                    lang=lang,
+                    retry_count=3,
+                    is_media_analysis=False,
+                    media_context=None
+                )
+                
+                if response:
+                    logger.info(f"[RESPONSE_RECEIVED] Got response from Gemini, length={len(response)}")
+                    await self._process_and_send_response(update, user, response, user_context["message_context"], lang)
+                else:
+                    logger.warning(f"[RESPONSE_RECEIVED] Response is empty or None")
+                    await self._send_error_response(update, user.first_name, lang)
         except Exception as e:
             logger.error(f"Error in chat command: {e}", exc_info=True)
             await self._send_error_response(update, user.first_name, lang)
@@ -507,11 +499,7 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         try:
             self.db.save_message(user.id, "assistant", response)
             self.memory.save_bot_response(user.id, response)
-            if message_context:
-                # self._update_affection_from_context(user.id, message_context)
-                # Affection update handled in chat_command before response generation
-                pass
-
+            
             # Step 1: Split mixed quote-narration paragraphs
             response = self._split_mixed_quote_paragraphs(response)
             
@@ -523,6 +511,31 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             formatted_response = f"{formatted_response}\u200C"
 
             await update.message.reply_html(formatted_response)
+
+            # Step 4: Optional Voice Response
+            from config.settings import VOICE_ENABLED
+            user_info = self.db.get_user_relationship_info(user.id)
+            is_admin = user.id in ADMIN_IDS
+            
+            if VOICE_ENABLED and self.voice_processor and (is_admin or user_info.get("voice_enabled")):
+                chat_id = update.effective_chat.id
+                bot = update.get_bot()
+                
+                async with ChatActionSender(bot, chat_id, ChatAction.RECORD_VOICE):
+                    voice_lang = user_info.get("voice_language", lang)
+                    voice_text = response
+                    
+                    user_lang = lang or "en"
+                    if voice_lang != user_lang:
+                        translated = await translate_response_for_voice(response, user_lang, voice_lang)
+                        voice_text = translated or response
+                    
+                    voice_path = await self.voice_processor.text_to_speech(voice_text, voice_lang)
+                    if voice_path and os.path.exists(voice_path):
+                        caption = f"🎙️ Alya's voice ({voice_lang.upper()})"
+                        with open(voice_path, 'rb') as vf:
+                            await update.message.reply_voice(vf, caption=caption)
+                        os.unlink(voice_path)
         except Exception as e:
             logger.error(f"Error processing response: {e}", exc_info=True)
             await self._send_error_response(update, user.first_name, lang)
