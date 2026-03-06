@@ -28,7 +28,7 @@ torchaudio>=2.6.0
 
 # RVC Voice Conversion
 rvc-python==0.1.5
-faiss-cpu==1.8.0
+faiss-cpu==1.7.3
 torchvision>=0.15.0
 librosa>=0.10.0
 soundfile>=0.12.1
