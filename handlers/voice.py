@@ -16,7 +16,7 @@ from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from core.memory import MemoryManager
 from core.mood_manager import MoodManager
-from core.nlp import NLPEngine
+from core.nlp import NLPEngine, ContextManager
 from database.database_manager import DatabaseManager, db_manager, get_user_lang
 from utils.voice_processor import VoiceProcessor
 from utils.language_translator import translate_response_for_voice
@@ -54,6 +54,7 @@ class VoiceHandler:
         self.persona_manager = persona_manager
         self.memory_manager = memory_manager
         self.db_manager = db_manager
+        self.context_manager = ContextManager(self.db_manager) if self.db_manager else None
         self.nlp_engine = nlp_engine
         
         # Use shared voice processor
@@ -94,7 +95,7 @@ class VoiceHandler:
             # 1. Access Check
             db_user_dict = self._create_or_update_user(user)
             db_user = self.db_manager.get_user_object(user.id) if self.db_manager else None
-            is_admin = user.id in ADMIN_IDS
+            is_admin = user.id in ADMIN_IDS or (self.db_manager.is_admin(user.id) if self.db_manager else False)
             
             if not is_admin and (not db_user or not db_user.voice_enabled):
                 await update.message.reply_html(
@@ -137,13 +138,27 @@ class VoiceHandler:
 
                 # 3. Generate AI Response
                 rel_level = db_user_dict.get('relationship_level', 0)
-                # history = self.memory_manager.get_conversation_context(user.id) if self.memory_manager else []
-                # (Existing response generation logic)
+                
+                # Build context string
+                history_text = ""
+                if self.context_manager:
+                    history = self.context_manager.get_context_window(user.id)
+                    if history:
+                        # Clean format: [Role] Content
+                        history_text = "\n".join([f"[{msg['role'].capitalize()}] {msg['content']}" for msg in history])
+                
                 response = await self.gemini_client.generate_response(
                     user_id=user.id,
                     username=user.first_name or "user",
                     message=user_text,
-                    context=self.persona_manager.get_chat_prompt(user.first_name, user_text, lang=db_user_dict.get('language_code', 'id')),
+                    context=self.persona_manager.get_chat_prompt(
+                        username=user.first_name,
+                        message=user_text,
+                        context=history_text,
+                        relationship_level=rel_level,
+                        is_admin=is_admin,
+                        lang=db_user_dict.get('language_code', 'id')
+                    ),
                     relationship_level=rel_level,
                     is_admin=is_admin,
                     lang=db_user_dict.get('language_code', 'id')
@@ -175,13 +190,12 @@ class VoiceHandler:
 
             # 5. Metadata Update
             if self.memory_manager:
-                self.memory_manager.save_user_message(user.id, text)
                 self.memory_manager.save_bot_response(user.id, response)
             
             if db_user:
                 self.db_manager.increment_interaction_count(user.id)
-                if msg_context:
-                    delta = self._calculate_affection_delta(user.id, msg_context)
+                if message_context:
+                    delta = self._calculate_affection_delta(user.id, message_context)
                     if delta: self.db_manager.update_affection(user.id, delta)
 
         except Exception as e:

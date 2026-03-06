@@ -275,7 +275,7 @@ class ConversationHandler:
         persona_prompt = self.persona.get_chat_prompt(
             username=user.first_name,
             message=query,
-            context="\n".join([str(c) for c in self.context_manager.get_context_window(user.id)]) if self.context_manager.get_context_window(user.id) else "",
+            context="\n".join([f"[{msg['role'].capitalize()}] {msg['content']}" for msg in self.context_manager.get_context_window(user.id)]) if self.context_manager.get_context_window(user.id) else "",
             relationship_level=relationship_level,
             is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
             lang=lang
