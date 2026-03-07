@@ -99,24 +99,8 @@ FEATURES: Dict[str, bool] = {
     "voice": os.getenv("VOICE_ENABLED", "true").lower() == "true"
 }
 
-# Voice
+# Voice (STT handled locally, TTS handled by Alya-TTS microservice)
 VOICE_ENABLED: bool = os.getenv("VOICE_ENABLED", "true").lower() == "true"
-VOICE_MODEL_DIR: str = "alya_voice"
-VOICE_MODEL_PATH: str = os.path.join(VOICE_MODEL_DIR, "alya.pth")
-VOICE_INDEX_PATH: str = os.path.join(VOICE_MODEL_DIR, "added_IVF777_Flat_nprobe_1_alya_v2.index")
-
-# RVC
-RVC_ENABLED: bool = os.getenv("RVC_ENABLED", "true").lower() == "true"
-RVC_DEVICE: str = os.getenv("RVC_DEVICE", "cpu")
-RVC_CPU_THREADS: int = int(os.getenv("RVC_CPU_THREADS", "3"))
-RVC_IS_HALF: bool = False
-RVC_PITCH_CHANGE: int = 0
-RVC_F0_METHOD: str = "rmvpe"
-RVC_INDEX_RATE: float = float(os.getenv("RVC_INDEX_RATE", "0.75"))
-RVC_VOLUME_ENVELOPE: float = 1.0
-RVC_PROTECT: float = 0.33
-RVC_RESAMPLE_SR: int = 0
-RVC_QUEUE_SIZE: int = int(os.getenv("RVC_QUEUE_SIZE", "2"))
 
 # Response Formatting
 FORMAT_ROLEPLAY: bool = True
