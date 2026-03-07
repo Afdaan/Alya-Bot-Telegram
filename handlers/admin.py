@@ -9,10 +9,9 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, CallbackContext
+from telegram.ext import ContextTypes, CommandHandler
 from telegram.constants import ParseMode
 
-from utils.update_git import DeploymentManager, register_admin_handlers as register_deployment_handlers
 
 import psutil
 import platform
@@ -27,7 +26,6 @@ class AdminHandler:
     def __init__(self, db_manager=None, persona_manager=None) -> None:
         self.db = db_manager
         self.persona = persona_manager
-        self.deployment_manager = DeploymentManager()
         self.authorized_users = self._load_authorized_users()
 
     def _load_authorized_users(self) -> List[int]:
@@ -46,7 +44,6 @@ class AdminHandler:
             CommandHandler("cleanup", self.cleanup_command),
             CommandHandler("addadmin", self.add_admin_command),
             CommandHandler("removeadmin", self.remove_admin_command),
-            CommandHandler("status", self.status_command),
             CommandHandler("spek", self.system_stats_command),
             CommandHandler("voiceadd", self.voice_add_command),
             CommandHandler("voiceremove", self.voice_remove_command),
@@ -177,8 +174,6 @@ class AdminHandler:
             logger.error(f"Error in remove_admin_command: {e}")
             await self._error_response(update, user.first_name, str(e))
 
-    async def status_command(self, update: Update, context: CallbackContext) -> None:
-        await self.deployment_manager.status_handler(update, context)
 
     async def system_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
@@ -509,19 +504,3 @@ def register_admin_handlers(application, **kwargs) -> None:
         application.add_handler(handler)
     logger.info(f"Registered {len(handlers)} admin command handlers")
     logger.info(f"Authorized admin users: {len(admin_handler.authorized_users)}")
-    commands = []
-    for handler in handlers:
-        if hasattr(handler, 'commands'):
-            if isinstance(handler.commands, (list, tuple)):
-                commands.append(handler.commands[0])
-            elif isinstance(handler.commands, (str, frozenset)):
-                if isinstance(handler.commands, frozenset):
-                    commands.append(next(iter(handler.commands), "unknown"))
-                else:
-                    commands.append(handler.commands)
-    if commands:
-        logger.info(f"Available admin commands: {', '.join(commands)}")
-    else:
-        logger.info("No admin commands available")
-    register_deployment_handlers(application)
-    logger.info("Registered deployment handlers from update_git.py")

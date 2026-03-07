@@ -1,1 +1,0 @@
-# Initialization for RVC lib

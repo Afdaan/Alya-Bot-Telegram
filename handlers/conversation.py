@@ -26,7 +26,6 @@ from core.persona import PersonaManager
 from core.memory import MemoryManager
 from core.mood_manager import MoodManager
 from database.database_manager import DatabaseManager, db_manager, get_user_lang
-from utils.language_translator import translate_response_for_voice
 from core.nlp import NLPEngine, ContextManager
 from utils.formatters import format_response, format_error_response, format_paragraphs, format_persona_response
 from utils.telegram_helpers import ChatActionSender
@@ -39,10 +38,9 @@ class ConversationHandler:
     def __init__(
         self,
         gemini_client: GeminiClient,
-        persona_manager: PersonaManager, 
+        persona_manager: PersonaManager,
         memory_manager: MemoryManager,
         nlp_engine: Optional[NLPEngine] = None,
-        voice_processor: Optional[Any] = None,
         db_manager: Optional[DatabaseManager] = None
     ) -> None:
         self.gemini = gemini_client
@@ -51,7 +49,6 @@ class ConversationHandler:
         self.db = db_manager
         self.context_manager = ContextManager(self.db)
         self.nlp = nlp_engine or NLPEngine()
-        self.voice_processor = voice_processor
     
     def get_handlers(self) -> List:
         handlers = [
@@ -511,31 +508,6 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             formatted_response = f"{formatted_response}\u200C"
 
             await update.message.reply_html(formatted_response)
-
-            # Step 4: Optional Voice Response
-            from config.settings import VOICE_ENABLED
-            user_info = self.db.get_user_relationship_info(user.id)
-            is_admin = user.id in ADMIN_IDS
-            
-            if VOICE_ENABLED and self.voice_processor and (is_admin or user_info.get("voice_enabled")):
-                chat_id = update.effective_chat.id
-                bot = update.get_bot()
-                
-                async with ChatActionSender(bot, chat_id, ChatAction.RECORD_VOICE):
-                    voice_lang = user_info.get("voice_language", lang)
-                    voice_text = response
-                    
-                    user_lang = lang or "en"
-                    if voice_lang != user_lang:
-                        translated = await translate_response_for_voice(response, user_lang, voice_lang)
-                        voice_text = translated or response
-                    
-                    voice_path = await self.voice_processor.text_to_speech(voice_text, voice_lang)
-                    if voice_path and os.path.exists(voice_path):
-                        caption = f"🎙️ Alya's voice ({voice_lang.upper()})"
-                        with open(voice_path, 'rb') as vf:
-                            await update.message.reply_voice(vf, caption=caption)
-                        os.unlink(voice_path)
         except Exception as e:
             logger.error(f"Error processing response: {e}", exc_info=True)
             await self._send_error_response(update, user.first_name, lang)

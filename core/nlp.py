@@ -69,7 +69,7 @@ class NLPEngine:
             import torch
             major, minor = map(int, torch.__version__.split('.')[:2])
             if major < 2 or (major == 2 and minor < 6):
-                logger.warning("⏭️ torch version < 2.6 - Skipping NLP initialization")
+                logger.warning("⏭️ torch < 2.6 - NLP initialization skipped (upgrade torch to enable emotion detection)")
                 return
         except Exception:
             pass

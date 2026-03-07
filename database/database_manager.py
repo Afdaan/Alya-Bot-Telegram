@@ -165,22 +165,25 @@ class DatabaseManager:
     def get_user_voice_language(self, user_id: int) -> str:
         """
         Get user's voice language preference.
+        Falls back to user's language_code if voice_language is not set.
         
         Args:
             user_id: The user's ID.
             
         Returns:
-            Voice language code (en, id, ja) or DEFAULT_LANGUAGE if not set
+            Voice language code (en, id, ja) or user's language_code or DEFAULT_LANGUAGE
         """
         try:
             with db_session_context() as session:
-                user = session.query(User.voice_language).filter(User.id == user_id).first()
-                if user and user.voice_language:
-                    return user.voice_language
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    if user.voice_language:
+                        return user.voice_language
+                    if user.language_code:
+                        return user.language_code
         except Exception as e:
             logger.error(f"Failed to get voice language for user {user_id}: {e}")
         
-        # Import here to avoid circular import
         from config.settings import DEFAULT_LANGUAGE
         return DEFAULT_LANGUAGE
 

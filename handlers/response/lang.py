@@ -9,9 +9,7 @@ async def get_lang_keyboard():
     """Build language selection keyboard."""
     keyboard = [
         [InlineKeyboardButton("English 🇺🇸", callback_data="setlang_en")],
-        [InlineKeyboardButton("Indonesia 🇮🇩", callback_data="setlang_id")],
-        [InlineKeyboardButton("Русский 🇷🇺", callback_data="setlang_ru")],
-        [InlineKeyboardButton("日本語 🎌", callback_data="setlang_ja")]
+        [InlineKeyboardButton("Indonesia 🇮🇩", callback_data="setlang_id")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -28,7 +26,7 @@ async def handle_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     
     lang_code = query.data.split("_")[1]
-    lang_name = {"en": "English", "id": "Indonesia", "ru": "Russian", "ja": "Japanese"}.get(lang_code, "English")
+    lang_name = {"en": "English", "id": "Indonesia"}.get(lang_code, "English")
     
     # Update DB if available
     from database.database_manager import db_manager

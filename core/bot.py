@@ -26,6 +26,7 @@ from handlers.commands import CommandsHandler, register_commands, set_bot_comman
 from handlers.voice import VoiceHandler
 from utils.roast import RoastHandler
 from utils.voice_processor import VoiceProcessor
+from utils.tts_queue import TTSQueueWorker
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,7 @@ def register_handlers(
     
     register_commands(application)
     
-    conversation_handler = ConversationHandler(gemini_client, persona_manager, memory_manager, nlp_engine, voice_processor, db_manager)
+    conversation_handler = ConversationHandler(gemini_client, persona_manager, memory_manager, nlp_engine, db_manager)
     for handler in conversation_handler.get_handlers():
         application.add_handler(handler)
     

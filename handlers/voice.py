@@ -20,6 +20,7 @@ from core.nlp import NLPEngine, ContextManager
 from database.database_manager import DatabaseManager, db_manager, get_user_lang
 from utils.voice_processor import VoiceProcessor
 from utils.language_translator import translate_response_for_voice
+from utils.tts_queue import dispatch_tts
 from utils.telegram_helpers import ChatActionSender
 from utils.formatters import format_persona_response
 from config.settings import VOICE_ENABLED, DEFAULT_LANGUAGE, ADMIN_IDS, AFFECTION_POINTS
@@ -112,7 +113,7 @@ class VoiceHandler:
                     ogg_path = os.path.join(tmp_dir, f"voice_{voice.file_id}.ogg")
                     await file.download_to_drive(ogg_path)
                     
-                    transcription_data = await self.voice_processor.transcribe_audio(ogg_path, lang=db_user_dict.get('language_code', 'id'))
+                    transcription_data = await self.voice_processor.transcribe_audio(ogg_path, lang=db_user_dict.get('language_code', DEFAULT_LANGUAGE))
                     if not transcription_data:
                         await update.message.reply_html("❌ Gagal mengenali suara kamu...")
                         return
@@ -157,36 +158,35 @@ class VoiceHandler:
                         context=history_text,
                         relationship_level=rel_level,
                         is_admin=is_admin,
-                        lang=db_user_dict.get('language_code', 'id')
+                        lang=db_user_dict.get('language_code', DEFAULT_LANGUAGE)
                     ),
                     relationship_level=rel_level,
                     is_admin=is_admin,
-                    lang=db_user_dict.get('language_code', 'id')
+                    lang=db_user_dict.get('language_code', DEFAULT_LANGUAGE)
                 )
                 
                 if not response:
                     await update.message.reply_html("❌ Gagal mendapatkan respon dari Alya...")
                     return
 
-            # 4. Responses (Text + Voice)
             ui_text = format_persona_response(response, use_html=True) + "\u200C"
             await update.message.reply_html(ui_text)
-            
-            # 🎙️ Added: Persistent "Recording Voice" status
-            async with ChatActionSender(context, chat.id, ChatAction.RECORD_VOICE):
-                voice_lang = self.db_manager.get_user_voice_language(user.id) if self.db_manager else "en"
-                
-                voice_text = response
-                if voice_lang != db_user_dict.get('language_code'):
-                    translated = await translate_response_for_voice(response, db_user_dict.get('language_code'), voice_lang)
-                    voice_text = translated or response
-                
-                voice_path = await self.voice_processor.text_to_speech(voice_text, voice_lang)
-                if voice_path and os.path.exists(voice_path):
-                    caption = f"🎙️ Alya's voice ({voice_lang.upper()})"
-                    with open(voice_path, 'rb') as vf:
-                        await update.message.reply_voice(vf, caption=caption)
-                    os.unlink(voice_path)
+
+            voice_lang = self.db_manager.get_user_voice_language(user.id) if self.db_manager else "en"
+            source_lang = db_user_dict.get('language_code', DEFAULT_LANGUAGE)
+
+            # Extract dialogue and translate to voice_lang before sending to TTS
+            tts_text = await translate_response_for_voice(response, source_lang, voice_lang)
+
+            await dispatch_tts(
+                bot=context.bot,
+                chat_id=update.effective_chat.id,
+                reply_to_message_id=update.message.message_id,
+                voice_processor=self.voice_processor,
+                response_text=tts_text,
+                voice_lang=voice_lang,
+                user_lang=source_lang,
+            )
 
             # 5. Metadata Update
             if self.memory_manager:

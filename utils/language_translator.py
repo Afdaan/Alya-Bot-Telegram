@@ -35,9 +35,14 @@ class LanguageTranslator:
             import requests
             import urllib.parse
 
+            # Google Translate uses 'ja' for Japanese, not 'jp'
+            lang_map = {"jp": "ja"}
+            sl = lang_map.get(source_lang, source_lang)
+            tl = lang_map.get(target_lang, target_lang)
+
             url = (
                 f"https://translate.googleapis.com/translate_a/single"
-                f"?client=gtx&sl={source_lang}&tl={target_lang}&dt=t"
+                f"?client=gtx&sl={sl}&tl={tl}&dt=t"
                 f"&q={urllib.parse.quote(text)}"
             )
             response = requests.get(url, timeout=10)
