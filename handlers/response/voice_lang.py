@@ -9,7 +9,7 @@ async def get_voice_lang_keyboard():
     keyboard = [
         [InlineKeyboardButton("English 🇺🇸", callback_data="setvlang_en")],
         [InlineKeyboardButton("Indonesia 🇮🇩", callback_data="setvlang_id")],
-        [InlineKeyboardButton("日本語 🎌", callback_data="setvlang_ja")]
+        [InlineKeyboardButton("日本語 🎌", callback_data="setvlang_jp")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -26,7 +26,7 @@ async def handle_voice_lang_callback(update: Update, context: ContextTypes.DEFAU
     await query.answer()
     
     lang_code = query.data.split("_")[1]
-    lang_name = {"en": "English", "id": "Indonesia", "ja": "Japanese"}.get(lang_code, "English")
+    lang_name = {"en": "English", "id": "Indonesia", "jp": "Japanese"}.get(lang_code, "English")
     
     # Update DB if available
     from database.database_manager import db_manager

@@ -120,7 +120,7 @@ class VoiceHandler:
                     user_text, detected_lang = transcription_data
                     logger.info(f"🎙️ Voice transcribed (lang={detected_lang}): {user_text}")
                 
-                lang_flag = {"en": "🇺🇸", "id": "🇮🇩", "ja": "🎌"}.get(detected_lang, "🌐")
+                lang_flag = {"en": "🇺🇸", "id": "🇮🇩", "jp": "🎌"}.get(detected_lang, "🌐")
                 await update.message.reply_html(f"🎤 <i>({lang_flag} {detected_lang.upper()}): {user_text}</i>")
 
                 # 2. Memory & Relationship Updates

@@ -93,7 +93,7 @@ class VoiceProcessor:
                 audio_data = self.recognizer.record(source)
             
             # Map language codes for Google SR
-            lang_map = {"en": "en-US", "id": "id-ID", "ru": "ru-RU", "ja": "ja-JP"}
+            lang_map = {"en": "en-US", "id": "id-ID", "ru": "ru-RU", "jp": "ja-JP"}
             target_lang = lang_map.get(lang, "id-ID")
             
             # Try primary language first
@@ -189,13 +189,17 @@ class VoiceProcessor:
     async def _generate_edge_tts(self, text: str, lang: str) -> Optional[str]:
         """Generate TTS using edge-tts."""
         try:
-            voice_map = {
-                "en": "en-US-AnaNeural",
-                "id": "id-ID-GadisNeural",
-                "ru": "ru-RU-SvetlanaNeural",
-                "ja": "ja-JP-NanamiNeural"
-            }
-            voice = voice_map.get(lang, "en-US-AnaNeural")
+            rvc_active = self.rvc_handler and self.rvc_handler.is_available
+            if rvc_active:
+                voice = "ja-JP-NanamiNeural"
+            else:
+                voice_map = {
+                    "en": "en-US-AnaNeural",
+                    "id": "id-ID-GadisNeural",
+                    "ru": "ru-RU-SvetlanaNeural",
+                    "jp": "ja-JP-NanamiNeural"
+                }
+                voice = voice_map.get(lang, "en-US-AnaNeural")
             mp3_path = str(self.temp_dir / f"tts_{os.getpid()}_{os.urandom(4).hex()}.mp3")
             
             communicate = self.edge_tts.Communicate(text, voice)
