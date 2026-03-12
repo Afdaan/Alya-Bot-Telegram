@@ -64,7 +64,6 @@ def get_user_lang(user_id: int) -> str:
 # --- Utility: Centralized user creation (DRY) ---
 def create_default_user(session: Session, user_id: int, username: str = None, first_name: str = None, last_name: str = None) -> 'User':
     """Create a new user with default values and commit to session."""
-    from config.settings import DEFAULT_LANGUAGE
     user = User(
         id=user_id,
         username=username or None,

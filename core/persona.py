@@ -142,11 +142,22 @@ class PersonaManager:
         persona = self.get_persona()
         prompt_parts = []
         
-        # System Prompt
-        system_prompt = persona.get("system_prompt", "").strip()
+        # Language specific data
+        persona_lang = persona.get(lang, persona.get(DEFAULT_LANGUAGE, {}))
+        lang_name = "Bahasa Indonesia" if lang == "id" else "English"
+        
+        # 1. CORE LANGUAGE REQUIREMENT (At the very top)
+        prompt_parts.append(f"**CORE LANGUAGE REQUIREMENT:** You MUST respond ENTIRELY in {lang_name}. Even if the conversation history or persona instructions are in another language, your response MUST be in {lang_name}. No code-switching except for rare Russian expressions.")
+
+        # 2. System Prompt (Prefer lang-specific, then global)
+        system_prompt = persona_lang.get("system_prompt", persona.get("system_prompt", "")).strip()
         if system_prompt:
             prompt_parts.append(system_prompt.replace("{username}", username))
         
+        # 3. Base instructions from lang section
+        if base_instr := persona_lang.get("base_instructions"):
+            prompt_parts.append(f"\n# Language-Specific Guidelines ({lang_name})\n{base_instr}")
+
         # Connection Dynamics
         if connection_dynamics := persona.get("connection_dynamics"):
             if level_behavior := self._get_level_behavior(connection_dynamics, relationship_level):
@@ -160,9 +171,8 @@ class PersonaManager:
                     section_yaml = yaml.dump(section_data, allow_unicode=True, default_flow_style=False)
                     prompt_parts.append(f"\n# {section.replace('_', ' ').title()}\n{section_yaml}")
         
-        # Fallback for old personas
-        if not prompt_parts:
-            persona_lang = persona.get(lang, persona.get(DEFAULT_LANGUAGE, {}))
+        # Fallback for old personas (if no system_prompt and no base_instr)
+        if not system_prompt and not persona_lang.get("base_instructions"):
             traits = persona_lang.get('personality_traits', [])
             traits_str = '\n- '.join(traits)
             rel_instructions = self._get_relationship_instructions(persona_lang, relationship_level)
@@ -171,16 +181,12 @@ class PersonaManager:
                               f"**Personality:**\n- {traits_str}\n\n"
                               f"**Relationship:**\n{rel_instructions}")
         
-        # Combine
-        lang_name = "Bahasa Indonesia" if lang == "id" else "English"
-        language_instr = f"\n\n**CRITICAL:** Respond ENTIRELY in {lang_name}. No English mixing."
-        
+        # Combine everything
         main_prompt = "\n\n".join(prompt_parts)
         return (f"{main_prompt}\n\n"
-                f"**History:**\n{context or 'Start of conversation.'}\n\n"
-                f"**User:** {message}\n"
-                f"{language_instr}\n\n"
-                f"Respond as Alya.").strip()
+                f"**CONVERSATION HISTORY:**\n{context or 'Start of conversation.'}\n\n"
+                f"**CURRENT USER MESSAGE:** {message}\n\n"
+                f"**FINAL REMINDER:** Respond as Alya in {lang_name}!").strip()
 
     def get_media_analysis_prompt(
         self,

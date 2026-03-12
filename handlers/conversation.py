@@ -7,6 +7,8 @@ from typing import Dict, List, Optional, Any
 import asyncio
 import re
 import os
+import unicodedata
+import langdetect
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -27,8 +29,9 @@ from core.memory import MemoryManager
 from core.mood_manager import MoodManager
 from database.database_manager import DatabaseManager, db_manager, get_user_lang
 from core.nlp import NLPEngine, ContextManager
-from utils.formatters import format_response, format_error_response, format_paragraphs, format_persona_response
+from utils.formatters import format_response, format_error_response, format_paragraphs, format_persona_response, get_translate_prompt
 from utils.telegram_helpers import ChatActionSender
+from utils.russian_translator import detect_russian_expressions, RUSSIAN_TRANSLATIONS
 
 
 logger = logging.getLogger(__name__)
@@ -129,7 +132,7 @@ class ConversationHandler:
             return
 
         if reply_context:
-            query = f"{reply_context}\n\n{query}"
+            query = f"REPLIED_CONTEXT (Ignore previous language):\n{reply_context}\n\nCURRENT_MESSAGE:\n{query}"
         if not query:
             help_message = self.persona.get_help_message(
                 username=user.first_name or "user",
@@ -203,11 +206,10 @@ class ConversationHandler:
                 # === STEP 7: Increment interaction count (will recalculate level) ===
                 self.db.increment_interaction_count(user.id)
                 
-                # === STEP 8: Prepare context with LATEST relationship level and MOOD ===
+                # Prepare context with LATEST relationship level and MOOD
                 user_context = await self._prepare_conversation_context(
                     user, query, lang, message_context, new_mood_state, mood_manager
                 )
-                # history = self.context_manager.get_context_window(user.id)
                 response = await self.gemini.generate_response(
                     user_id=user.id,
                     username=user.first_name or "user",
@@ -358,8 +360,6 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         
     async def _ensure_language(self, text: str, lang: str, user) -> str:
         """Ensure text is in the user's preferred language using LLM translation if needed."""
-        from utils.formatters import get_translate_prompt
-        import langdetect
         preferred_lang = lang or DEFAULT_LANGUAGE
         try:
             detected_lang = langdetect.detect(text)
@@ -402,7 +402,6 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         
         def extract_emoji(text: str) -> tuple[str, str]:
             """Extract emoji from text using Unicode character categories."""
-            import unicodedata
             
             emoji_chars = []
             clean_chars = []
@@ -514,10 +513,6 @@ Respond naturally, empathetically, and reference prior conversation when relevan
     
     def _clean_and_append_russian_translation(self, response: str, lang: str = DEFAULT_LANGUAGE) -> str:
         """Extract and translate Russian expressions (both marked and unmarked)."""
-        from utils.russian_translator import (
-            detect_russian_expressions,
-            RUSSIAN_TRANSLATIONS
-        )
         
         clean_response = response.strip()
         translations_dict: Dict[str, str] = {}
