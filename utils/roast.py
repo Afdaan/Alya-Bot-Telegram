@@ -137,7 +137,29 @@ class RoastHandler:
             await update.message.reply_text(wait_message)
             return
 
-        await update.message.chat.send_action(ChatAction.TYPING)
+        import asyncio
+        phrase = "Alya is preparing to roast" if lang == 'en' else "Alya lagi nyiapin materi roast"
+        loading_msg = await update.message.reply_text(f"<blockquote><b>🔥 {phrase}...</b></blockquote>", parse_mode="HTML")
+
+        async def animate_loading(msg):
+            frames = ["🔥", "😏", "💅"]
+            step = 0
+            while True:
+                try:
+                    await asyncio.sleep(0.6)
+                    step += 1
+                    emoji = frames[step % len(frames)]
+                    dots = "." * ((step % 3) + 1)
+                    text = f"<blockquote><b>{emoji} {phrase}{dots}</b></blockquote>"
+                    await msg.edit_text(text, parse_mode="HTML")
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    if "Message is not modified" not in str(e):
+                        logger.debug(f"Loading animation edit failed: {e}")
+                    pass
+
+        loading_task = asyncio.create_task(animate_loading(loading_msg))
         
         try:
             roast_text = await self._generate_roast(user.first_name, lang)
@@ -145,8 +167,17 @@ class RoastHandler:
         except Exception as e:
             logger.error(f"Error generating personal roast for {user.id}: {e}")
             response = get_roast_response(lang=lang, error='api_fail')
+        finally:
+            loading_task.cancel()
+            try:
+                await loading_task
+            except asyncio.CancelledError:
+                pass
             
-        await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
+        try:
+            await loading_msg.edit_text(response, parse_mode=ParseMode.MARKDOWN_V2)
+        except Exception:
+            await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
 
     async def handle_git_roast(self, update: Update, context: CallbackContext) -> None:
         """Handle GitHub profile roasts."""
@@ -160,7 +191,29 @@ class RoastHandler:
         
         github_username = match.group(1)
         
-        await update.message.chat.send_action(ChatAction.TYPING)
+        import asyncio
+        phrase = "Alya is inspecting the repository" if lang == 'en' else "Alya lagi mantau repository"
+        loading_msg = await update.message.reply_text(f"<blockquote><b>🔍 {phrase}...</b></blockquote>", parse_mode="HTML")
+
+        async def animate_loading(msg):
+            frames = ["🔍", "🔥", "💅"]
+            step = 0
+            while True:
+                try:
+                    await asyncio.sleep(0.6)
+                    step += 1
+                    emoji = frames[step % len(frames)]
+                    dots = "." * ((step % 3) + 1)
+                    text = f"<blockquote><b>{emoji} {phrase}{dots}</b></blockquote>"
+                    await msg.edit_text(text, parse_mode="HTML")
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    if "Message is not modified" not in str(e):
+                        logger.debug(f"Loading animation edit failed: {e}")
+                    pass
+
+        loading_task = asyncio.create_task(animate_loading(loading_msg))
         
         try:
             github_data = await self._get_github_data(github_username)
@@ -175,8 +228,17 @@ class RoastHandler:
         except Exception as e:
             logger.error(f"Error during git roast for {github_username}: {e}")
             response = get_roast_response(lang=lang, error='generic', username=github_username)
+        finally:
+            loading_task.cancel()
+            try:
+                await loading_task
+            except asyncio.CancelledError:
+                pass
             
-        await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
+        try:
+            await loading_msg.edit_text(response, parse_mode=ParseMode.MARKDOWN_V2)
+        except Exception:
+            await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
 
     async def _generate_roast(self, name: str, lang: str) -> str:
         """Generate a personal roast using Gemini with toxic templates."""

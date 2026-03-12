@@ -124,6 +124,30 @@ class VoiceHandler:
                 lang_flag = {"en": "🇺🇸", "id": "🇮🇩", "jp": "🎌"}.get(detected_lang, "🌐")
                 await update.message.reply_html(f"🎤 <i>({lang_flag} {detected_lang.upper()}): {user_text}</i>")
 
+                import asyncio
+                phrase = "Alya is thinking" if db_user_dict.get('language_code', DEFAULT_LANGUAGE) == 'en' else "Alya lagi mikir"
+                loading_msg = await update.message.reply_text(f"<blockquote><b>💭 {phrase}...</b></blockquote>", parse_mode="HTML")
+
+                async def animate_loading(msg):
+                    frames = ["💭", "💫", "✨"]
+                    step = 0
+                    while True:
+                        try:
+                            await asyncio.sleep(0.6)
+                            step += 1
+                            emoji = frames[step % len(frames)]
+                            dots = "." * ((step % 3) + 1)
+                            text = f"<blockquote><b>{emoji} {phrase}{dots}</b></blockquote>"
+                            await msg.edit_text(text, parse_mode="HTML")
+                        except asyncio.CancelledError:
+                            break
+                        except Exception as e:
+                            if "Message is not modified" not in str(e):
+                                logger.debug(f"Loading animation edit failed: {e}")
+                            pass
+
+                loading_task = asyncio.create_task(animate_loading(loading_msg))
+
                 # 2. Memory & Relationship Updates
                 self.db_manager.save_message(user.id, "user", user_text)
                 if self.memory_manager:
@@ -148,29 +172,43 @@ class VoiceHandler:
                         # Clean format: [Role] Content
                         history_text = "\n".join([f"[{msg['role'].capitalize()}] {msg['content']}" for msg in history])
                 
-                response = await self.gemini_client.generate_response(
-                    user_id=user.id,
-                    username=user.first_name or "user",
-                    message=user_text,
-                    context=self.persona_manager.get_chat_prompt(
-                        username=user.first_name,
+                try:
+                    response = await self.gemini_client.generate_response(
+                        user_id=user.id,
+                        username=user.first_name or "user",
                         message=user_text,
-                        context=history_text,
+                        context=self.persona_manager.get_chat_prompt(
+                            username=user.first_name,
+                            message=user_text,
+                            context=history_text,
+                            relationship_level=rel_level,
+                            is_admin=is_admin,
+                            lang=db_user_dict.get('language_code', DEFAULT_LANGUAGE)
+                        ),
                         relationship_level=rel_level,
                         is_admin=is_admin,
                         lang=db_user_dict.get('language_code', DEFAULT_LANGUAGE)
-                    ),
-                    relationship_level=rel_level,
-                    is_admin=is_admin,
-                    lang=db_user_dict.get('language_code', DEFAULT_LANGUAGE)
-                )
+                    )
+                finally:
+                    loading_task.cancel()
+                    try:
+                        await loading_task
+                    except asyncio.CancelledError:
+                        pass
                 
                 if not response:
-                    await update.message.reply_html("❌ Gagal mendapatkan respon dari Alya...")
+                    error_msg = "❌ Gagal mendapatkan respon dari Alya..."
+                    try:
+                        await loading_msg.edit_text(error_msg, parse_mode="HTML")
+                    except Exception:
+                        await update.message.reply_html(error_msg)
                     return
 
             ui_text = format_persona_response(response, use_html=True) + "\u200C"
-            await update.message.reply_html(ui_text)
+            try:
+                await loading_msg.edit_text(ui_text, parse_mode="HTML")
+            except Exception:
+                await update.message.reply_html(ui_text)
 
             voice_lang = self.db_manager.get_user_voice_language(user.id) if self.db_manager else "en"
             source_lang = db_user_dict.get('language_code', DEFAULT_LANGUAGE)
