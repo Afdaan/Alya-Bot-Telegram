@@ -1,5 +1,6 @@
 import io
 import logging
+import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, BinaryIO
 
@@ -241,12 +242,15 @@ class MediaAnalyzer:
             await message.reply_html(analyze_response(lang))
             return
         
-        # If no query specified for media, use default
+        lang = get_user_lang(user.id)
         if not query and media_type != "text":
-            lang = get_user_lang(user.id)
             query = "Analyze this for me, please." if lang == 'en' else "Tolong analisis ini."
 
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        phrase = "Alya is analyzing" if lang == 'en' else "Alya sedang menganalisis"
+        loading_msg = await message.reply_text(f"<blockquote><b>🔍 {phrase}...</b></blockquote>", parse_mode="HTML")
+
+        from utils.telegram_helpers import start_loading_animation
+        loading_task = start_loading_animation(loading_msg, phrase, frames=["🔍", "🧐", "✨"])
 
         try:
             result = await analyzer.analyze_media(
@@ -263,14 +267,26 @@ class MediaAnalyzer:
                 lang=lang,
                 username=user.first_name
             )
-            
+        finally:
+            loading_task.cancel()
+            try:
+                await loading_task
+            except asyncio.CancelledError:
+                pass
+
+        try:
             # Handle if result is a list (long message split)
             if isinstance(formatted_result, list):
-                for part in formatted_result:
+                await loading_msg.edit_text(formatted_result[0], parse_mode='HTML', disable_web_page_preview=True)
+                for part in formatted_result[1:]:
                     await message.reply_html(part, disable_web_page_preview=True)
             else:
-                await message.reply_html(formatted_result, disable_web_page_preview=True)
+                await loading_msg.edit_text(formatted_result, parse_mode='HTML', disable_web_page_preview=True)
         except Exception as e:
             logger.error(f"Failed to handle analysis command for user {user.id}: {e}", exc_info=True)
             lang = get_user_lang(user.id)
-            await message.reply_html(get_system_error_response(lang))
+            error_response = get_system_error_response(lang)
+            try:
+                await loading_msg.edit_text(error_response, parse_mode='HTML')
+            except Exception:
+                await message.reply_html(error_response)

@@ -12,19 +12,21 @@ from telegram.ext import (
 )
 
 from config.settings import (
-    BOT_TOKEN, LOG_LEVEL, LOG_FORMAT, FEATURES
+    BOT_TOKEN, LOG_LEVEL, LOG_FORMAT, FEATURES, VOICE_ENABLED
 )
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from core.memory import MemoryManager
-from database.database_manager import db_manager, DatabaseManager
 from core.nlp import NLPEngine
+from database.database_manager import db_manager, DatabaseManager
+from database.session import ensure_database_schema, initialize_database
 from handlers.conversation import ConversationHandler
 from handlers.admin import AdminHandler, register_admin_handlers
 from handlers.commands import CommandsHandler, register_commands, set_bot_commands
+from handlers.voice import VoiceHandler
 from utils.roast import RoastHandler
-from database.session import ensure_database_schema
-from database.session import initialize_database
+from utils.voice_processor import VoiceProcessor
+from utils.tts_queue import TTSQueueWorker
 
 logger = logging.getLogger(__name__)
 
@@ -64,30 +66,35 @@ def initialize_application() -> Optional[Application]:
             logger.error("No bot token provided. Set TELEGRAM_BOT_TOKEN environment variable.")
             return None
         os.makedirs("data", exist_ok=True)
-        logger.info("Ensuring database schema is up-to-date...")
         ensure_database_schema()
-        logger.info("Initializing components...")
-        # Use global db_manager instance instead of creating new one
+        
         memory_manager = MemoryManager(db_manager)
         gemini_client = GeminiClient()
         persona_manager = PersonaManager()
-        nlp_engine = None
-        if FEATURES.get("emotion_detection", False):
-            nlp_engine = NLPEngine()
-        application = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
-        application.bot_data["db_manager"] = db_manager
-        application.bot_data["memory_manager"] = memory_manager
-        application.bot_data["gemini_client"] = gemini_client
-        application.bot_data["persona_manager"] = persona_manager
-        application.bot_data["nlp_engine"] = nlp_engine
+        nlp_engine = NLPEngine() if FEATURES.get("emotion_detection", False) else None
         
-        # Pass clients to the application object so handlers can access them
+        application = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
+        application.bot_data.update({
+            "db_manager": db_manager,
+            "memory_manager": memory_manager,
+            "gemini_client": gemini_client,
+            "persona_manager": persona_manager,
+            "nlp_engine": nlp_engine
+        })
+        
+        voice_processor = None
+        if VOICE_ENABLED:
+            try:
+                voice_processor = VoiceProcessor()
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize VoiceProcessor: {e}")
+        
+        application.bot_data["voice_processor"] = voice_processor
         application.gemini_client = gemini_client
         application.persona_manager = persona_manager
-        
         gemini_client.set_persona_manager(persona_manager)
 
-        register_handlers(application, gemini_client, persona_manager, memory_manager, db_manager, nlp_engine)
+        register_handlers(application, gemini_client, persona_manager, memory_manager, db_manager, nlp_engine, voice_processor)
         setup_scheduled_tasks(application)
         return application
     except Exception as e:
@@ -100,70 +107,37 @@ def register_handlers(
     persona_manager: PersonaManager,
     memory_manager: MemoryManager,
     db_manager: DatabaseManager,
-    nlp_engine: Optional[NLPEngine] = None
+    nlp_engine: Optional[NLPEngine] = None,
+    voice_processor: Optional[VoiceProcessor] = None
 ) -> None:
+    """Register all bot handlers in priority order."""
     application.handlers.clear()
     
-    # Register commands first (higher priority)
-    logger.info("Registering standard command handlers...")
     register_commands(application)
     
-    # ============================================================================
-    # HANDLER REGISTRATION ORDER (Critical for proper routing)
-    # ============================================================================
-    # Order matters: First matching handler wins!
-    # Priority: Specific handlers > General handlers
-    # 
-    # 1. ConversationHandler (highest priority)
-    #    - Handles: !ai prefix, replies to bot, mentions
-    #    - Filter: ~filters.Regex(r"^!(?!ai)") blocks other ! commands
-    # 
-    # 2. CommandsHandler (medium priority)
-    #    - Handles: !ask, !sauce, and other utility commands
-    # 
-    # 3. RoastHandler, AdminHandler (lower priority)
-    #    - Handles: !roast, !gitroast, admin commands
-    # ============================================================================
-    
-    logger.info("=" * 60)
-    logger.info("REGISTERING HANDLERS (Priority Order)")
-    logger.info("=" * 60)
-    
-    # PRIORITY 1: Conversation Handler (Most specific - !ai, replies, mentions)
-    logger.info("[1/4] Registering ConversationHandler (Priority: HIGHEST)")
-    conversation_handler = ConversationHandler(
-        gemini_client, 
-        persona_manager, 
-        memory_manager,
-        nlp_engine
-    )
+    conversation_handler = ConversationHandler(gemini_client, persona_manager, memory_manager, nlp_engine, db_manager)
     for handler in conversation_handler.get_handlers():
         application.add_handler(handler)
-        if isinstance(handler, MessageHandler):
-            logger.info(f"  ✓ Conversation handler: {handler.filters}")
     
-    # PRIORITY 2: Utility Commands (!ask, !sauce, search, etc.)
-    logger.info("[2/4] Registering CommandsHandler (Priority: HIGH)")
+    if FEATURES.get("voice", False) and VOICE_ENABLED:
+        try:
+            voice_handler = VoiceHandler(gemini_client, persona_manager, memory_manager, db_manager, nlp_engine, voice_processor)
+            for handler in voice_handler.get_handlers():
+                application.add_handler(handler)
+        except Exception as e:
+            logger.error(f"❌ Failed to register VoiceHandler: {e}")
+    
     CommandsHandler(application)
     
-    # PRIORITY 3: Roast Handler (!roast, !gitroast)
-    logger.info("[3/4] Registering RoastHandler (Priority: MEDIUM)")
     roast_handler = RoastHandler(gemini_client, persona_manager, db_manager)
     for handler in roast_handler.get_handlers():
         application.add_handler(handler)
-        if isinstance(handler, MessageHandler):
-            logger.info(f"  ✓ Roast handler: {handler.filters}")
     
-    # PRIORITY 4: Admin & System Commands
-    logger.info("[4/4] Registering Admin & System Handlers (Priority: LOW)")
     admin_handler = AdminHandler(db_manager, persona_manager)
     for handler in admin_handler.get_handlers():
         application.add_handler(handler)
     
     register_admin_handlers(application, db_manager=db_manager, persona_manager=persona_manager)
-    
-    logger.info("=" * 60)
-    
     log_registered_handlers(application)
 
 def log_registered_handlers(application: Application) -> None:

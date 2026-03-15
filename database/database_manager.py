@@ -64,7 +64,6 @@ def get_user_lang(user_id: int) -> str:
 # --- Utility: Centralized user creation (DRY) ---
 def create_default_user(session: Session, user_id: int, username: str = None, first_name: str = None, last_name: str = None) -> 'User':
     """Create a new user with default values and commit to session."""
-    from config.settings import DEFAULT_LANGUAGE
     user = User(
         id=user_id,
         username=username or None,
@@ -141,6 +140,52 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Failed to update user settings for {user_id}: {e}", exc_info=True)
 
+    def update_user_voice_language(self, user_id: int, voice_lang: str) -> None:
+        """
+        Update user's voice language preference.
+        
+        Args:
+            user_id: The user's ID.
+            voice_lang: Voice language code (en, id, ja)
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter_by(id=user_id).first()
+                
+                if user:
+                    user.voice_language = voice_lang
+                    session.commit()
+                    logger.info(f"Successfully updated voice language to '{voice_lang}' for user {user_id}")
+                else:
+                    logger.warning(f"User {user_id} not found when trying to update voice language.")
+        except Exception as e:
+            logger.error(f"Failed to update voice language for {user_id}: {e}", exc_info=True)
+    
+    def get_user_voice_language(self, user_id: int) -> str:
+        """
+        Get user's voice language preference.
+        Falls back to user's language_code if voice_language is not set.
+        
+        Args:
+            user_id: The user's ID.
+            
+        Returns:
+            Voice language code (en, id, ja) or user's language_code or DEFAULT_LANGUAGE
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    if user.voice_language:
+                        return user.voice_language
+                    if user.language_code:
+                        return user.language_code
+        except Exception as e:
+            logger.error(f"Failed to get voice language for user {user_id}: {e}")
+        
+        from config.settings import DEFAULT_LANGUAGE
+        return DEFAULT_LANGUAGE
+
     def get_user_settings(self, user_id: int) -> Dict[str, Any]:
         """
         Retrieves user-specific settings, primarily language preference from `users.language_code`.
@@ -199,179 +244,60 @@ class DatabaseManager:
                 logger.warning("Database health check failed - connection may be unstable")
             self._last_health_check = now
     
+    def get_user_object(self, user_id: int) -> Optional[User]:
+        """Get raw user model instance from database."""
+        try:
+            with db_session_context() as session:
+                return session.query(User).filter(User.id == user_id).first()
+        except Exception as e:
+            logger.error(f"Error in get_user_object: {e}")
+            return None
+    
     def get_or_create_user(self, user_id: int, username: str = "", first_name: str = "", 
                            last_name: str = "", is_admin: bool = False) -> Dict[str, Any]:
-        """
-        Get or create a user in the database with proper error handling.
-        
-        Args:
-            user_id: Telegram user ID
-            username: Username (without @)
-            first_name: User's first name
-            last_name: User's last name
-            is_admin: Whether user has admin privileges
-            
-        Returns:
-            Dict containing user data, empty dict on error
-        """
+        """Get or create user data from database."""
         try:
             with db_session_context() as session:
                 user = session.query(User).filter(User.id == user_id).first()
-                
                 if not user:
-                    # Create new user with default values
-                    user = User(
-                        id=user_id,
-                        username=username or None,
-                        first_name=first_name or None,
-                        last_name=last_name or None,
-                        language_code=DEFAULT_LANGUAGE,
-                        created_at=datetime.now(),
-                        last_interaction=datetime.now(),
-                        is_active=True,
-                        relationship_level=0,
-                        affection_points=0,
-                        interaction_count=0,
-                        preferences={
-                            "notification_enabled": True,
-                            "preferred_language": DEFAULT_LANGUAGE,
-                            "persona": "waifu",
-                            "timezone": "Asia/Jakarta"
-                        },
-                        topics_discussed=[]
-                    )
-                    session.add(user)
+                    user = create_default_user(session, user_id, username, first_name, last_name)
                     session.commit()
-                    logger.info(f"Created new user: {user_id} ({first_name or username})")
-                    
                 else:
-                    # Update existing user data if provided
-                    updated = False
-                    if username and user.username != username:
-                        user.username = username
-                        updated = True
-                    if first_name and user.first_name != first_name:
-                        user.first_name = first_name
-                        updated = True
-                    if last_name and user.last_name != last_name:
-                        user.last_name = last_name
-                        updated = True
-                    
-                    if updated:
-                        user.last_interaction = datetime.now()
-                        session.commit()
-                        logger.debug(f"Updated user data for {user_id}")
+                    user.username, user.first_name, user.last_name = username or user.username, first_name or user.first_name, last_name or user.last_name
+                    user.last_interaction = datetime.now()
+                    session.commit()
                 
-                # Return user data as dictionary
                 return {
-                    "id": user.id,
-                    "username": user.username,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "language_code": user.language_code,
-                    "relationship_level": user.relationship_level,
-                    "affection_points": user.affection_points,
-                    "interaction_count": user.interaction_count,
-                    "preferences": user.preferences or {},
-                    "topics_discussed": user.topics_discussed or [],
-                    "created_at": user.created_at,
-                    "last_interaction": user.last_interaction,
+                    "id": user.id, "username": user.username, "first_name": user.first_name,
+                    "language_code": user.language_code, "relationship_level": user.relationship_level,
+                    "affection_points": user.affection_points, "interaction_count": user.interaction_count,
                     "is_admin": is_admin or user_id in ADMIN_IDS,
-                    "role_name": get_role_by_relationship_level(
-                        user.relationship_level, 
-                        user_id in ADMIN_IDS
-                    )
+                    "role_name": get_role_by_relationship_level(user.relationship_level, user_id in ADMIN_IDS)
                 }
-                
         except Exception as e:
-            logger.error(f"Error getting/creating user {user_id}: {e}")
+            logger.error(f"Error in get_or_create_user: {e}")
             return {}
     
-    def save_message(self, user_id: int, role: str, content: str, 
-                     metadata: Optional[Dict[str, Any]] = None) -> bool:
-        """
-        Save a message to conversation history with deduplication.
-        
-        Args:
-            user_id: Telegram user ID
-            role: Message role (user/assistant/system)
-            content: Message content
-            metadata: Optional metadata for the message
-            
-        Returns:
-            bool: True if saved successfully, False otherwise
-        """
+    def save_message(self, user_id: int, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """Save a message to conversation history."""
         try:
-            # Create message hash for deduplication
-            message_hash = hashlib.md5(f"{user_id}:{content}:{role}".encode()).hexdigest()
-            
+            msg_hash = hashlib.md5(f"{user_id}:{content}:{role}".encode()).hexdigest()
             with db_session_context() as session:
-                # CRITICAL: Ensure user exists before saving conversation
-                user = session.query(User).filter(User.id == user_id).first()
-                if not user:
-                    # Auto-create user if not exists to prevent foreign key constraint errors
-                    logger.warning(f"User {user_id} not found, creating automatically")
-                    user = User(
-                        id=user_id,
-                        username=None,
-                        first_name=f"User{user_id}",
-                        last_name=None,
-                        language_code=DEFAULT_LANGUAGE,
-                        created_at=datetime.now(),
-                        last_interaction=datetime.now(),
-                        is_active=True,
-                        relationship_level=0,
-                        affection_points=0,
-                        interaction_count=0,
-                        preferences={
-                            "notification_enabled": True,
-                            "preferred_language": DEFAULT_LANGUAGE,
-                            "persona": "waifu",
-                            "timezone": "Asia/Jakarta"
-                        },
-                        topics_discussed=[]
-                    )
-                    session.add(user)
-                    session.flush()  # Ensure user is created before conversation
+                user = session.query(User).filter(User.id == user_id).first() or create_default_user(session, user_id)
                 
-                # Check for recent duplicate (last 5 minutes)
-                recent_cutoff = datetime.now() - timedelta(minutes=5)
-                duplicate = session.query(Conversation).filter(
-                    Conversation.user_id == user_id,
-                    Conversation.message_hash == message_hash,
-                    Conversation.created_at > recent_cutoff
-                ).first()
-                
-                if duplicate:
-                    logger.debug(f"Skipping duplicate message for user {user_id}")
+                # Deduplication
+                if session.query(Conversation).filter(Conversation.user_id == user_id, Conversation.message_hash == msg_hash, 
+                                                    Conversation.created_at > datetime.now() - timedelta(minutes=5)).first():
                     return True
                 
-                # Create conversation entry
-                conversation = Conversation(
-                    user_id=user_id,
-                    content=content,
-                    role=role,
-                    is_user=(role == "user"),
-                    message_hash=message_hash,
-                    message_metadata=metadata or {},
-                    created_at=datetime.now()
-                )
-                session.add(conversation)
-                
-                # Update user interaction count and last interaction
+                session.add(Conversation(user_id=user_id, content=content, role=role, is_user=(role == "user"), 
+                                       message_hash=msg_hash, message_metadata=metadata or {}, created_at=datetime.now()))
                 user.interaction_count += 1
                 user.last_interaction = datetime.now()
-                
                 session.commit()
-                
-                # Cache the message hash
-                self.recent_message_hashes[user_id] = message_hash
-                
-                logger.debug(f"Saved {role} message for user {user_id}")
                 return True
-                
         except Exception as e:
-            logger.error(f"Error saving message for user {user_id}: {e}")
+            logger.error(f"Error saving message: {e}")
             return False
     
     def get_conversation_history(self, user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
@@ -634,7 +560,9 @@ class DatabaseManager:
                         "interaction_count": 0,
                         "role_name": get_role_by_relationship_level(0),
                         "topics_discussed": [],
-                        "persona": "waifu"
+                        "persona": "waifu",
+                        "voice_enabled": False,
+                        "voice_language": DEFAULT_LANGUAGE
                     }
                 return {
                     "relationship_level": user.relationship_level,
@@ -642,7 +570,9 @@ class DatabaseManager:
                     "interaction_count": user.interaction_count,
                     "role_name": get_role_by_relationship_level(user.relationship_level, user_id in ADMIN_IDS),
                     "topics_discussed": user.topics_discussed or [],
-                    "persona": user.preferences.get("persona", "waifu") if user.preferences else "waifu"
+                    "persona": user.preferences.get("persona", "waifu") if user.preferences else "waifu",
+                    "voice_enabled": user.voice_enabled,
+                    "voice_language": user.voice_language or DEFAULT_LANGUAGE
                 }
         except Exception as e:
             logger.error(f"Error getting user relationship info for {user_id}: {e}", exc_info=True)
@@ -1010,6 +940,76 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting user {user_id}: {e}", exc_info=True)
             return None
+    
+    def get_user_object(self, user_id: int) -> Optional[User]:
+        """
+        Get User object (not dict) from database.
+        
+        Args:
+            user_id: Telegram user ID
+            
+        Returns:
+            User object or None if not found
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user:
+                    # Detach from session to avoid lazy loading issues
+                    session.expunge(user)
+                return user
+        except Exception as e:
+            logger.error(f"Error getting user object {user_id}: {e}", exc_info=True)
+            return None
+    
+    def update_user_voice_access(self, user_id: int, enabled: bool) -> bool:
+        """
+        Update user's voice feature access.
+        
+        Args:
+            user_id: Telegram user ID
+            enabled: True to grant access, False to revoke
+            
+        Returns:
+            bool: True if updated successfully
+        """
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    logger.warning(f"Cannot update voice access for non-existent user {user_id}")
+                    return False
+                
+                old_status = user.voice_enabled
+                user.voice_enabled = enabled
+                session.commit()
+                
+                logger.info(
+                    f"Updated voice access for user {user_id}: {old_status} → {enabled}"
+                )
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating voice access for user {user_id}: {e}", exc_info=True)
+            return False
+    
+    def get_voice_enabled_users(self) -> List[User]:
+        """
+        Get all users with voice feature enabled.
+        
+        Returns:
+            List of User objects with voice_enabled=True
+        """
+        try:
+            with db_session_context() as session:
+                users = session.query(User).filter(User.voice_enabled == True).all()
+                # Detach from session to avoid lazy loading issues
+                session.expunge_all()
+                return users
+                
+        except Exception as e:
+            logger.error(f"Error getting voice-enabled users: {e}", exc_info=True)
+            return []
 
     def save_conversation_summary(self, user_id: int, summary: Dict[str, Any]) -> bool:
         """
