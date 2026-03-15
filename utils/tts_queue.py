@@ -20,6 +20,7 @@ async def dispatch_tts(
     response_text: str,
     voice_lang: str,
     user_lang: str,
+    loading_message_id: Optional[int] = None
 ) -> None:
     """
     Send a TTS request to the Alya-TTS microservice.
@@ -32,7 +33,8 @@ async def dispatch_tts(
             "user_lang": user_lang,
             "chat_id": chat_id,
             "reply_to_message_id": reply_to_message_id,
-            "bot_token": BOT_TOKEN
+            "bot_token": BOT_TOKEN,
+            "loading_message_id": loading_message_id
         }
 
         async with httpx.AsyncClient() as client:

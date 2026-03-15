@@ -128,25 +128,8 @@ class VoiceHandler:
                 phrase = "Alya is thinking" if db_user_dict.get('language_code', DEFAULT_LANGUAGE) == 'en' else "Alya lagi mikir"
                 loading_msg = await update.message.reply_text(f"<blockquote><b>💭 {phrase}...</b></blockquote>", parse_mode="HTML")
 
-                async def animate_loading(msg):
-                    frames = ["💭", "💫", "✨"]
-                    step = 0
-                    while True:
-                        try:
-                            await asyncio.sleep(0.6)
-                            step += 1
-                            emoji = frames[step % len(frames)]
-                            dots = "." * ((step % 3) + 1)
-                            text = f"<blockquote><b>{emoji} {phrase}{dots}</b></blockquote>"
-                            await msg.edit_text(text, parse_mode="HTML")
-                        except asyncio.CancelledError:
-                            break
-                        except Exception as e:
-                            if "Message is not modified" not in str(e):
-                                logger.debug(f"Loading animation edit failed: {e}")
-                            pass
-
-                loading_task = asyncio.create_task(animate_loading(loading_msg))
+                from utils.telegram_helpers import start_loading_animation
+                loading_task = start_loading_animation(loading_msg, phrase)
 
                 # 2. Memory & Relationship Updates
                 self.db_manager.save_message(user.id, "user", user_text)
@@ -216,6 +199,18 @@ class VoiceHandler:
             # Extract dialogue and translate to voice_lang before sending to TTS
             tts_text = await translate_response_for_voice(response, source_lang, voice_lang)
 
+            import asyncio
+            tts_phrase = "Alya is recording a voice note" if source_lang == 'en' else "Alya lagi ngerekam voice note"
+            tts_loading_msg = await update.message.reply_text(f"<blockquote><b>🎙️ {tts_phrase}...</b></blockquote>", parse_mode="HTML")
+
+            from utils.telegram_helpers import start_loading_animation
+            tts_loading_task = start_loading_animation(
+                tts_loading_msg, 
+                tts_phrase, 
+                frames=["🎙️", "🎶", "✨"], 
+                interval=1.2
+            )
+
             await dispatch_tts(
                 bot=context.bot,
                 chat_id=update.effective_chat.id,
@@ -224,6 +219,7 @@ class VoiceHandler:
                 response_text=tts_text,
                 voice_lang=voice_lang,
                 user_lang=source_lang,
+                loading_message_id=tts_loading_msg.message_id
             )
 
             # 5. Metadata Update

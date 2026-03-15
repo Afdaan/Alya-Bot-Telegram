@@ -160,25 +160,8 @@ class ConversationHandler:
                 phrase = "Alya is thinking" if lang == "en" else "Alya lagi mikir"
                 loading_msg = await update.message.reply_text(f"<blockquote><b>💭 {phrase}...</b></blockquote>", parse_mode="HTML")
 
-                async def animate_loading(msg):
-                    frames = ["💭", "💫", "✨"]
-                    step = 0
-                    while True:
-                        try:
-                            await asyncio.sleep(0.6)
-                            step += 1
-                            emoji = frames[step % len(frames)]
-                            dots = "." * ((step % 3) + 1)
-                            text = f"<blockquote><b>{emoji} {phrase}{dots}</b></blockquote>"
-                            await msg.edit_text(text, parse_mode="HTML")
-                        except asyncio.CancelledError:
-                            break
-                        except Exception as e:
-                            if "Message is not modified" not in str(e):
-                                logger.debug(f"Loading animation edit failed: {e}")
-                            pass
-
-                loading_task = asyncio.create_task(animate_loading(loading_msg))
+                from utils.telegram_helpers import start_loading_animation
+                loading_task = start_loading_animation(loading_msg, phrase)
                 
                 try:
                     message_context = {}

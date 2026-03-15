@@ -60,8 +60,58 @@ class ChatActionSender:
             try:
                 # Cancel the task to stop it immediately
                 self._task.cancel()
-                await self._task
-            except asyncio.CancelledError:
-                pass
             except Exception as e:
                 logger.debug(f"ChatActionSender task cleanup error: {e}")
+
+# Keep strong references to background animation tasks to prevent garbage collection
+_active_animations = set()
+
+async def _animate_loading_message(msg: Any, phrase: str, frames: list[str], interval: float):
+    """Background task to animate a loading message with a text cycling sequence."""
+    step = 0
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            step += 1
+            emoji = frames[step % len(frames)]
+            dots = "." * ((step % 3) + 1)
+            text = f"<blockquote><b>{emoji} {phrase}{dots}</b></blockquote>"
+            await msg.edit_text(text, parse_mode="HTML")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                logger.debug(f"Loading animation edit failed: {e}")
+                
+            # Handle Rate Limits gracefully
+            if "RetryAfter" in str(type(e)) or "flood" in str(e).lower():
+                await asyncio.sleep(getattr(e, 'retry_after', 3))
+                
+            if "Message to edit not found" in str(e) or "Message can't be edited" in str(e):
+                break
+
+def start_loading_animation(
+    msg: Any, 
+    phrase: str, 
+    frames: Optional[list[str]] = None, 
+    interval: float = 0.6
+) -> asyncio.Task:
+    """
+    Starts a background animation to edit a loading message periodically.
+    
+    Args:
+        msg: The Telegram message object to edit.
+        phrase: The base loading text.
+        frames: List of emojis to cycle through.
+        interval: Time in seconds between animation frames.
+        
+    Returns:
+        The asyncio Task running the animation.
+    """
+    if frames is None:
+        frames = ["💭", "💫", "✨"]
+        
+    task = asyncio.create_task(_animate_loading_message(msg, phrase, frames, interval))
+    _active_animations.add(task)
+    task.add_done_callback(_active_animations.discard)
+    return task
