@@ -19,12 +19,6 @@ jobs:
 
             - name: Setup Python environment
               run: |
-                  export DEBIAN_FRONTEND=noninteractive
-                  sudo apt update && sudo apt install -y software-properties-common
-                  sudo add-apt-repository ppa:deadsnakes/ppa -y || true
-                  sudo apt update || true
-                  sudo apt install -y python3.10 python3.10-pip python3.10-venv python3.10-dev
-                  
                   VENV_DIR="/opt/dev-Alya-Bot-Telegram/venv"
                   if [ -d "$VENV_DIR" ]; then
                     VER=$($VENV_DIR/bin/python --version 2>&1)
