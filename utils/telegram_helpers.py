@@ -81,14 +81,16 @@ async def _animate_loading_message(msg: Any, phrase: str, frames: list[str], int
         except asyncio.CancelledError:
             break
         except Exception as e:
-            if "Message is not modified" not in str(e):
-                logger.debug(f"Loading animation edit failed: {e}")
+            err_str = str(e).lower()
+            if "message is not modified" not in err_str:
+                logger.debug(f"Loading animation edit failed: {type(e).__name__} - {e}")
                 
             # Handle Rate Limits gracefully
-            if "RetryAfter" in str(type(e)) or "flood" in str(e).lower():
-                await asyncio.sleep(getattr(e, 'retry_after', 3))
+            if "retryafter" in type(e).__name__.lower() or "flood" in err_str or "429" in err_str:
+                sleep_time = getattr(e, 'retry_after', 5)
+                await asyncio.sleep(sleep_time)
                 
-            if "Message to edit not found" in str(e) or "Message can't be edited" in str(e):
+            if "not found" in err_str or "can't be edited" in err_str or "badrequest" in type(e).__name__.lower():
                 break
 
     # If the loop finished due to timeout (i.e. not cancelled explicitly or failed with message not found)
@@ -102,7 +104,7 @@ def start_loading_animation(
     msg: Any, 
     phrase: str, 
     frames: Optional[list[str]] = None, 
-    interval: float = 0.6,
+    interval: float = 2.0,
     timeout: float = 120.0
 ) -> asyncio.Task:
     """
@@ -113,6 +115,7 @@ def start_loading_animation(
         phrase: The base loading text.
         frames: List of emojis to cycle through.
         interval: Time in seconds between animation frames.
+        timeout: Maximum duration in seconds before the loop halts (default 120s).
         
     Returns:
         The asyncio Task running the animation.
