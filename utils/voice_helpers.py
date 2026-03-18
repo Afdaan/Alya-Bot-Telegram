@@ -55,7 +55,7 @@ async def send_voice_reply(
         # 3. Create loading/recording message
         tts_phrase = "Alya is recording a voice note" if source_lang == 'en' else "Alya lagi ngerekam voice note"
         tts_loading_msg = await update.message.reply_html(
-            f"<blockquote><b>🎙️ {tts_phrase}...</b></blockquote>"
+            f"<blockquote><b>🎙️ {tts_phrase}.</b></blockquote>"
         )
 
         # 4. Start animation
@@ -63,7 +63,7 @@ async def send_voice_reply(
             tts_loading_msg, 
             tts_phrase, 
             frames=["🎙️", "🎶", "✨"], 
-            interval=1.2
+            interval=2.5
         )
 
         try:

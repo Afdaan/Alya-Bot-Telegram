@@ -194,7 +194,7 @@ class ConversationHandler:
                 
                 # Send initial loading message
                 phrase = "Alya is thinking" if lang == "en" else "Alya lagi mikir"
-                loading_msg = await update.message.reply_text(f"<blockquote><b>💭 {phrase}...</b></blockquote>", parse_mode="HTML")
+                loading_msg = await update.message.reply_text(f"<blockquote><b>💭 {phrase}.</b></blockquote>", parse_mode="HTML")
 
                 from utils.telegram_helpers import start_loading_animation
                 loading_task = start_loading_animation(loading_msg, phrase)
