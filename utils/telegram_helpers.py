@@ -84,7 +84,7 @@ async def _animate_loading_message(msg: Any, phrase: str, frames: list[str], int
             break
         except Exception as e:
             err_str = str(e).lower()
-            if "message is not modified" not in err_str:
+            if "message is not modified" not in err_str and "not found" not in err_str:
                 logger.warning(f"Loading animation edit failed: {type(e).__name__} - {e}")
                 
             # Handle Rate Limits gracefully
