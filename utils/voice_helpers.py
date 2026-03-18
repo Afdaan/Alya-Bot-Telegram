@@ -58,6 +58,7 @@ async def send_voice_reply(
             f"<blockquote><b>🎙️ {tts_phrase}.</b></blockquote>"
         )
 
+        from utils.telegram_helpers import start_loading_animation
         # 4. Start animation
         tts_loading_task = start_loading_animation(
             tts_loading_msg, 
@@ -66,20 +67,17 @@ async def send_voice_reply(
             interval=3.5
         )
 
-        try:
-            # 5. Dispatch job to TTS microservice (fire and forget)
-            await dispatch_tts(
-                bot=context.bot,
-                chat_id=chat_id,
-                reply_to_message_id=update.message.message_id,
-                voice_processor=voice_processor,
-                response_text=tts_text,
-                voice_lang=voice_lang,
-                user_lang=source_lang,
-                loading_message_id=tts_loading_msg.message_id
-            )
-        finally:
-            pass
+        # 5. Dispatch job to TTS microservice (fire and forget)
+        await dispatch_tts(
+            bot=context.bot,
+            chat_id=chat_id,
+            reply_to_message_id=update.message.message_id,
+            voice_processor=voice_processor,
+            response_text=tts_text,
+            voice_lang=voice_lang,
+            user_lang=source_lang,
+            loading_message_id=tts_loading_msg.message_id
+        )
             
     except Exception as e:
         logger.error(f"Error in send_voice_reply: {e}", exc_info=True)

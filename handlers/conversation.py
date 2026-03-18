@@ -192,92 +192,82 @@ class ConversationHandler:
                 self.memory.save_user_message(user.id, query)
                 self.context_manager.apply_sliding_window(user.id)
                 
-                # Send initial loading message
+                # Send initial static loading message
                 phrase = "Alya is thinking" if lang == "en" else "Alya lagi mikir"
-                loading_msg = await update.message.reply_text(f"<blockquote><b>💭 {phrase}.</b></blockquote>", parse_mode="HTML")
-
-                from utils.telegram_helpers import start_loading_animation
-                loading_task = start_loading_animation(loading_msg, phrase, interval=0.7)
+                loading_msg = await update.message.reply_text(f"<blockquote><b>💭 {phrase}...</b></blockquote>", parse_mode="HTML")
                 
-                try:
-                    message_context = {}
-                    if FEATURES.get("emotion_detection", False) and self.nlp:
-                        message_context = self.nlp.get_message_context(query, user.id)
-                        logger.debug(f"Message context for user {user.id}: {message_context}")
-                    
-                    affection_delta = 0
-                    if message_context:
-                        affection_delta = self._calculate_affection_delta(user.id, message_context)
-                    
-                    # === STEP 3: Get current mood and calculate new mood ===
-                    mood_manager = MoodManager()
-                    
-                    current_mood_data = self.db.get_user_mood(user.id)
-                    user_info = self.db.get_user_relationship_info(user.id)
-                    
-                    new_mood_state = mood_manager.calculate_mood(
-                        current_mood=current_mood_data["mood"],
-                        current_intensity=current_mood_data["intensity"],
-                        affection_delta=affection_delta,
-                        emotion_context=message_context,
-                        relationship_level=user_info["relationship_level"],
-                        last_mood_change=current_mood_data["last_change"]
-                    )
-                    
-                    # === STEP 4: Apply mood modifier to affection delta ===
-                    mood_modifier = mood_manager.get_affection_modifier(
-                        new_mood_state.mood, 
-                        affection_delta
-                    )
-                    modified_affection_delta = int(affection_delta * mood_modifier)
-                    
-                    logger.info(
-                        f"[MOOD] User {user.id}: {current_mood_data['mood']} → {new_mood_state.mood} "
-                        f"(intensity: {new_mood_state.intensity}) | "
-                        f"Affection: {affection_delta} → {modified_affection_delta} (×{mood_modifier:.1f})"
-                    )
-                    
-                    # === STEP 5: Update affection with mood-modified delta ===
-                    if modified_affection_delta != 0:
-                        self.db.update_affection(user.id, modified_affection_delta)
-                    
-                    # === STEP 6: Update mood in database ===
-                    updated_history = mood_manager.add_to_mood_history(
-                        current_mood_data["history"],
-                        new_mood_state
-                    )
-                    self.db.update_user_mood(
-                        user.id,
-                        new_mood_state.mood,
-                        new_mood_state.intensity,
-                        updated_history
-                    )
-                    
-                    # === STEP 7: Increment interaction count (will recalculate level) ===
-                    self.db.increment_interaction_count(user.id)
-                    
-                    # Prepare context with LATEST relationship level and MOOD
-                    user_context = await self._prepare_conversation_context(
-                        user, query, lang, message_context, new_mood_state, mood_manager
-                    )
-                    response = await self.gemini.generate_response(
-                        user_id=user.id,
-                        username=user.first_name or "user",
-                        message=user_context["enhanced_query"],
-                        context=user_context["system_prompt"],
-                        relationship_level=user_context["relationship_level"],
-                        is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
-                        lang=lang,
-                        retry_count=3,
-                        is_media_analysis=False,
-                        media_context=None
-                    )
-                finally:
-                    loading_task.cancel()
-                    try:
-                        await loading_task
-                    except asyncio.CancelledError:
-                        pass
+                message_context = {}
+                if FEATURES.get("emotion_detection", False) and self.nlp:
+                    message_context = self.nlp.get_message_context(query, user.id)
+                    logger.debug(f"Message context for user {user.id}: {message_context}")
+                
+                affection_delta = 0
+                if message_context:
+                    affection_delta = self._calculate_affection_delta(user.id, message_context)
+                
+                # === STEP 3: Get current mood and calculate new mood ===
+                mood_manager = MoodManager()
+                
+                current_mood_data = self.db.get_user_mood(user.id)
+                user_info = self.db.get_user_relationship_info(user.id)
+                
+                new_mood_state = mood_manager.calculate_mood(
+                    current_mood=current_mood_data["mood"],
+                    current_intensity=current_mood_data["intensity"],
+                    affection_delta=affection_delta,
+                    emotion_context=message_context,
+                    relationship_level=user_info["relationship_level"],
+                    last_mood_change=current_mood_data["last_change"]
+                )
+                
+                # === STEP 4: Apply mood modifier to affection delta ===
+                mood_modifier = mood_manager.get_affection_modifier(
+                    new_mood_state.mood, 
+                    affection_delta
+                )
+                modified_affection_delta = int(affection_delta * mood_modifier)
+                
+                logger.info(
+                    f"[MOOD] User {user.id}: {current_mood_data['mood']} → {new_mood_state.mood} "
+                    f"(intensity: {new_mood_state.intensity}) | "
+                    f"Affection: {affection_delta} → {modified_affection_delta} (×{mood_modifier:.1f})"
+                )
+                
+                # === STEP 5: Update affection with mood-modified delta ===
+                if modified_affection_delta != 0:
+                    self.db.update_affection(user.id, modified_affection_delta)
+                
+                # === STEP 6: Update mood in database ===
+                updated_history = mood_manager.add_to_mood_history(
+                    current_mood_data["history"],
+                    new_mood_state
+                )
+                self.db.update_user_mood(
+                    user.id,
+                    new_mood_state.mood,
+                    new_mood_state.intensity,
+                    updated_history
+                )
+                
+                # === STEP 7: Increment interaction count (will recalculate level) ===
+                self.db.increment_interaction_count(user.id)
+                
+                # Prepare context with LATEST relationship level and MOOD
+                user_context = await self._prepare_conversation_context(
+                    user, query, lang, message_context, new_mood_state, mood_manager
+                )
+                response = await self.gemini.generate_response(
+                    user_id=user.id,
+                    username=user.first_name or "user",
+                    message=user_context["enhanced_query"],
+                    context=user_context["system_prompt"],
+                    relationship_level=user_context["relationship_level"],
+                    is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
+                    lang=lang,
+                    retry_count=3,
+                    is_media_analysis=False,
+                    media_context=None
+                )
                 
                 if response:
                     logger.info(f"[RESPONSE_RECEIVED] Got response from Gemini, length={len(response)}")
