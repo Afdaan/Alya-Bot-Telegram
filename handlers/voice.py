@@ -2,6 +2,7 @@
 Voice message handler for Alya Bot.
 Handles voice message input and generates voice responses using the Alya voice model.
 """
+import asyncio
 import logging
 import os
 import tempfile
@@ -19,10 +20,8 @@ from core.mood_manager import MoodManager
 from core.nlp import NLPEngine, ContextManager
 from database.database_manager import DatabaseManager, db_manager, get_user_lang
 from utils.voice_processor import VoiceProcessor
-from utils.language_translator import translate_response_for_voice
-from utils.tts_queue import dispatch_tts
-from utils.telegram_helpers import ChatActionSender
-from utils.formatters import format_persona_response
+from utils.voice_helpers import send_voice_reply
+from utils.telegram_helpers import ChatActionSender, start_loading_animation
 from config.settings import VOICE_ENABLED, DEFAULT_LANGUAGE, ADMIN_IDS, AFFECTION_POINTS
 
 logger = logging.getLogger(__name__)
@@ -124,7 +123,6 @@ class VoiceHandler:
                 lang_flag = {"en": "🇺🇸", "id": "🇮🇩", "jp": "🎌"}.get(detected_lang, "🌐")
                 await update.message.reply_html(f"🎤 <i>({lang_flag} {detected_lang.upper()}): {user_text}</i>")
 
-                import asyncio
                 phrase = "Alya is thinking" if db_user_dict.get('language_code', DEFAULT_LANGUAGE) == 'en' else "Alya lagi mikir"
                 loading_msg = await update.message.reply_text(f"<blockquote><b>💭 {phrase}...</b></blockquote>", parse_mode="HTML")
 
@@ -193,33 +191,14 @@ class VoiceHandler:
             except Exception:
                 await update.message.reply_html(ui_text)
 
-            voice_lang = self.db_manager.get_user_voice_language(user.id) if self.db_manager else "en"
             source_lang = db_user_dict.get('language_code', DEFAULT_LANGUAGE)
-
-            # Extract dialogue and translate to voice_lang before sending to TTS
-            tts_text = await translate_response_for_voice(response, source_lang, voice_lang)
-
-            import asyncio
-            tts_phrase = "Alya is recording a voice note" if source_lang == 'en' else "Alya lagi ngerekam voice note"
-            tts_loading_msg = await update.message.reply_text(f"<blockquote><b>🎙️ {tts_phrase}...</b></blockquote>", parse_mode="HTML")
-
-            from utils.telegram_helpers import start_loading_animation
-            tts_loading_task = start_loading_animation(
-                tts_loading_msg, 
-                tts_phrase, 
-                frames=["🎙️", "🎶", "✨"], 
-                interval=1.2
-            )
-
-            await dispatch_tts(
-                bot=context.bot,
-                chat_id=update.effective_chat.id,
-                reply_to_message_id=update.message.message_id,
+            await send_voice_reply(
+                update=update,
+                context=context,
+                text=response,
                 voice_processor=self.voice_processor,
-                response_text=tts_text,
-                voice_lang=voice_lang,
-                user_lang=source_lang,
-                loading_message_id=tts_loading_msg.message_id
+                db_manager=self.db_manager,
+                source_lang=source_lang
             )
 
             # 5. Metadata Update

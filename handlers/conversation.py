@@ -12,7 +12,7 @@ import langdetect
 
 from telegram import Update
 from telegram.constants import ChatAction
-from telegram.ext import ContextTypes, MessageHandler, filters
+from telegram.ext import CommandHandler, ContextTypes, MessageHandler, filters
 
 from config.settings import (
     COMMAND_PREFIX,
@@ -54,20 +54,21 @@ class ConversationHandler:
         self.nlp = nlp_engine or NLPEngine()
     
     def get_handlers(self) -> List:
+        """Returns the list of message handlers for conversation and internal TTS logic."""
         handlers = [
             MessageHandler(
                 filters.TEXT 
                 & filters.ChatType.PRIVATE 
                 & ~filters.COMMAND 
-                & ~filters.Regex(r"^!(?!ai)"),  # Ignore ! commands except !ai
+                & ~filters.Regex(r"^!(?!ai|tts)"),  # Ignore ! commands except !ai and !tts
                 self.chat_command
             ),
             MessageHandler(
                 (
                     filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND &
-                    ~filters.Regex(r"^!(?!ai)") &  # Ignore ! commands except !ai (same as private)
+                    ~filters.Regex(r"^!(?!ai|tts)") &  # Ignore ! commands except !ai and !tts (same as private)
                     (
-                        filters.Regex(f"^{COMMAND_PREFIX}") |
+                        filters.Regex(f"^({COMMAND_PREFIX}|!tts|/tts)") |
                         filters.REPLY
                     )
                 ),
@@ -106,19 +107,45 @@ class ConversationHandler:
         reply_context = ""
         is_reply_to_alya = False
         replied_message_is_conversation = False
+        requires_tts = False
+        
+        # 1. Parse Special Command Prefixes
+        if message_text.lower().startswith("!tts"):
+            requires_tts = True
+            message_text = message_text[4:].strip()
+        elif message_text.lower().startswith("/tts"):
+            bot_me = await context.bot.get_me() if hasattr(context.bot, "get_me") else None
+            bot_username = bot_me.username if bot_me else None
+            
+            fullname = f"/tts@{bot_username.lower()}" if bot_username else None
+            if fullname and message_text.lower().startswith(fullname):
+                message_text = message_text[len(fullname):].strip()
+            else:
+                message_text = message_text[4:].strip()
+            requires_tts = True
+
+        # 2. Extract Reply Context
         if update.message.reply_to_message:
             replied = update.message.reply_to_message
-            if replied.from_user and replied.from_user.is_bot:
-                if replied.from_user.id == context.bot.id:
-                    reply_context = replied.text or ""
-                    is_reply_to_alya = True
-                    if replied.text and replied.text.endswith("\u200C"):
-                        replied_message_is_conversation = True
+            if replied.from_user and replied.from_user.id == context.bot.id:
+                reply_context = replied.text or ""
+                is_reply_to_alya = True
+                # Check for hidden zero-width char used to distinguish AI conversation vs other system msgs
+                if replied.text and replied.text.endswith("\u200C"):
+                    replied_message_is_conversation = True
+            elif requires_tts:
+                # User used !tts to reply to a person; include their message as context
+                reply_context = f"{replied.from_user.first_name} said: {replied.text or 'Media'}"
+                is_reply_to_alya = False
 
+        # 3. Handle Group vs Private Filtering
         if update.message.chat.type in ["group", "supergroup"]:
             if is_reply_to_alya:
+                # Filter replies to Alya to ensure we only respond when it's part of a conversation
                 if update.message.reply_to_message and not replied_message_is_conversation:
                     return
+                query = message_text.strip()
+            elif requires_tts:
                 query = message_text.strip()
             else:
                 if message_text.startswith(COMMAND_PREFIX):
@@ -128,8 +155,9 @@ class ConversationHandler:
         else:
             query = message_text.strip()
 
+        # 4. Final Basic Validation
         bot_username = (await context.bot.get_me()).username if hasattr(context.bot, "get_me") else None
-        if query.startswith("/"):
+        if query.startswith("/") and not requires_tts:
             if bot_username:
                 if query.split()[0].lower().startswith(f"/") and f"@{bot_username.lower()}" in query.split()[0].lower():
                     return
@@ -245,7 +273,7 @@ class ConversationHandler:
                 
                 if response:
                     logger.info(f"[RESPONSE_RECEIVED] Got response from Gemini, length={len(response)}")
-                    await self._process_and_send_response(update, user, response, user_context["message_context"], lang, loading_msg=loading_msg)
+                    await self._process_and_send_response(update, context, user, response, user_context["message_context"], lang, loading_msg=loading_msg, requires_tts=requires_tts)
                 else:
                     logger.warning(f"[RESPONSE_RECEIVED] Response is empty or None")
                     await self._send_error_response(update, user.first_name, lang, loading_msg=loading_msg)
@@ -506,11 +534,13 @@ Respond naturally, empathetically, and reference prior conversation when relevan
     async def _process_and_send_response(
         self,
         update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
         user,
         response: str,
         message_context: Dict[str, Any],
         lang: str,
-        loading_msg: Optional[Any] = None
+        loading_msg: Optional[Any] = None,
+        requires_tts: bool = False
     ) -> None:
         """Clean, format, and send response to Telegram."""
         try:
@@ -533,8 +563,20 @@ Respond naturally, empathetically, and reference prior conversation when relevan
                 except Exception as e:
                     logger.error(f"Failed to edit message: {e}")
                     await update.message.reply_html(formatted_response)
-            else:
                 await update.message.reply_html(formatted_response)
+                
+            if requires_tts:
+                from utils.voice_helpers import send_voice_reply
+                
+                voice_processor = context.application.bot_data.get("voice_processor")
+                await send_voice_reply(
+                    update=update,
+                    context=context,
+                    text=response,
+                    voice_processor=voice_processor,
+                    db_manager=self.db,
+                    source_lang=lang
+                )
         except Exception as e:
             logger.error(f"Error processing response: {e}", exc_info=True)
             await self._send_error_response(update, user.first_name, lang, loading_msg=loading_msg)
