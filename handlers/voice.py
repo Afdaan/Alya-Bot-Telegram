@@ -20,8 +20,8 @@ from core.mood_manager import MoodManager
 from core.nlp import NLPEngine, ContextManager
 from database.database_manager import DatabaseManager, db_manager, get_user_lang
 from utils.voice_processor import VoiceProcessor
-from utils.voice_helpers import send_voice_reply
 from utils.telegram_helpers import ChatActionSender, start_loading_animation
+from utils.formatters import format_persona_response
 from config.settings import VOICE_ENABLED, DEFAULT_LANGUAGE, ADMIN_IDS, AFFECTION_POINTS
 
 logger = logging.getLogger(__name__)
@@ -191,15 +191,6 @@ class VoiceHandler:
             except Exception:
                 await update.message.reply_html(ui_text)
 
-            source_lang = db_user_dict.get('language_code', DEFAULT_LANGUAGE)
-            await send_voice_reply(
-                update=update,
-                context=context,
-                text=response,
-                voice_processor=self.voice_processor,
-                db_manager=self.db_manager,
-                source_lang=source_lang
-            )
 
             # 5. Metadata Update
             if self.memory_manager:
