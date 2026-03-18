@@ -66,10 +66,11 @@ class ChatActionSender:
 # Keep strong references to background animation tasks to prevent garbage collection
 _active_animations = set()
 
-async def _animate_loading_message(msg: Any, phrase: str, frames: list[str], interval: float):
+async def _animate_loading_message(msg: Any, phrase: str, frames: list[str], interval: float, timeout: float = 120.0):
     """Background task to animate a loading message with a text cycling sequence."""
     step = 0
-    while True:
+    max_steps = int(timeout / interval) if interval > 0 else 100
+    while step < max_steps:
         try:
             await asyncio.sleep(interval)
             step += 1
@@ -90,11 +91,19 @@ async def _animate_loading_message(msg: Any, phrase: str, frames: list[str], int
             if "Message to edit not found" in str(e) or "Message can't be edited" in str(e):
                 break
 
+    # If the loop finished due to timeout (i.e. not cancelled explicitly or failed with message not found)
+    if step >= max_steps:
+        try:
+            await msg.edit_text(f"<blockquote><b>⚠️ {phrase}... (Timeout)</b></blockquote>", parse_mode="HTML")
+        except Exception:
+            pass
+
 def start_loading_animation(
     msg: Any, 
     phrase: str, 
     frames: Optional[list[str]] = None, 
-    interval: float = 0.6
+    interval: float = 0.6,
+    timeout: float = 120.0
 ) -> asyncio.Task:
     """
     Starts a background animation to edit a loading message periodically.
@@ -111,7 +120,7 @@ def start_loading_animation(
     if frames is None:
         frames = ["💭", "💫", "✨"]
         
-    task = asyncio.create_task(_animate_loading_message(msg, phrase, frames, interval))
+    task = asyncio.create_task(_animate_loading_message(msg, phrase, frames, interval, timeout))
     _active_animations.add(task)
     task.add_done_callback(_active_animations.discard)
     return task

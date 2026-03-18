@@ -571,6 +571,7 @@ Respond naturally, empathetically, and reference prior conversation when relevan
                 except Exception as e:
                     logger.error(f"Failed to edit message: {e}")
                     await update.message.reply_html(formatted_response)
+            else:
                 await update.message.reply_html(formatted_response)
                 
             if requires_tts:
