@@ -63,7 +63,7 @@ async def send_voice_reply(
             tts_loading_msg, 
             tts_phrase, 
             frames=["🎙️", "🎶", "✨"], 
-            interval=2.5
+            interval=3.5
         )
 
         try:

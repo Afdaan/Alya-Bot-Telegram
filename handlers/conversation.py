@@ -197,7 +197,7 @@ class ConversationHandler:
                 loading_msg = await update.message.reply_text(f"<blockquote><b>💭 {phrase}.</b></blockquote>", parse_mode="HTML")
 
                 from utils.telegram_helpers import start_loading_animation
-                loading_task = start_loading_animation(loading_msg, phrase)
+                loading_task = start_loading_animation(loading_msg, phrase, interval=0.7)
                 
                 try:
                     message_context = {}
