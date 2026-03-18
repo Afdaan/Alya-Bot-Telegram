@@ -34,21 +34,23 @@ class ChatActionSender:
         self._task = None
 
     async def _send_loop(self):
-        try:
-            while not self.stop_event.is_set():
+        while not self.stop_event.is_set():
+            try:
                 await self.bot.send_chat_action(
                     chat_id=self.chat_id, 
                     action=self.action, 
                     message_thread_id=self.message_thread_id
                 )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Warning in ChatActionSender loop: {e}")
+                
+            if not self.stop_event.is_set():
                 try:
                     await asyncio.wait_for(self.stop_event.wait(), timeout=self.interval)
                 except asyncio.TimeoutError:
-                    continue
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.warning(f"Error in ChatActionSender loop: {e}")
+                    pass
 
     async def __aenter__(self):
         self._task = asyncio.create_task(self._send_loop())
@@ -83,7 +85,7 @@ async def _animate_loading_message(msg: Any, phrase: str, frames: list[str], int
         except Exception as e:
             err_str = str(e).lower()
             if "message is not modified" not in err_str:
-                logger.debug(f"Loading animation edit failed: {type(e).__name__} - {e}")
+                logger.warning(f"Loading animation edit failed: {type(e).__name__} - {e}")
                 
             # Handle Rate Limits gracefully
             if "retryafter" in type(e).__name__.lower() or "flood" in err_str or "429" in err_str:
