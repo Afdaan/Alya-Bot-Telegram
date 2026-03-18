@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Any
 import asyncio
 import re
 import os
+import tempfile
 import unicodedata
 import langdetect
 
@@ -133,9 +134,16 @@ class ConversationHandler:
                 # Check for hidden zero-width char used to distinguish AI conversation vs other system msgs
                 if replied.text and replied.text.endswith("\u200C"):
                     replied_message_is_conversation = True
-            elif requires_tts:
-                # User used !tts to reply to a person; include their message as context
-                reply_context = f"{replied.from_user.first_name} said: {replied.text or 'Media'}"
+            else:
+                if replied.voice:
+                    reply_context = await self._extract_replied_voice_context(
+                        replied_msg=replied,
+                        context=context,
+                        chat_id=update.effective_chat.id,
+                        lang=lang
+                    )
+                else:
+                    reply_context = f"{replied.from_user.first_name} said: {replied.text or 'Media'}"
                 is_reply_to_alya = False
 
         # 3. Handle Group vs Private Filtering
@@ -580,7 +588,27 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         except Exception as e:
             logger.error(f"Error processing response: {e}", exc_info=True)
             await self._send_error_response(update, user.first_name, lang, loading_msg=loading_msg)
-    
+            
+    async def _extract_replied_voice_context(self, replied_msg: Any, context: ContextTypes.DEFAULT_TYPE, chat_id: int, lang: str) -> str:
+        """Helper to download and transcribe a replied-to voice note for conversation context."""
+        voice_processor = context.application.bot_data.get("voice_processor")
+        if not voice_processor:
+            return f"{replied_msg.from_user.first_name} sent a voice note."
+
+        try:
+            await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            file = await context.bot.get_file(replied_msg.voice.file_id)
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                ogg_path = os.path.join(tmp_dir, f"reply_voice_{replied_msg.voice.file_id}.ogg")
+                await file.download_to_drive(ogg_path)
+                transcription_data = await voice_processor.transcribe_audio(ogg_path, lang=lang)
+                if transcription_data:
+                    return f"{replied_msg.from_user.first_name} said (Voice Note): {transcription_data[0]}"
+                return f"{replied_msg.from_user.first_name} sent an unrecognizable voice note."
+        except Exception as e:
+            logger.error(f"Failed to transcribe replied voice note: {e}")
+            return f"{replied_msg.from_user.first_name} sent a voice note."
+
     def _clean_and_append_russian_translation(self, response: str, lang: str = DEFAULT_LANGUAGE) -> str:
         """Extract and translate Russian expressions (both marked and unmarked)."""
         
