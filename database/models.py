@@ -22,6 +22,7 @@ class User(Base):
     first_name = Column(String(64), nullable=True)
     last_name = Column(String(64), nullable=True)
     language_code = Column(String(10), default=DEFAULT_LANGUAGE, index=True)
+    voice_language = Column(String(10), default=DEFAULT_LANGUAGE, index=True)
     
     created_at = Column(DateTime, default=datetime.now, index=True)
     last_interaction = Column(DateTime, default=datetime.now, index=True)
@@ -41,6 +42,8 @@ class User(Base):
     affection_points = Column(Integer, default=0)
     interaction_count = Column(Integer, default=0, index=True)
     topics_discussed = Column(JSON, default=lambda: [])
+    
+    voice_enabled = Column(Boolean, default=False, index=True)  # Admin-controlled whitelist
     
     # Mood System - tracks Alya's current emotional state
     current_mood = Column(String(20), default='neutral', index=True)

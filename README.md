@@ -34,8 +34,10 @@
 - **🎭 Multi-mood Responses** - Various response styles based on context
 - **🔍 Media Analysis** - Vision capabilities for images and documents
 - **🎯 Smart Web Search** - Advanced search capabilities with multiple modes
+- **🎤 Voice Messages** - Send and receive voice messages with speech recognition and high-quality TTS using RVC (requires Microservice)
 
-For a complete list of commands and features, see [COMMANDS.md](COMMANDS.md).
+For a complete list of commands and features, see [COMMANDS.md](COMMANDS.md).  
+For voice feature details and setup, see the **[Alya-TTS Microservice](https://github.com/Afdaan/Alya-TTS)**.
 
 ## 🛠️ Technology Stack
 
@@ -137,6 +139,19 @@ The bot will automatically:
 
 ### Database Configuration
 Read on [Database Configuration](DATABASE_SETUP) for detailed instructions on setting up your database.
+
+## 🎙️ Voice Support (Microservice)
+
+Alya-chan now uses a **headless microservice architecture** for voice generation (Text-to-Speech + RVC). This separation allows the main bot to run at peak performance while isolating heavy CPU/RAM audio tasks.
+
+### 🛠️ Setting up Voice
+To enable voice responses in your bot:
+1. **Main Bot**: Follow the [Basic Setup](#basic-setup) in this repository.
+2. **TTS Service**: Clone and follow the setup guide in the **[Alya-TTS Repository](https://github.com/Afdaan/Alya-TTS)**.
+3. **Connection**: Ensure `TTS_SERVICE_URL` in your `.env` points to your running TTS service.
+
+> [!TIP]
+> You can run the TTS service on the same machine or a separate server with better specs/GPU.
 
 ## 🚀 Deployment Options
 

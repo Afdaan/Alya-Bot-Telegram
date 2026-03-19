@@ -6,10 +6,14 @@ import random
 from typing import Dict, List, Optional, Any
 import asyncio
 import re
+import os
+import tempfile
+import unicodedata
+import langdetect
 
 from telegram import Update
 from telegram.constants import ChatAction
-from telegram.ext import ContextTypes, MessageHandler, filters
+from telegram.ext import CommandHandler, ContextTypes, MessageHandler, filters
 
 from config.settings import (
     COMMAND_PREFIX,
@@ -23,45 +27,49 @@ from config.settings import (
 from core.gemini_client import GeminiClient
 from core.persona import PersonaManager
 from core.memory import MemoryManager
-from database.database_manager import db_manager, get_user_lang
+from core.mood_manager import MoodManager
+from database.database_manager import DatabaseManager, db_manager, get_user_lang
 from core.nlp import NLPEngine, ContextManager
-from utils.formatters import format_response, format_error_response, format_paragraphs, format_persona_response
+from utils.formatters import format_response, format_error_response, format_paragraphs, format_persona_response, get_translate_prompt
+from utils.telegram_helpers import ChatActionSender
+from utils.russian_translator import detect_russian_expressions, RUSSIAN_TRANSLATIONS
 
 
 logger = logging.getLogger(__name__)
 
 class ConversationHandler:
     """Handler for conversation functionality with Alya."""
-    
     def __init__(
         self,
         gemini_client: GeminiClient,
-        persona_manager: PersonaManager, 
+        persona_manager: PersonaManager,
         memory_manager: MemoryManager,
-        nlp_engine: Optional[NLPEngine] = None
+        nlp_engine: Optional[NLPEngine] = None,
+        db_manager: Optional[DatabaseManager] = None
     ) -> None:
         self.gemini = gemini_client
         self.persona = persona_manager
         self.memory = memory_manager
         self.db = db_manager
-        self.context_manager = ContextManager(self.db)  # <-- DB-backed context manager
+        self.context_manager = ContextManager(self.db)
         self.nlp = nlp_engine or NLPEngine()
     
     def get_handlers(self) -> List:
+        """Returns the list of message handlers for conversation and internal TTS logic."""
         handlers = [
             MessageHandler(
                 filters.TEXT 
                 & filters.ChatType.PRIVATE 
                 & ~filters.COMMAND 
-                & ~filters.Regex(r"^!(?!ai)"),  # Ignore ! commands except !ai
+                & ~filters.Regex(r"^!(?!ai|tts)"),  # Ignore ! commands except !ai and !tts
                 self.chat_command
             ),
             MessageHandler(
                 (
                     filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND &
-                    ~filters.Regex(r"^!(?!ai)") &  # Ignore ! commands except !ai (same as private)
+                    ~filters.Regex(r"^!(?!ai|tts)") &  # Ignore ! commands except !ai and !tts (same as private)
                     (
-                        filters.Regex(f"^{COMMAND_PREFIX}") |
+                        filters.Regex(f"^({COMMAND_PREFIX}|!tts|/tts)") |
                         filters.REPLY
                     )
                 ),
@@ -81,10 +89,16 @@ class ConversationHandler:
         )
         return is_admin
     
-    async def _send_error_response(self, update: Update, username: str, lang: str) -> None:
+    async def _send_error_response(self, update: Update, username: str, lang: str, loading_msg: Optional[Any] = None) -> None:
         error_message = self.persona.get_error_message(username=username or "user", lang=lang)
         formatted_error = format_error_response(error_message)
-        await update.message.reply_html(formatted_error)
+        if loading_msg:
+            try:
+                await loading_msg.edit_text(formatted_error, parse_mode="HTML")
+            except Exception:
+                await update.message.reply_html(formatted_error)
+        else:
+            await update.message.reply_html(formatted_error)
             
     async def chat_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
@@ -94,19 +108,52 @@ class ConversationHandler:
         reply_context = ""
         is_reply_to_alya = False
         replied_message_is_conversation = False
+        requires_tts = False
+        
+        # 1. Parse Special Command Prefixes
+        if message_text.lower().startswith("!tts"):
+            requires_tts = True
+            message_text = message_text[4:].strip()
+        elif message_text.lower().startswith("/tts"):
+            bot_me = await context.bot.get_me() if hasattr(context.bot, "get_me") else None
+            bot_username = bot_me.username if bot_me else None
+            
+            fullname = f"/tts@{bot_username.lower()}" if bot_username else None
+            if fullname and message_text.lower().startswith(fullname):
+                message_text = message_text[len(fullname):].strip()
+            else:
+                message_text = message_text[4:].strip()
+            requires_tts = True
+
+        # 2. Extract Reply Context
         if update.message.reply_to_message:
             replied = update.message.reply_to_message
-            if replied.from_user and replied.from_user.is_bot:
-                if replied.from_user.id == context.bot.id:
-                    reply_context = replied.text or ""
-                    is_reply_to_alya = True
-                    if replied.text and replied.text.endswith("\u200C"):
-                        replied_message_is_conversation = True
+            if replied.from_user and replied.from_user.id == context.bot.id:
+                reply_context = replied.text or ""
+                is_reply_to_alya = True
+                # Check for hidden zero-width char used to distinguish AI conversation vs other system msgs
+                if replied.text and replied.text.endswith("\u200C"):
+                    replied_message_is_conversation = True
+            else:
+                if replied.voice:
+                    reply_context = await self._extract_replied_voice_context(
+                        replied_msg=replied,
+                        context=context,
+                        chat_id=update.effective_chat.id,
+                        lang=lang
+                    )
+                else:
+                    reply_context = f"{replied.from_user.first_name} said: {replied.text or 'Media'}"
+                is_reply_to_alya = False
 
+        # 3. Handle Group vs Private Filtering
         if update.message.chat.type in ["group", "supergroup"]:
             if is_reply_to_alya:
+                # Filter replies to Alya to ensure we only respond when it's part of a conversation
                 if update.message.reply_to_message and not replied_message_is_conversation:
                     return
+                query = message_text.strip()
+            elif requires_tts:
                 query = message_text.strip()
             else:
                 if message_text.startswith(COMMAND_PREFIX):
@@ -116,8 +163,9 @@ class ConversationHandler:
         else:
             query = message_text.strip()
 
+        # 4. Final Basic Validation
         bot_username = (await context.bot.get_me()).username if hasattr(context.bot, "get_me") else None
-        if query.startswith("/"):
+        if query.startswith("/") and not requires_tts:
             if bot_username:
                 if query.split()[0].lower().startswith(f"/") and f"@{bot_username.lower()}" in query.split()[0].lower():
                     return
@@ -126,7 +174,7 @@ class ConversationHandler:
             return
 
         if reply_context:
-            query = f"{reply_context}\n\n{query}"
+            query = f"REPLIED_CONTEXT (Ignore previous language):\n{reply_context}\n\nCURRENT_MESSAGE:\n{query}"
         if not query:
             help_message = self.persona.get_help_message(
                 username=user.first_name or "user",
@@ -138,107 +186,95 @@ class ConversationHandler:
             return
         chat = update.effective_chat
         try:
-            if hasattr(update.message, "message_thread_id") and update.message.message_thread_id:
-                await context.bot.send_chat_action(
-                    chat_id=chat.id,
-                    action=ChatAction.TYPING,
-                    message_thread_id=update.message.message_thread_id
+            async with ChatActionSender(context, chat.id, ChatAction.TYPING):
+                self._create_or_update_user(user)
+                self.db.save_message(user.id, "user", query)
+                self.memory.save_user_message(user.id, query)
+                self.context_manager.apply_sliding_window(user.id)
+                
+                # Send initial static loading message
+                phrase = "Alya is thinking" if lang == "en" else "Alya lagi mikir"
+                loading_msg = await update.message.reply_text(f"<blockquote><b>💭 {phrase}...</b></blockquote>", parse_mode="HTML")
+                
+                message_context = {}
+                if FEATURES.get("emotion_detection", False) and self.nlp:
+                    message_context = self.nlp.get_message_context(query, user.id)
+                    logger.debug(f"Message context for user {user.id}: {message_context}")
+                
+                affection_delta = 0
+                if message_context:
+                    affection_delta = self._calculate_affection_delta(user.id, message_context)
+                
+                # === STEP 3: Get current mood and calculate new mood ===
+                mood_manager = MoodManager()
+                
+                current_mood_data = self.db.get_user_mood(user.id)
+                user_info = self.db.get_user_relationship_info(user.id)
+                
+                new_mood_state = mood_manager.calculate_mood(
+                    current_mood=current_mood_data["mood"],
+                    current_intensity=current_mood_data["intensity"],
+                    affection_delta=affection_delta,
+                    emotion_context=message_context,
+                    relationship_level=user_info["relationship_level"],
+                    last_mood_change=current_mood_data["last_change"]
                 )
-            else:
-                await context.bot.send_chat_action(
-                    chat_id=chat.id,
-                    action=ChatAction.TYPING
+                
+                # === STEP 4: Apply mood modifier to affection delta ===
+                mood_modifier = mood_manager.get_affection_modifier(
+                    new_mood_state.mood, 
+                    affection_delta
                 )
-        except Exception as e:
-            logger.warning(f"Failed to send typing action: {e}")
-        try:
-            self._create_or_update_user(user)
-            self.db.save_message(user.id, "user", query)
-            self.memory.save_user_message(user.id, query)
-            self.context_manager.apply_sliding_window(user.id)
-            
-            # === STEP 1: Analyze message context FIRST (for affection calculation) ===
-            message_context = {}
-            if FEATURES.get("emotion_detection", False) and self.nlp:
-                message_context = self.nlp.get_message_context(query, user.id)
-                logger.debug(f"Message context for user {user.id}: {message_context}")
-            
-            # === STEP 2: Calculate affection delta (before applying) ===
-            affection_delta = 0
-            if message_context:
-                affection_delta = self._calculate_affection_delta(user.id, message_context)
-            
-            # === STEP 3: Get current mood and calculate new mood ===
-            from core.mood_manager import MoodManager
-            mood_manager = MoodManager()
-            
-            current_mood_data = self.db.get_user_mood(user.id)
-            user_info = self.db.get_user_relationship_info(user.id)
-            
-            new_mood_state = mood_manager.calculate_mood(
-                current_mood=current_mood_data["mood"],
-                current_intensity=current_mood_data["intensity"],
-                affection_delta=affection_delta,
-                emotion_context=message_context,
-                relationship_level=user_info["relationship_level"],
-                last_mood_change=current_mood_data["last_change"]
-            )
-            
-            # === STEP 4: Apply mood modifier to affection delta ===
-            mood_modifier = mood_manager.get_affection_modifier(
-                new_mood_state.mood, 
-                affection_delta
-            )
-            modified_affection_delta = int(affection_delta * mood_modifier)
-            
-            logger.info(
-                f"[MOOD] User {user.id}: {current_mood_data['mood']} → {new_mood_state.mood} "
-                f"(intensity: {new_mood_state.intensity}) | "
-                f"Affection: {affection_delta} → {modified_affection_delta} (×{mood_modifier:.1f})"
-            )
-            
-            # === STEP 5: Update affection with mood-modified delta ===
-            if modified_affection_delta != 0:
-                self.db.update_affection(user.id, modified_affection_delta)
-            
-            # === STEP 6: Update mood in database ===
-            updated_history = mood_manager.add_to_mood_history(
-                current_mood_data["history"],
-                new_mood_state
-            )
-            self.db.update_user_mood(
-                user.id,
-                new_mood_state.mood,
-                new_mood_state.intensity,
-                updated_history
-            )
-            
-            # === STEP 7: Increment interaction count (will recalculate level) ===
-            self.db.increment_interaction_count(user.id)
-            
-            # === STEP 8: Prepare context with LATEST relationship level and MOOD ===
-            user_context = await self._prepare_conversation_context(
-                user, query, lang, message_context, new_mood_state, mood_manager
-            )
-            history = self.context_manager.get_context_window(user.id)
-            response = await self.gemini.generate_response(
-                user_id=user.id,
-                username=user.first_name or "user",
-                message=user_context["enhanced_query"],
-                context=user_context["system_prompt"],
-                relationship_level=user_context["relationship_level"],
-                is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
-                lang=lang,
-                retry_count=3,
-                is_media_analysis=False,
-                media_context=None
-            )
-            if response:
-                logger.info(f"[RESPONSE_RECEIVED] Got response from Gemini, length={len(response)}")
-                await self._process_and_send_response(update, user, response, user_context["message_context"], lang)
-            else:
-                logger.warning(f"[RESPONSE_RECEIVED] Response is empty or None")
-                await self._send_error_response(update, user.first_name, lang)
+                modified_affection_delta = int(affection_delta * mood_modifier)
+                
+                logger.info(
+                    f"[MOOD] User {user.id}: {current_mood_data['mood']} → {new_mood_state.mood} "
+                    f"(intensity: {new_mood_state.intensity}) | "
+                    f"Affection: {affection_delta} → {modified_affection_delta} (×{mood_modifier:.1f})"
+                )
+                
+                # === STEP 5: Update affection with mood-modified delta ===
+                if modified_affection_delta != 0:
+                    self.db.update_affection(user.id, modified_affection_delta)
+                
+                # === STEP 6: Update mood in database ===
+                updated_history = mood_manager.add_to_mood_history(
+                    current_mood_data["history"],
+                    new_mood_state
+                )
+                self.db.update_user_mood(
+                    user.id,
+                    new_mood_state.mood,
+                    new_mood_state.intensity,
+                    updated_history
+                )
+                
+                # === STEP 7: Increment interaction count (will recalculate level) ===
+                self.db.increment_interaction_count(user.id)
+                
+                # Prepare context with LATEST relationship level and MOOD
+                user_context = await self._prepare_conversation_context(
+                    user, query, lang, message_context, new_mood_state, mood_manager
+                )
+                response = await self.gemini.generate_response(
+                    user_id=user.id,
+                    username=user.first_name or "user",
+                    message=user_context["enhanced_query"],
+                    context=user_context["system_prompt"],
+                    relationship_level=user_context["relationship_level"],
+                    is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
+                    lang=lang,
+                    retry_count=3,
+                    is_media_analysis=False,
+                    media_context=None
+                )
+                
+                if response:
+                    logger.info(f"[RESPONSE_RECEIVED] Got response from Gemini, length={len(response)}")
+                    await self._process_and_send_response(update, context, user, response, user_context["message_context"], lang, loading_msg=loading_msg, requires_tts=requires_tts)
+                else:
+                    logger.warning(f"[RESPONSE_RECEIVED] Response is empty or None")
+                    await self._send_error_response(update, user.first_name, lang, loading_msg=loading_msg)
         except Exception as e:
             logger.error(f"Error in chat command: {e}", exc_info=True)
             await self._send_error_response(update, user.first_name, lang)
@@ -284,7 +320,7 @@ class ConversationHandler:
         persona_prompt = self.persona.get_chat_prompt(
             username=user.first_name,
             message=query,
-            context="\n".join([str(c) for c in self.context_manager.get_context_window(user.id)]) if self.context_manager.get_context_window(user.id) else "",
+            context="\n".join([f"[{msg['role'].capitalize()}] {msg['content']}" for msg in self.context_manager.get_context_window(user.id)]) if self.context_manager.get_context_window(user.id) else "",
             relationship_level=relationship_level,
             is_admin=user.id in ADMIN_IDS or self.db.is_admin(user.id),
             lang=lang
@@ -370,8 +406,6 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         
     async def _ensure_language(self, text: str, lang: str, user) -> str:
         """Ensure text is in the user's preferred language using LLM translation if needed."""
-        from utils.formatters import get_translate_prompt
-        import langdetect
         preferred_lang = lang or DEFAULT_LANGUAGE
         try:
             detected_lang = langdetect.detect(text)
@@ -414,7 +448,6 @@ Respond naturally, empathetically, and reference prior conversation when relevan
         
         def extract_emoji(text: str) -> tuple[str, str]:
             """Extract emoji from text using Unicode character categories."""
-            import unicodedata
             
             emoji_chars = []
             clean_chars = []
@@ -499,20 +532,19 @@ Respond naturally, empathetically, and reference prior conversation when relevan
     async def _process_and_send_response(
         self,
         update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
         user,
         response: str,
         message_context: Dict[str, Any],
-        lang: str
+        lang: str,
+        loading_msg: Optional[Any] = None,
+        requires_tts: bool = False
     ) -> None:
         """Clean, format, and send response to Telegram."""
         try:
             self.db.save_message(user.id, "assistant", response)
             self.memory.save_bot_response(user.id, response)
-            if message_context:
-                # self._update_affection_from_context(user.id, message_context)
-                # Affection update handled in chat_command before response generation
-                pass
-
+            
             # Step 1: Split mixed quote-narration paragraphs
             response = self._split_mixed_quote_paragraphs(response)
             
@@ -523,17 +555,53 @@ Respond naturally, empathetically, and reference prior conversation when relevan
             formatted_response = format_persona_response(response, use_html=True)
             formatted_response = f"{formatted_response}\u200C"
 
-            await update.message.reply_html(formatted_response)
+            if loading_msg:
+                try:
+                    await loading_msg.edit_text(formatted_response, parse_mode="HTML")
+                except Exception as e:
+                    logger.error(f"Failed to edit message: {e}")
+                    await update.message.reply_html(formatted_response)
+            else:
+                await update.message.reply_html(formatted_response)
+                
+            if requires_tts:
+                from utils.voice_helpers import send_voice_reply
+                
+                voice_processor = context.application.bot_data.get("voice_processor")
+                await send_voice_reply(
+                    update=update,
+                    context=context,
+                    text=response,
+                    voice_processor=voice_processor,
+                    db_manager=self.db,
+                    source_lang=lang
+                )
         except Exception as e:
             logger.error(f"Error processing response: {e}", exc_info=True)
-            await self._send_error_response(update, user.first_name, lang)
-    
+            await self._send_error_response(update, user.first_name, lang, loading_msg=loading_msg)
+            
+    async def _extract_replied_voice_context(self, replied_msg: Any, context: ContextTypes.DEFAULT_TYPE, chat_id: int, lang: str) -> str:
+        """Helper to download and transcribe a replied-to voice note for conversation context."""
+        voice_processor = context.application.bot_data.get("voice_processor")
+        if not voice_processor:
+            return f"{replied_msg.from_user.first_name} sent a voice note."
+
+        try:
+            await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            file = await context.bot.get_file(replied_msg.voice.file_id)
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                ogg_path = os.path.join(tmp_dir, f"reply_voice_{replied_msg.voice.file_id}.ogg")
+                await file.download_to_drive(ogg_path)
+                transcription_data = await voice_processor.transcribe_audio(ogg_path, lang=lang)
+                if transcription_data:
+                    return f"{replied_msg.from_user.first_name} said (Voice Note): {transcription_data[0]}"
+                return f"{replied_msg.from_user.first_name} sent an unrecognizable voice note."
+        except Exception as e:
+            logger.error(f"Failed to transcribe replied voice note: {e}")
+            return f"{replied_msg.from_user.first_name} sent a voice note."
+
     def _clean_and_append_russian_translation(self, response: str, lang: str = DEFAULT_LANGUAGE) -> str:
         """Extract and translate Russian expressions (both marked and unmarked)."""
-        from utils.russian_translator import (
-            detect_russian_expressions,
-            RUSSIAN_TRANSLATIONS
-        )
         
         clean_response = response.strip()
         translations_dict: Dict[str, str] = {}

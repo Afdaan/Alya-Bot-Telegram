@@ -9,10 +9,9 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, CallbackContext
+from telegram.ext import ContextTypes, CommandHandler
 from telegram.constants import ParseMode
 
-from utils.update_git import DeploymentManager, register_admin_handlers as register_deployment_handlers
 
 import psutil
 import platform
@@ -27,7 +26,6 @@ class AdminHandler:
     def __init__(self, db_manager=None, persona_manager=None) -> None:
         self.db = db_manager
         self.persona = persona_manager
-        self.deployment_manager = DeploymentManager()
         self.authorized_users = self._load_authorized_users()
 
     def _load_authorized_users(self) -> List[int]:
@@ -46,8 +44,10 @@ class AdminHandler:
             CommandHandler("cleanup", self.cleanup_command),
             CommandHandler("addadmin", self.add_admin_command),
             CommandHandler("removeadmin", self.remove_admin_command),
-            CommandHandler("status", self.status_command),
-            CommandHandler("spek", self.system_stats_command)
+            CommandHandler("spek", self.system_stats_command),
+            CommandHandler("voiceadd", self.voice_add_command),
+            CommandHandler("voiceremove", self.voice_remove_command),
+            CommandHandler("voicelist", self.voice_list_command)
         ]
 
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -112,13 +112,14 @@ class AdminHandler:
         if not self._is_authorized_user(user.id):
             await self._unauthorized_response(update, user.first_name)
             return
-        if not context.args or not context.args[0].isdigit():
+        new_admin_id = await self._get_target_user_id(update, context)
+        
+        if not new_admin_id:
             await update.message.reply_text(
-                self._escape_markdown("Usage: /addadmin <user_id>"),
+                self._escape_markdown("Usage: /addadmin <user_id|@username>\nOr reply to a user's message."),
                 parse_mode=ParseMode.MARKDOWN_V2
             )
             return
-        new_admin_id = int(context.args[0])
         try:
             conn = self.db._get_connection()
             try:
@@ -144,13 +145,14 @@ class AdminHandler:
         if not self._is_authorized_user(user.id):
             await self._unauthorized_response(update, user.first_name)
             return
-        if not context.args or not context.args[0].isdigit():
+        admin_id = await self._get_target_user_id(update, context)
+        
+        if not admin_id:
             await update.message.reply_text(
-                self._escape_markdown("Usage: /removeadmin <user_id>"),
+                self._escape_markdown("Usage: /removeadmin <user_id|@username>\nOr reply to a user's message."),
                 parse_mode=ParseMode.MARKDOWN_V2
             )
             return
-        admin_id = int(context.args[0])
         if admin_id == user.id:
             await update.message.reply_text(
                 self._escape_markdown("❌ *You cannot remove yourself as admin!*"),
@@ -174,8 +176,6 @@ class AdminHandler:
             logger.error(f"Error in remove_admin_command: {e}")
             await self._error_response(update, user.first_name, str(e))
 
-    async def status_command(self, update: Update, context: CallbackContext) -> None:
-        await self.deployment_manager.status_handler(update, context)
 
     async def system_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
@@ -239,6 +239,196 @@ class AdminHandler:
                 f"<b>Error in system stats command:</b> {html.escape(str(e)[:100])}",
                 parse_mode=ParseMode.HTML
             )
+    
+    async def voice_add_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Add a user to the voice feature whitelist."""
+        user = update.effective_user
+        if not self._is_authorized_user(user.id):
+            await self._unauthorized_response(update, user.first_name)
+            return
+        
+        target_user_id = await self._get_target_user_id(update, context)
+        
+        if not target_user_id:
+            await update.message.reply_text(
+                "📝 <b>Usage:</b> <code>/voiceadd &lt;user_id|@username&gt;</code>\n"
+                "Or reply to a user's message with <code>/voiceadd</code>\n\n"
+                "Example: <code>/voiceadd @nikogemini</code>",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        
+        try:
+            # Get user object (not dict)
+            target_user = self.db.get_user_object(target_user_id)
+            
+            if not target_user:
+                # User doesn't exist, create them first
+                self.db.get_or_create_user(
+                    user_id=target_user_id,
+                    username=f"User_{target_user_id}",
+                    first_name="Unknown",
+                    last_name=None
+                )
+                # Now get the User object
+                target_user = self.db.get_user_object(target_user_id)
+            
+            if target_user and target_user.voice_enabled:
+                await update.message.reply_text(
+                    f"ℹ️ User <code>{target_user_id}</code> already has voice access!",
+                    parse_mode=ParseMode.HTML
+                )
+                return
+            
+            # Enable voice access
+            success = self.db.update_user_voice_access(target_user_id, True)
+            
+            if success:
+                await update.message.reply_text(
+                    f"✅ <b>Voice Access Granted!</b>\n\n"
+                    f"User <code>{target_user_id}</code> can now use voice messages and TTS.\n\n"
+                    f"<i>Alya akan berbicara dengan mereka~ 🎤</i>",
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"✅ Admin {user.id} granted voice access to user {target_user_id}")
+            else:
+                await update.message.reply_text(
+                    f"❌ Failed to grant voice access to user <code>{target_user_id}</code>",
+                    parse_mode=ParseMode.HTML
+                )
+            
+        except Exception as e:
+            logger.error(f"Error in voice_add_command: {e}", exc_info=True)
+            await update.message.reply_text(
+                f"❌ <b>Error:</b> {html.escape(str(e)[:100])}",
+                parse_mode=ParseMode.HTML
+            )
+    
+    async def voice_remove_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Remove a user from the voice feature whitelist."""
+        user = update.effective_user
+        if not self._is_authorized_user(user.id):
+            await self._unauthorized_response(update, user.first_name)
+            return
+        
+        target_user_id = await self._get_target_user_id(update, context)
+        
+        if not target_user_id:
+            await update.message.reply_text(
+                "📝 <b>Usage:</b> <code>/voiceremove &lt;user_id|@username&gt;</code>\n"
+                "Or reply to a user's message with <code>/voiceremove</code>\n\n"
+                "Example: <code>/voiceremove @nikogemini</code>",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        
+        try:
+            # Get user object (not dict)
+            target_user = self.db.get_user_object(target_user_id)
+            
+            if not target_user:
+                await update.message.reply_text(
+                    f"❌ User <code>{target_user_id}</code> not found in database.",
+                    parse_mode=ParseMode.HTML
+                )
+                return
+            
+            if not target_user.voice_enabled:
+                await update.message.reply_text(
+                    f"ℹ️ User <code>{target_user_id}</code> doesn't have voice access.",
+                    parse_mode=ParseMode.HTML
+                )
+                return
+            
+            # Disable voice access
+            self.db.update_user_voice_access(target_user_id, False)
+            
+            await update.message.reply_text(
+                f"✅ <b>Voice Access Revoked!</b>\n\n"
+                f"User <code>{target_user_id}</code> can no longer use voice messages.\n\n"
+                f"<i>Alya tidak akan berbicara dengan mereka lagi... 😔</i>",
+                parse_mode=ParseMode.HTML
+            )
+            logger.info(f"✅ Admin {user.id} revoked voice access from user {target_user_id}")
+            
+        except Exception as e:
+            logger.error(f"Error in voice_remove_command: {e}", exc_info=True)
+            await update.message.reply_text(
+                f"❌ <b>Error:</b> {html.escape(str(e)[:100])}",
+                parse_mode=ParseMode.HTML
+            )
+    
+    async def voice_list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """List all users with voice feature access."""
+        user = update.effective_user
+        if not self._is_authorized_user(user.id):
+            await self._unauthorized_response(update, user.first_name)
+            return
+        
+        try:
+            # Get all users with voice enabled
+            voice_users = self.db.get_voice_enabled_users()
+            
+            if not voice_users:
+                await update.message.reply_text(
+                    "📝 <b>Voice Whitelist</b>\n\n"
+                    "No users have voice access yet.\n\n"
+                    "Use <code>/voiceadd &lt;user_id&gt;</code> to grant access.",
+                    parse_mode=ParseMode.HTML
+                )
+                return
+            
+            # Build user list
+            user_list = []
+            for idx, voice_user in enumerate(voice_users, 1):
+                display_name = voice_user.get_display_name()
+                user_list.append(
+                    f"{idx}. <code>{voice_user.id}</code> - {html.escape(display_name)}"
+                )
+            
+            message = (
+                f"🎤 <b>Voice Feature Whitelist</b>\n"
+                f"Total: {len(voice_users)} users\n\n"
+                + "\n".join(user_list) +
+                "\n\n<i>These users can send and receive voice messages.</i>"
+            )
+            
+            await update.message.reply_text(message, parse_mode=ParseMode.HTML)
+            
+        except Exception as e:
+            logger.error(f"Error in voice_list_command: {e}", exc_info=True)
+            await update.message.reply_text(
+                f"❌ <b>Error:</b> {html.escape(str(e)[:100])}",
+                parse_mode=ParseMode.HTML
+            )
+
+    async def _get_target_user_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        """Resolve a target user ID from reply, entities, or command arguments."""
+        # 1. Check if it's a reply
+        if update.message.reply_to_message:
+            return update.message.reply_to_message.from_user.id
+            
+        # 2. Check entities (text mentions - users without usernames)
+        if update.message.entities:
+            for entity in update.message.entities:
+                if entity.type == 'text_mention' and entity.user:
+                    return entity.user.id
+                    
+        # 3. Check arguments
+        if context.args:
+            arg = context.args[0]
+            
+            # Numeric ID
+            if arg.isdigit():
+                return int(arg)
+                
+            # Mention (@username)
+            if arg.startswith('@'):
+                target_user_id = self.db.get_user_id_by_mention(arg)
+                if target_user_id:
+                    return target_user_id
+                    
+        return None
 
     async def _unauthorized_response(self, update: Update, username: str) -> None:
         response = (
@@ -346,19 +536,3 @@ def register_admin_handlers(application, **kwargs) -> None:
         application.add_handler(handler)
     logger.info(f"Registered {len(handlers)} admin command handlers")
     logger.info(f"Authorized admin users: {len(admin_handler.authorized_users)}")
-    commands = []
-    for handler in handlers:
-        if hasattr(handler, 'commands'):
-            if isinstance(handler.commands, (list, tuple)):
-                commands.append(handler.commands[0])
-            elif isinstance(handler.commands, (str, frozenset)):
-                if isinstance(handler.commands, frozenset):
-                    commands.append(next(iter(handler.commands), "unknown"))
-                else:
-                    commands.append(handler.commands)
-    if commands:
-        logger.info(f"Available admin commands: {', '.join(commands)}")
-    else:
-        logger.info("No admin commands available")
-    register_deployment_handlers(application)
-    logger.info("Registered deployment handlers from update_git.py")

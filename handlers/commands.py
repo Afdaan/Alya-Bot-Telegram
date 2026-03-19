@@ -17,7 +17,8 @@ from handlers.response.start import get_start_response
 from handlers.response.help import get_help_response
 from handlers.response.ping import get_ping_response
 from handlers.response.stats import get_stats_response
-from handlers.response.lang import get_lang_response
+from handlers.response.lang import handle_lang_command, handle_lang_callback
+from handlers.response.voice_lang import handle_voice_lang_command, handle_voice_lang_callback
 from handlers.response.system import get_system_error_response
 from handlers.response.analyze import analyze_response
 from handlers.response.reset import get_reset_response, get_reset_confirmation_response
@@ -57,9 +58,9 @@ class CommandsHandler:
             logger.info("Registered roast handlers successfully")
 
         # Reset callback handler for buttons
-        self.application.add_handler(
-            CallbackQueryHandler(self.handle_reset_callback, pattern="^reset_")
-        )
+        self.application.add_handler(CallbackQueryHandler(self.handle_reset_callback, pattern="^reset_"))
+        self.application.add_handler(CallbackQueryHandler(handle_lang_callback, pattern="^setlang_"))
+        self.application.add_handler(CallbackQueryHandler(handle_voice_lang_callback, pattern="^setvlang_"))
 
         self.application.add_handler(
             MessageHandler(
@@ -95,7 +96,8 @@ class CommandsHandler:
         self.application.add_handler(CommandHandler("reset", reset_command))
         self.application.add_handler(CommandHandler("start", start_command))
         self.application.add_handler(CommandHandler("help", help_command))
-        self.application.add_handler(CommandHandler("lang", lang_command))
+        self.application.add_handler(CommandHandler("lang", handle_lang_command))
+        self.application.add_handler(CommandHandler("voicelang", handle_voice_lang_command))
         self.application.add_handler(CommandHandler("search", search_command))
         self.application.add_handler(CommandHandler("search_profile", search_profile_command))
         self.application.add_handler(CommandHandler("search_news", search_news_command))
@@ -377,37 +379,6 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         response = get_system_error_response(lang)
     await update.message.reply_html(response)
 
-async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /lang command to change user language preference."""
-    
-    user_id = update.effective_user.id
-    current_lang = get_user_lang(user_id)
-    
-    if not db_manager:
-        logger.error("Database manager not found for lang_command")
-        await update.message.reply_html(get_system_error_response(current_lang))
-        return
-    
-    if not context.args or len(context.args) == 0:
-        response = get_lang_response(lang=current_lang)
-        await update.message.reply_html(response)
-        return
-    
-    new_lang = context.args[0].lower().strip()
-    
-    if new_lang not in ['en', 'id']:
-        response = get_lang_response(lang=current_lang)
-        await update.message.reply_html(response)
-        return
-    
-    try:
-        db_manager.update_user_settings(user_id, {'language': new_lang})
-        logger.info(f"User {user_id} changed language from {current_lang} to {new_lang}")
-        response = get_lang_response(lang=new_lang, new_lang=new_lang)
-        await update.message.reply_html(response)
-    except Exception as e:
-        logger.error(f"Failed to update language for user {user_id}: {e}", exc_info=True)
-        await update.message.reply_html(get_system_error_response(current_lang))
 
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
