@@ -112,13 +112,14 @@ class AdminHandler:
         if not self._is_authorized_user(user.id):
             await self._unauthorized_response(update, user.first_name)
             return
-        if not context.args or not context.args[0].isdigit():
+        new_admin_id = await self._get_target_user_id(update, context)
+        
+        if not new_admin_id:
             await update.message.reply_text(
-                self._escape_markdown("Usage: /addadmin <user_id>"),
+                self._escape_markdown("Usage: /addadmin <user_id|@username>\nOr reply to a user's message."),
                 parse_mode=ParseMode.MARKDOWN_V2
             )
             return
-        new_admin_id = int(context.args[0])
         try:
             conn = self.db._get_connection()
             try:
@@ -144,13 +145,14 @@ class AdminHandler:
         if not self._is_authorized_user(user.id):
             await self._unauthorized_response(update, user.first_name)
             return
-        if not context.args or not context.args[0].isdigit():
+        admin_id = await self._get_target_user_id(update, context)
+        
+        if not admin_id:
             await update.message.reply_text(
-                self._escape_markdown("Usage: /removeadmin <user_id>"),
+                self._escape_markdown("Usage: /removeadmin <user_id|@username>\nOr reply to a user's message."),
                 parse_mode=ParseMode.MARKDOWN_V2
             )
             return
-        admin_id = int(context.args[0])
         if admin_id == user.id:
             await update.message.reply_text(
                 self._escape_markdown("❌ *You cannot remove yourself as admin!*"),
@@ -245,15 +247,16 @@ class AdminHandler:
             await self._unauthorized_response(update, user.first_name)
             return
         
-        if not context.args or not context.args[0].isdigit():
+        target_user_id = await self._get_target_user_id(update, context)
+        
+        if not target_user_id:
             await update.message.reply_text(
-                "📝 <b>Usage:</b> <code>/voiceadd &lt;user_id&gt;</code>\n\n"
-                "Example: <code>/voiceadd 123456789</code>",
+                "📝 <b>Usage:</b> <code>/voiceadd &lt;user_id|@username&gt;</code>\n"
+                "Or reply to a user's message with <code>/voiceadd</code>\n\n"
+                "Example: <code>/voiceadd @nikogemini</code>",
                 parse_mode=ParseMode.HTML
             )
             return
-        
-        target_user_id = int(context.args[0])
         
         try:
             # Get user object (not dict)
@@ -308,15 +311,16 @@ class AdminHandler:
             await self._unauthorized_response(update, user.first_name)
             return
         
-        if not context.args or not context.args[0].isdigit():
+        target_user_id = await self._get_target_user_id(update, context)
+        
+        if not target_user_id:
             await update.message.reply_text(
-                "📝 <b>Usage:</b> <code>/voiceremove &lt;user_id&gt;</code>\n\n"
-                "Example: <code>/voiceremove 123456789</code>",
+                "📝 <b>Usage:</b> <code>/voiceremove &lt;user_id|@username&gt;</code>\n"
+                "Or reply to a user's message with <code>/voiceremove</code>\n\n"
+                "Example: <code>/voiceremove @nikogemini</code>",
                 parse_mode=ParseMode.HTML
             )
             return
-        
-        target_user_id = int(context.args[0])
         
         try:
             # Get user object (not dict)
@@ -397,6 +401,34 @@ class AdminHandler:
                 f"❌ <b>Error:</b> {html.escape(str(e)[:100])}",
                 parse_mode=ParseMode.HTML
             )
+
+    async def _get_target_user_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        """Resolve a target user ID from reply, entities, or command arguments."""
+        # 1. Check if it's a reply
+        if update.message.reply_to_message:
+            return update.message.reply_to_message.from_user.id
+            
+        # 2. Check entities (text mentions - users without usernames)
+        if update.message.entities:
+            for entity in update.message.entities:
+                if entity.type == 'text_mention' and entity.user:
+                    return entity.user.id
+                    
+        # 3. Check arguments
+        if context.args:
+            arg = context.args[0]
+            
+            # Numeric ID
+            if arg.isdigit():
+                return int(arg)
+                
+            # Mention (@username)
+            if arg.startswith('@'):
+                target_user_id = self.db.get_user_id_by_mention(arg)
+                if target_user_id:
+                    return target_user_id
+                    
+        return None
 
     async def _unauthorized_response(self, update: Update, username: str) -> None:
         response = (

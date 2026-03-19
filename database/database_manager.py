@@ -961,6 +961,57 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting user object {user_id}: {e}", exc_info=True)
             return None
+
+    def get_user_by_username(self, username: str) -> Optional[User]:
+        """
+        Get User object by username from database.
+        
+        Args:
+            username: Telegram username (without @)
+            
+        Returns:
+            User object or None if not found
+        """
+        if not username:
+            return None
+            
+        # Remove @ if present
+        if username.startswith('@'):
+            username = username[1:]
+            
+        try:
+            with db_session_context() as session:
+                user = session.query(User).filter(User.username == username).first()
+                if user:
+                    session.expunge(user)
+                return user
+        except Exception as e:
+            logger.error(f"Error getting user by username {username}: {e}", exc_info=True)
+            return None
+    
+    def get_user_id_by_mention(self, mention: str) -> Optional[int]:
+        """
+        Resolve a mention (with or without @) or numeric ID to a Telegram user ID.
+        
+        Args:
+            mention: Username mention or numeric ID
+            
+        Returns:
+            int: Telegram user ID or None if not found/invalid
+        """
+        if not mention:
+            return None
+            
+        # Is it a numeric ID?
+        if mention.isdigit():
+            return int(mention)
+            
+        # Is it a username?
+        user = self.get_user_by_username(mention)
+        if user:
+            return user.id
+            
+        return None
     
     def update_user_voice_access(self, user_id: int, enabled: bool) -> bool:
         """
