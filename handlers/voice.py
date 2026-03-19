@@ -2,6 +2,7 @@
 Voice message handler for Alya Bot.
 Handles voice message input and generates voice responses using the Alya voice model.
 """
+import asyncio
 import logging
 import os
 import tempfile
@@ -19,11 +20,10 @@ from core.mood_manager import MoodManager
 from core.nlp import NLPEngine, ContextManager
 from database.database_manager import DatabaseManager, db_manager, get_user_lang
 from utils.voice_processor import VoiceProcessor
-from utils.language_translator import translate_response_for_voice
-from utils.tts_queue import dispatch_tts
-from utils.telegram_helpers import ChatActionSender
+from utils.voice_helpers import send_voice_reply
+from utils.telegram_helpers import ChatActionSender, start_loading_animation
 from utils.formatters import format_persona_response
-from config.settings import VOICE_ENABLED, DEFAULT_LANGUAGE, ADMIN_IDS, AFFECTION_POINTS
+from config.settings import VOICE_ENABLED, DEFAULT_LANGUAGE, ADMIN_IDS, AFFECTION_POINTS, COMMAND_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -92,8 +92,25 @@ class VoiceHandler:
         user = update.effective_user
         chat = update.effective_chat
         
+        # 1. Group Chat Filter Check
+        is_group_chat = chat.type in ["group", "supergroup"]
+        is_reply_to_alya = False
+        has_trigger = False
+
+        if is_group_chat:
+            if update.message.reply_to_message:
+                replied = update.message.reply_to_message
+                if replied.from_user and replied.from_user.id == context.bot.id:
+                    is_reply_to_alya = True
+            
+            caption = update.message.caption or ""
+            has_trigger = caption.lower().startswith((COMMAND_PREFIX, "!tts", "/tts"))
+            
+            if not is_reply_to_alya and not has_trigger:
+                return
+        
         try:
-            # 1. Access Check
+            # 2. Access Check
             db_user_dict = self._create_or_update_user(user)
             db_user = self.db_manager.get_user_object(user.id) if self.db_manager else None
             is_admin = user.id in ADMIN_IDS or (self.db_manager.is_admin(user.id) if self.db_manager else False)
@@ -124,7 +141,6 @@ class VoiceHandler:
                 lang_flag = {"en": "🇺🇸", "id": "🇮🇩", "jp": "🎌"}.get(detected_lang, "🌐")
                 await update.message.reply_html(f"🎤 <i>({lang_flag} {detected_lang.upper()}): {user_text}</i>")
 
-                import asyncio
                 phrase = "Alya is thinking" if db_user_dict.get('language_code', DEFAULT_LANGUAGE) == 'en' else "Alya lagi mikir"
                 loading_msg = await update.message.reply_text(f"<blockquote><b>💭 {phrase}...</b></blockquote>", parse_mode="HTML")
 
@@ -193,34 +209,17 @@ class VoiceHandler:
             except Exception:
                 await update.message.reply_html(ui_text)
 
-            voice_lang = self.db_manager.get_user_voice_language(user.id) if self.db_manager else "en"
-            source_lang = db_user_dict.get('language_code', DEFAULT_LANGUAGE)
-
-            # Extract dialogue and translate to voice_lang before sending to TTS
-            tts_text = await translate_response_for_voice(response, source_lang, voice_lang)
-
-            import asyncio
-            tts_phrase = "Alya is recording a voice note" if source_lang == 'en' else "Alya lagi ngerekam voice note"
-            tts_loading_msg = await update.message.reply_text(f"<blockquote><b>🎙️ {tts_phrase}...</b></blockquote>", parse_mode="HTML")
-
-            from utils.telegram_helpers import start_loading_animation
-            tts_loading_task = start_loading_animation(
-                tts_loading_msg, 
-                tts_phrase, 
-                frames=["🎙️", "🎶", "✨"], 
-                interval=1.2
-            )
-
-            await dispatch_tts(
-                bot=context.bot,
-                chat_id=update.effective_chat.id,
-                reply_to_message_id=update.message.message_id,
-                voice_processor=self.voice_processor,
-                response_text=tts_text,
-                voice_lang=voice_lang,
-                user_lang=source_lang,
-                loading_message_id=tts_loading_msg.message_id
-            )
+            # Only send voice reply if it's a private chat or Alya was explicitly addressed in a group
+            if not is_group_chat or is_reply_to_alya or has_trigger:
+                source_lang = db_user_dict.get('language_code', DEFAULT_LANGUAGE)
+                await send_voice_reply(
+                    update=update,
+                    context=context,
+                    text=response,
+                    voice_processor=self.voice_processor,
+                    db_manager=self.db_manager,
+                    source_lang=source_lang
+                )
 
             # 5. Metadata Update
             if self.memory_manager:

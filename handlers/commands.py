@@ -440,7 +440,6 @@ async def set_bot_commands(application, lang='en') -> None:
         BotCommand("ping", "🏓 Check bot latency"),
         BotCommand("stats", "📊 Show bot statistics"),
         BotCommand("lang", "🌐 Change language (en/id)"),
-        BotCommand("voicelang", "🎙️ Set voice language (en/id/jp)"),
         BotCommand("reset", "🔄 Reset your conversation history"),
         BotCommand("search", "🔍 Search the web"),
     ]
@@ -451,7 +450,6 @@ async def set_bot_commands(application, lang='en') -> None:
         BotCommand("ping", "🏓 Cek latensi bot"),
         BotCommand("stats", "📊 Tampilkan statistik bot"),
         BotCommand("lang", "🌐 Ganti bahasa (en/id)"),
-        BotCommand("voicelang", "🎙️ Atur bahasa suara (en/id/jp)"),
         BotCommand("reset", "🔄 Atur ulang riwayat percakapanmu"),
         BotCommand("search", "🔍 Cari di web"),
     ]

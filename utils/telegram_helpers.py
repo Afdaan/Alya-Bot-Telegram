@@ -34,21 +34,23 @@ class ChatActionSender:
         self._task = None
 
     async def _send_loop(self):
-        try:
-            while not self.stop_event.is_set():
+        while not self.stop_event.is_set():
+            try:
                 await self.bot.send_chat_action(
                     chat_id=self.chat_id, 
                     action=self.action, 
                     message_thread_id=self.message_thread_id
                 )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Warning in ChatActionSender loop: {e}")
+                
+            if not self.stop_event.is_set():
                 try:
                     await asyncio.wait_for(self.stop_event.wait(), timeout=self.interval)
                 except asyncio.TimeoutError:
-                    continue
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.warning(f"Error in ChatActionSender loop: {e}")
+                    pass
 
     async def __aenter__(self):
         self._task = asyncio.create_task(self._send_loop())
@@ -66,10 +68,11 @@ class ChatActionSender:
 # Keep strong references to background animation tasks to prevent garbage collection
 _active_animations = set()
 
-async def _animate_loading_message(msg: Any, phrase: str, frames: list[str], interval: float):
+async def _animate_loading_message(msg: Any, phrase: str, frames: list[str], interval: float, timeout: float = 120.0):
     """Background task to animate a loading message with a text cycling sequence."""
     step = 0
-    while True:
+    max_steps = int(timeout / interval) if interval > 0 else 100
+    while step < max_steps:
         try:
             await asyncio.sleep(interval)
             step += 1
@@ -80,21 +83,31 @@ async def _animate_loading_message(msg: Any, phrase: str, frames: list[str], int
         except asyncio.CancelledError:
             break
         except Exception as e:
-            if "Message is not modified" not in str(e):
-                logger.debug(f"Loading animation edit failed: {e}")
+            err_str = str(e).lower()
+            if "message is not modified" not in err_str and "not found" not in err_str:
+                logger.warning(f"Loading animation edit failed: {type(e).__name__} - {e}")
                 
             # Handle Rate Limits gracefully
-            if "RetryAfter" in str(type(e)) or "flood" in str(e).lower():
-                await asyncio.sleep(getattr(e, 'retry_after', 3))
+            if "retryafter" in type(e).__name__.lower() or "flood" in err_str or "429" in err_str:
+                sleep_time = getattr(e, 'retry_after', 5)
+                await asyncio.sleep(sleep_time)
                 
-            if "Message to edit not found" in str(e) or "Message can't be edited" in str(e):
+            if "not found" in err_str or "can't be edited" in err_str or "badrequest" in type(e).__name__.lower():
                 break
+
+    # If the loop finished due to timeout (i.e. not cancelled explicitly or failed with message not found)
+    if step >= max_steps:
+        try:
+            await msg.edit_text(f"<blockquote><b>⚠️ {phrase}... (Timeout)</b></blockquote>", parse_mode="HTML")
+        except Exception:
+            pass
 
 def start_loading_animation(
     msg: Any, 
     phrase: str, 
     frames: Optional[list[str]] = None, 
-    interval: float = 0.6
+    interval: float = 2.0,
+    timeout: float = 120.0
 ) -> asyncio.Task:
     """
     Starts a background animation to edit a loading message periodically.
@@ -104,6 +117,7 @@ def start_loading_animation(
         phrase: The base loading text.
         frames: List of emojis to cycle through.
         interval: Time in seconds between animation frames.
+        timeout: Maximum duration in seconds before the loop halts (default 120s).
         
     Returns:
         The asyncio Task running the animation.
@@ -111,7 +125,7 @@ def start_loading_animation(
     if frames is None:
         frames = ["💭", "💫", "✨"]
         
-    task = asyncio.create_task(_animate_loading_message(msg, phrase, frames, interval))
+    task = asyncio.create_task(_animate_loading_message(msg, phrase, frames, interval, timeout))
     _active_animations.add(task)
     task.add_done_callback(_active_animations.discard)
     return task
