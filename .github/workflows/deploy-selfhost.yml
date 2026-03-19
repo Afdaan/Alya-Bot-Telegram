@@ -13,12 +13,36 @@ jobs:
       - name: Checkout latest code
         uses: actions/checkout@v4
 
+      - name: Setup Python environment
+        run: |
+          VENV_DIR="/opt/prod-Alya-Bot-Telegram/venv"
+          if [ -d "$VENV_DIR" ]; then
+            VER=$($VENV_DIR/bin/python --version 2>&1)
+            if [[ "$VER" != *"3.10"* ]]; then
+              echo "Version mismatch ($VER). Rebuilding venv for Python 3.10..."
+              sudo rm -rf "$VENV_DIR"
+            fi
+          fi
+
+          if [ ! -d "$VENV_DIR" ]; then
+            python3.10 -m venv "$VENV_DIR"
+          fi
+
       - name: Prepare and update codebase
         run: |
           cd /opt/prod-Alya-Bot-Telegram
           git stash --include-untracked || true
           git checkout master
           git pull origin master
+
+      - name: Install Python dependencies
+        run: |
+          cd /opt/prod-Alya-Bot-Telegram
+          source venv/bin/activate
+          python -m pip install "pip<24.1"
+          pip uninstall -y omegaconf || true
+          pip install -r requirements.txt
+          echo "Dependencies installed successfully"
 
       - name: Restart AlyaBot via systemd
         run: |
