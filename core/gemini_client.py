@@ -192,6 +192,15 @@ class GeminiClient:
                 )
                 
                 response_obj = model.generate_content(prompt)
+                
+                # Check for empty candidates due to safety block or prohibited content
+                if not response_obj.candidates:
+                    feedback = getattr(response_obj, 'prompt_feedback', 'No feedback provided')
+                    logger.warning(f"Blocked prompt. Feedback: {feedback}")
+                    if lang == "en":
+                        return "I can't talk about that topic. Let's talk about something else! \U0001F605"
+                    return "Alya gak bisa bahas topik itu nih. Bahas yang lain aja yuk! \U0001F605"
+                    
                 response = response_obj.text
                 
                 if user_id is not None and response:
@@ -222,6 +231,11 @@ class GeminiClient:
                                     safety_settings=safety_settings,
                                 )
                                 varied_response_obj = varied_model.generate_content(varied_prompt)
+                                
+                                if not varied_response_obj.candidates:
+                                    logger.warning("Blocked prompt on varied request.")
+                                    continue
+                                    
                                 varied_response = varied_response_obj.text
                                 
                                 if not self._is_duplicate_response(varied_response, user_id):
@@ -244,14 +258,14 @@ class GeminiClient:
                     if not success:
                         logger.critical("All API keys exhausted. Unable to generate content.")
                         if lang == "en":
-                            return "Sorry, I'm having some internal issues right now. Please try again later. 😓"
-                        return "Maaf, sepertinya Alya lagi ada masalah internal. Coba lagi nanti ya. 😓"
+                            return "Sorry, I'm having some internal issues right now. Please try again later. \U0001F613"
+                        return "Maaf, sepertinya Alya lagi ada masalah internal. Coba lagi nanti ya. \U0001F613"
                 else:
                     logger.critical(f"Failed to generate content after trying all API keys: {e}")
                     if lang == "en":
-                        return "I'm so sorry, all my connections to the data center are failing. Maybe try again in a few moments? 😥"
-                    return "Aduh, maaf banget, semua koneksi Alya ke pusat data lagi gagal. Mungkin bisa coba beberapa saat lagi? 😥"
+                        return "I'm so sorry, all my connections to the data center are failing. Maybe try again in a few moments? \U0001F625"
+                    return "Aduh, maaf banget, semua koneksi Alya ke pusat data lagi gagal. Mungkin bisa coba beberapa saat lagi? \U0001F625"
         
         if lang == "en":
-            return "I tried multiple times but it still failed. Something's not right. Please try again later. 😔"
-        return "Duh, Alya coba berkali-kali tapi tetep gagal. Kayaknya ada yang gak beres. Coba lagi nanti ya. 😔"
+            return "I tried multiple times but it still failed. Something's not right. Please try again later. \U0001F614"
+        return "Duh, Alya coba berkali-kali tapi tetep gagal. Kayaknya ada yang gak beres. Coba lagi nanti ya. \U0001F614"
